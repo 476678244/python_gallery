@@ -1,9 +1,7 @@
-import yfinance as yf
-
-aapl = yf.Ticker("aapl")
-aapl
-aapl.info['forwardPE']
-aapl.earnings
-aapl.quarterly_earnings
-aapl_historical = aapl.history(start="2020-02-02", end="2020-06-07", interval="1wk")
-aapl_historical
+import efinance as ef
+# 股票代码
+stock_code = 'AMD'
+hist = ef.stock.get_quote_history(stock_code)
+close_price = hist['收盘'].iloc[-1]
+print(close_price)
+print(hist)
