@@ -1,6 +1,6 @@
 from stock.buy import Buy
 
-from stock.computer import compute_avg_cost, compute_buys_income, get_close_price
+from stock.computer import compute_avg_cost, compute_buys_income, get_latest_price
 from stock.utils import strptime
 
 b0404 = Buy('AMD', 107.96, 4, strptime("04-04-2022 22"))
@@ -16,7 +16,7 @@ compute_avg_cost(all_buys, 'all_buys AMD')
 april_avg, num, cost = compute_avg_cost(april_buys, 'april_buys AMD')
 compute_avg_cost(june_buys, 'june_buys AMD')
 
-close_price = get_close_price('AMD')
+close_price = get_latest_price('AMD')
 print('latest_price is : ')
 print(close_price)
 compute_buys_income(all_buys, close_price, 'all_buys AMD')
