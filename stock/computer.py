@@ -1,6 +1,3 @@
-import yfinance as yf
-import efinance as ef
-
 def compute_avg_cost(buys, hint=''):
     cost = 0
     num = 0
@@ -11,17 +8,6 @@ def compute_avg_cost(buys, hint=''):
     if len(hint) > 0:
         print('{} avg costs: {}'.format(hint, "%.2f" % avg_cost))
     return avg_cost, num, cost
-
-
-def get_close_price(symbol):
-    ticker = yf.Ticker(symbol)
-    today_data = ticker.history(period='1d')
-    return today_data['Close'][0]
-
-
-def get_latest_price(symbol):
-    hist = ef.stock.get_quote_history(symbol)
-    return hist['收盘'].iloc[-1]
 
 
 def compute_buys_income(buys, close_price, hint=''):
