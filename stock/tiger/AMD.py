@@ -8,10 +8,11 @@ b0404 = Buy('AMD', 107.96, 4, strptime("04-04-2022 22"))
 b0406 = Buy('AMD', 105.09, 4, strptime("04-06-2022 18"))
 b0408 = Buy('AMD', 100.50, 7, strptime("04-08-2022 22"))
 b0617 = Buy('AMD', 81.709, 4, strptime("06-17-2022 12"))
+b0630 = Buy('AMD', 78.11, 6, strptime("06-30-2022 12"))
 
-all_buys = [b0404, b0406, b0408, b0617]
+all_buys = [b0404, b0406, b0408, b0617, b0630]
 april_buys = [b0404, b0406, b0408]
-june_buys = [b0617]
+june_buys = [b0617, b0630]
 
 compute_avg_cost(all_buys, 'all_buys AMD')
 april_avg, april_num, cost = compute_avg_cost(april_buys, 'april_buys AMD')
