@@ -17,3 +17,15 @@ def compute_buys_income(buys, close_price, hint=''):
     if len(hint) > 0:
         print('{} current income: {}'.format(hint, "%.2f" % current_income))
     return current_income
+
+
+def compute_sells(sells, hint=''):
+    sell_gain = 0
+    sell_got_cash = 0
+    for sell in sells:
+        sell_gain += (sell.price - sell.cost_price) * sell.num - sell.fee
+        sell_got_cash += sell.price * sell.num - sell.fee
+    if len(hint) > 0:
+        print('{} sell_gain: {}'.format(hint, "%.2f" % sell_gain))
+        print('{} sell_got_cash: {}'.format(hint, "%.2f" % sell_got_cash))
+    return sell_gain, sell_got_cash
