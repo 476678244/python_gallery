@@ -1,6 +1,6 @@
 from stock.buy import Buy
 
-from stock.computer import compute_avg_cost, compute_buys_income, compute_sells
+from stock.computer import compute_avg_cost, compute_buys_income, compute_sells, compute_stock_value
 from stock.sell import Sell
 from stock.stockinfo import get_latest_price
 from stock.tiger.CASH import TIGER_CASH
@@ -58,3 +58,7 @@ print('total_income: {}'.format(total_income))
 
 def cash_after_amd():
     return TIGER_CASH
+
+
+def stock_value_amd():
+    return compute_stock_value(left_buys, close_price, 'AMD')

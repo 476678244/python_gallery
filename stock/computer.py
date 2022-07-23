@@ -10,6 +10,14 @@ def compute_avg_cost(buys, hint=''):
     return avg_cost, num, cost
 
 
+def compute_stock_value(left_buys, close_price, hint=''):
+    stock_value = 0
+    for left_buy in left_buys:
+        stock_value += close_price * left_buy.num
+    print('{} stock_value: {}'.format(hint, "%.2f" % stock_value))
+    return stock_value
+
+
 def compute_buys_income(buys, close_price, hint=''):
     avg_cost, num, cost = compute_avg_cost(buys)
     current_value = close_price * num
