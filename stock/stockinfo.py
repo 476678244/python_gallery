@@ -1,5 +1,6 @@
 import yfinance as yf
 import efinance as ef
+# https://efinance.readthedocs.io/en/latest/api/
 
 
 def get_close_price(symbol):
