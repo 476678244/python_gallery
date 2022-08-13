@@ -7,10 +7,11 @@ from stock.utils import strptime
 b0722 = Buy('UVXY', 12.01, 14, strptime("07-22-2022 22"))
 b0727 = Buy('UVXY', 11.35, 20, strptime("07-27-2022 22"))
 b0806 = Buy('UVXY', 9.95, 30, strptime("08-06-2022 22"))
+b0812 = Buy('UVXY', 8.9, 25, strptime("08-12-2022 22"))
 
-all_buys = [b0722, b0727, b0806]
+all_buys = [b0722, b0727, b0806, b0812]
 
-compute_avg_cost(all_buys, 'all_buys UVXY')
+avg_cost, num, cost = compute_avg_cost(all_buys, 'all_buys UVXY')
 
 close_price = get_latest_price('UVXY')
 print('UVXY latest_price is : {}'.format(close_price))
@@ -21,3 +22,7 @@ print('total_income UVXY: {}'.format(total_income))
 
 def stock_value_uvxy():
     return compute_stock_value(all_buys, close_price, 'UVXY')
+
+
+def cash_after_uvxy(realtime_cash):
+    return realtime_cash - cost
