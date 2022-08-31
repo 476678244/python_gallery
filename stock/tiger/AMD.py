@@ -1,6 +1,7 @@
 from stock.buy import Buy
 
-from stock.computer import compute_avg_cost, compute_buys_income, compute_sells, compute_stock_value
+from stock.computer import compute_avg_cost, compute_buys_income, compute_sells, compute_stock_value, \
+    target_avg_cost_need_price
 from stock.sell import Sell
 from stock.stockinfo import get_latest_price
 from stock.tiger.CASH import TIGER_CASH
@@ -37,7 +38,7 @@ july_sells = [s0721_10, s0721_6]
 july_sell_gain, july_sell_cash = compute_sells(july_sells, 'july sells AMD')
 
 TIGER_CASH += july_sell_cash
-print('TIGER_CASH: {}'.format(TIGER_CASH))
+# print('TIGER_CASH: {}'.format(TIGER_CASH))
 
 left_buy = Buy('AMD', april_avg_cost_price, 9, strptime("07-21-2022 12"))
 left_buys = [left_buy]
@@ -52,3 +53,6 @@ def cash_after_amd():
 
 def stock_value_amd():
     return compute_stock_value(left_buys, close_price, 'AMD')
+
+
+target_avg_cost_need_price(99, 2, 4, left_buys)
