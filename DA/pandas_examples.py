@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -38,3 +40,8 @@ df2 = pd.DataFrame({
     columns=["id","subject","score","height"])  # 指定列名称的顺序
 
 print(df2)
+print('dataframe head - {}'.format(df2.head()))
+results = [None]
+columns = ['max']
+ddd = pd.DataFrame(results, columns=columns)
+print(ddd.loc[0].iloc[0])
