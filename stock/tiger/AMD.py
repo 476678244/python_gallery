@@ -3,7 +3,7 @@ from stock.buy import Buy
 from stock.computer import compute_avg_cost, compute_buys_income, compute_sells, compute_stock_value, \
     target_avg_cost_need_price
 from stock.sell import Sell
-from stock.stockinfo import get_latest_price
+from stock.stockinfo import get_latest_price, get_close_price
 from stock.tiger.CASH import TIGER_CASH
 from stock.utils import strptime
 
@@ -21,7 +21,7 @@ compute_avg_cost(all_buys, 'all_buys AMD')
 april_avg_cost_price, april_num, cost = compute_avg_cost(april_buys, 'april_buys AMD')
 june_avg_cost_price, june_num, june_cost = compute_avg_cost(june_buys, 'june_buys AMD')
 
-close_price = get_latest_price('AMD')
+close_price = get_close_price('AMD')
 print('latest_price is : ')
 print(close_price)
 
@@ -41,18 +41,21 @@ TIGER_CASH += july_sell_cash
 # print('TIGER_CASH: {}'.format(TIGER_CASH))
 
 left_buy = Buy('AMD', april_avg_cost_price, 9, strptime("07-21-2022 12"))
-left_buys = [left_buy]
+buy0922 = Buy('AMD', 71.5, 3, strptime("09-22-2022 12"))
+buy1012 = Buy('AMD', 57, 3, strptime("10-12-2022 12"))
+left_buys = [left_buy, buy0922, buy1012]
 left_buy_income = compute_buys_income(left_buys, close_price, 'left_buys AMD')
 total_income = left_buy_income + july_sell_gain
 print('total_income: {}'.format(total_income))
 
 
 def cash_after_amd():
-    return TIGER_CASH
+    _, _, cost = compute_avg_cost([buy0922, buy1012], '')
+    return TIGER_CASH - cost
 
 
 def stock_value_amd():
     return compute_stock_value(left_buys, close_price, 'AMD')
 
 
-target_avg_cost_need_price(99, 2, 4, left_buys)
+# target_avg_cost_need_price(99, 2, 4, left_buys)

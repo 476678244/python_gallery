@@ -1,6 +1,7 @@
 from stock.buy import Buy
 
 from stock.computer import compute_avg_cost, compute_buys_income, compute_sells, compute_stock_value
+from stock.sell import Sell
 from stock.stockinfo import get_latest_price
 from stock.utils import strptime
 
@@ -19,10 +20,16 @@ print('UVXY latest_price is : {}'.format(close_price))
 total_income = compute_buys_income(all_buys, close_price)
 print('total_income UVXY: {}'.format(total_income))
 
+sell0923 = Sell('UVXY', 11, 86, strptime("09-23-2022 12"), avg_cost, 2.01)
+sell_gain, sell_got_cash = compute_sells([sell0923])
+
+left_buy = Buy('UVXY', avg_cost, 3, strptime("09-23-2022 22"))
+left_buys = [left_buy]
+
 
 def stock_value_uvxy():
-    return compute_stock_value(all_buys, close_price, 'UVXY')
+    return compute_stock_value(left_buys, close_price, 'UVXY')
 
 
 def cash_after_uvxy(realtime_cash):
-    return realtime_cash - cost
+    return realtime_cash - cost + sell_got_cash
