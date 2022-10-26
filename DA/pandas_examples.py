@@ -44,4 +44,6 @@ print('dataframe head - {}'.format(df2.head()))
 results = [None]
 columns = ['max']
 ddd = pd.DataFrame(results, columns=columns)
+print(ddd)
 print(ddd.loc[0].iloc[0])
+print(ddd.loc['max'].iloc[0])
