@@ -4,6 +4,7 @@ import numpy as np
 import mplfinance as mpf
 from datetime import datetime
 
+
 # ===== 组合成分 & 权重（百分比 → 小数）=====
 weights = {
     "SE": 0.098,
@@ -23,3 +24,5 @@ weights = {
     "STX": 0.025,
     "HOOD": 0.025,
 }
+
+print("sum(weights.values()): {}".format(sum(weights.values())))

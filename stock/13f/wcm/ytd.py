@@ -9,5 +9,8 @@ mpf.plot(
     ylabel="Portfolio Value (Weighted)",
     volume=False,
     figsize=(14, 7),
-    datetime_format="%Y-%m"
+    datetime_format="%Y-%m",
+    yscale="log"
 )
+
+
