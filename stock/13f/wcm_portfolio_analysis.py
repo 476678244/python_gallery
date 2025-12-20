@@ -1,12 +1,9 @@
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import mplfinance as mpf
-import matplotlib.pyplot as plt
 from datetime import datetime
 
+import portfolio_analysis as pa
+
 # =========================================================
-# 1. 股票池 & 原始 WCM 权重（Conviction）
+# 1. 股票池 & 原始 WCM 权重
 # =========================================================
 RAW_WEIGHTS = {
     "SE": 0.098,
@@ -26,172 +23,96 @@ TICKERS = list(RAW_WEIGHTS.keys())
 N = len(TICKERS)
 
 # =========================================================
-# 2. 时间区间（避免非交易日偏差）
+# 2. 权重生成器
 # =========================================================
-START = pd.Timestamp(datetime.now().year, 1, 1) - pd.offsets.BDay(5)
-END = datetime.now().strftime("%Y-%m-%d")
+def get_weights(mode="wcm"):
+    if mode == "wcm":
+        return pa.normalize_weights(RAW_WEIGHTS)
+    elif mode == "equal":
+        return pa.equal_weights(TICKERS)
+    else:
+        raise ValueError("weight mode must be 'wcm' or 'equal'")
 
 # =========================================================
 # 3. 数据下载
 # =========================================================
 def download_prices(tickers, start, end):
-    prices = yf.download(
-        tickers,
-        start=start,
-        end=end,
-        auto_adjust=True,
-        progress=False,
-    )["Close"]
+    return pa.download_close_prices(tickers, start, end)
 
-    return prices.dropna(how="any")
+def get_sp500(start, end):
+    return pa.download_index_close("^GSPC", start, end)
 
 # =========================================================
-# 4. 权重生成器
-# =========================================================
-def get_weights(mode="wcm"):
-    if mode == "wcm":
-        total = sum(RAW_WEIGHTS.values())
-        return {k: v / total for k, v in RAW_WEIGHTS.items()}
-    elif mode == "equal":
-        return {k: 1 / N for k in TICKERS}
-    else:
-        raise ValueError("weight mode must be 'wcm' or 'equal'")
-
-# =========================================================
-# 5. 构建组合净值（唯一金融上严格的做法）
+# 4. 构建组合净值（严格金融定义）
 # =========================================================
 def build_portfolio(prices, weight_mode="wcm"):
     weights = get_weights(weight_mode)
-    normalized = prices / prices.iloc[0]
-    close = sum(weights[t] * normalized[t] for t in TICKERS)
-    return pd.DataFrame({"Close": close})
+    return pa.build_portfolio_close(prices, weights)
 
 # =========================================================
-# 6. Synthetic OHLC（仅用于 K 线可视化）
+# 5. Synthetic OHLC（仅用于 K 线）
 # =========================================================
 def make_synthetic_ohlc(close_df):
-    ohlc = pd.DataFrame(index=close_df.index)
-    ohlc["Close"] = close_df["Close"]
-    ohlc["Open"] = close_df["Close"].shift(1)
-    ohlc["High"] = close_df["Close"].rolling(2).max()
-    ohlc["Low"] = close_df["Close"].rolling(2).min()
-    return ohlc.dropna()
+    return pa.make_synthetic_ohlc(close_df)
 
 # =========================================================
-# 7. S&P 500
+# 6. 当年 Trend（log scale）
 # =========================================================
-def get_sp500(start, end):
-    sp = yf.download(
-        "^GSPC",
-        start=start,
-        end=end,
-        auto_adjust=True,
-        progress=False,
-    )["Close"]
-
-    return sp.dropna()
-
-# =========================================================
-# 8. 可视化函数
-# =========================================================
-def plot_ytd_candlestick(ohlc, title):
-    mpf.plot(
-        ohlc,
-        type="candle",
-        style="charles",
-        title=title,
-        ylabel="Value (Log)",
-        volume=False,
-        figsize=(14, 7),
-        yscale="log",
-        datetime_format="%Y-%m",
-    )
-
-def plot_weekly_candlestick(ohlc, title):
-    weekly = ohlc.resample("W-FRI").agg({
-        "Open": "first",
-        "High": "max",
-        "Low": "min",
-        "Close": "last",
-    }).dropna()
-
-    mpf.plot(
-        weekly,
-        type="candle",
-        style="charles",
-        title=title,
-        ylabel="Value (Log)",
-        volume=False,
-        figsize=(14, 7),
-        yscale="log",
-        datetime_format="%Y-%m-%d",
-    )
-
-def plot_three_way_comparison(p_wcm, p_eq, sp500):
-    df = pd.concat(
-        [p_wcm["Close"], p_eq["Close"], sp500],
-        axis=1
-    ).dropna()
-
-    df.columns = ["WCM", "Equal", "SP500"]
+def plot_year_trend(df, title):
     df = df / df.iloc[0]
 
-    plt.figure(figsize=(14, 7))
-    plt.plot(df.index, df["WCM"], label="WCM-weighted")
-    plt.plot(df.index, df["Equal"], label="Equal-weight")
-    plt.plot(df.index, df["SP500"], label="S&P 500")
+    # NOTE: 保留函数签名以兼容你之前的使用方式。
+    # 如需通用 trend 画图，可在 portfolio_analysis.py 扩展相应 API。
+    raise NotImplementedError("plot_year_trend is not used in the current CLI")
 
-    plt.yscale("log")
-    plt.title("WCM vs Equal vs S&P 500 (Log, Normalized)")
-    plt.ylabel("Normalized Value")
-    plt.grid(True, which="both", linestyle="--", alpha=0.4)
-    plt.legend()
-    plt.show()
-
-def plot_rs(series_a, series_b, label_a, label_b):
-    rs = series_a / series_b
-
-    plt.figure(figsize=(14, 6))
-    plt.plot(rs.index, rs, label=f"{label_a} / {label_b}")
-    plt.yscale("log")
-    plt.title(f"Relative Strength | {label_a} vs {label_b}")
-    plt.ylabel("RS (Log)")
-    plt.grid(True, which="both", linestyle="--", alpha=0.4)
-    plt.legend()
-    plt.show()
+def plot_three_way_trend(p_wcm, p_eq, sp500, year_label):
+    return pa.plot_three_way_trend(
+        p_wcm,
+        p_eq,
+        sp500,
+        year_label,
+        label_a="WCM-weighted",
+        label_b="Equal-weight",
+        benchmark_label="S&P 500",
+    )
 
 # =========================================================
-# 9. CLI 主入口
+# 7. K 线绘图
+# =========================================================
+def plot_ytd_candlestick(ohlc, title):
+    return pa.plot_ytd_candlestick(ohlc, title)
+
+# =========================================================
+# 8. Main（开始日期 hard code 在这里）
 # =========================================================
 if __name__ == "__main__":
-    print("WCM-style Portfolio Analysis Tool (Final)")
-    print("1. WCM 权重组合（K线）")
-    print("2. 等权组合（K线）")
-    print("3. WCM vs 等权（RS）")
-    print("4. 加入 S&P 500（三方对比 + RS）")
-    print("5. 全部执行")
 
-    choice = input("请选择要执行的操作 (1-5): ")
+    # ======== 核心参数（你只需要改这里）========
+    START_DATE = "2025-01-01"
+    END_DATE = datetime.now().strftime("%Y-%m-%d")
+    YEAR_LABEL = "2025 YTD"
+    # ===========================================
 
-    prices = download_prices(TICKERS, START, END)
+    print("WCM-style Portfolio Trend Tool")
+    print("1. WCM / 等权 / SP500 当年 Trend")
+    print("2. WCM 组合 K 线")
+    print("3. 等权组合 K 线")
+    print("4. 全部执行")
+
+    choice = input("请选择要执行的操作 (1-4): ")
+
+    prices = download_prices(TICKERS, START_DATE, END_DATE)
     p_wcm = build_portfolio(prices, "wcm")
     p_eq = build_portfolio(prices, "equal")
-    sp500 = get_sp500(START, END)
+    sp500 = get_sp500(START_DATE, END_DATE)
 
-    if choice in {"1", "5"}:
+    if choice in {"1", "4"}:
+        plot_three_way_trend(p_wcm, p_eq, sp500, YEAR_LABEL)
+
+    if choice in {"2", "4"}:
         ohlc = make_synthetic_ohlc(p_wcm)
         plot_ytd_candlestick(ohlc, "WCM-weighted Portfolio | YTD")
-        plot_weekly_candlestick(ohlc, "WCM-weighted Portfolio | Weekly")
 
-    if choice in {"2", "5"}:
+    if choice in {"3", "4"}:
         ohlc = make_synthetic_ohlc(p_eq)
         plot_ytd_candlestick(ohlc, "Equal-weight Portfolio | YTD")
-        plot_weekly_candlestick(ohlc, "Equal-weight Portfolio | Weekly")
-
-    if choice in {"3", "5"}:
-        plot_rs(p_wcm["Close"], p_eq["Close"], "WCM", "Equal Weight")
-
-    if choice in {"4", "5"}:
-        plot_three_way_comparison(p_wcm, p_eq, sp500)
-        plot_rs(p_wcm["Close"], sp500, "WCM", "S&P 500")
-        plot_rs(p_eq["Close"], sp500, "Equal Weight", "S&P 500")
