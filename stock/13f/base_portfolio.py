@@ -6,6 +6,8 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 import matplotlib.pyplot as plt
+import re
+from pathlib import Path
 from matplotlib.ticker import FuncFormatter
 import mplfinance as mpf
 
@@ -179,7 +181,7 @@ class BasePortfolio:
         plt.tight_layout()
         plt.show()
 
-    def plot_three_way_trend(self, p_fund, p_eq, sp500, year_label, **kwargs):
+    def plot_three_way_trend(self, p_fund, p_eq, sp500, year_label, start_date=None, end_date=None, **kwargs):
         """
         Plot three-way comparison between fund, equal weight, and S&P 500.
         
@@ -212,6 +214,15 @@ class BasePortfolio:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:.0f}%"))
         
         plt.tight_layout()
+
+        if start_date and end_date:
+            out_dir = Path(".") / str(self.FUND_NAME)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            safe_fund = re.sub(r"[^A-Za-z0-9._-]+", "_", str(self.FUND_NAME)).strip("_") or "fund"
+            safe_start = re.sub(r"[^A-Za-z0-9._-]+", "_", str(start_date)).strip("_") or "start"
+            safe_end = re.sub(r"[^A-Za-z0-9._-]+", "_", str(end_date)).strip("_") or "end"
+            out_path = out_dir / f"{safe_fund}_{safe_start}_{safe_end}.png"
+            plt.gcf().savefig(out_path, dpi=150, bbox_inches="tight")
         plt.show()
 
     def run_analysis(self, start_date, end_date):
@@ -241,7 +252,7 @@ class BasePortfolio:
 
         # Execute selected analysis
         if choice in {"1", "4"}:
-            self.plot_three_way_trend(p_fund, p_eq, sp500, year_label)
+            self.plot_three_way_trend(p_fund, p_eq, sp500, year_label, start_date=start_date, end_date=end_date)
 
         if choice in {"2", "4"}:
             ohlc = self.make_synthetic_ohlc(p_fund)

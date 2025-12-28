@@ -2,6 +2,8 @@ import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
 import matplotlib.pyplot as plt
+import re
+from pathlib import Path
 
 """
 Reusable portfolio analytics utilities.
@@ -79,6 +81,9 @@ def plot_three_way_trend(
     label_a: str = "Portfolio A",
     label_b: str = "Portfolio B",
     benchmark_label: str = "Benchmark",
+    fund_name: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> None:
     df = pd.concat([portfolio_a["Close"], portfolio_b["Close"], benchmark_close], axis=1).dropna()
     df.columns = [label_a, label_b, benchmark_label]
@@ -94,6 +99,25 @@ def plot_three_way_trend(
     plt.ylabel("Normalized Value (Log)")
     plt.grid(True, which="both", linestyle="--", alpha=0.4)
     plt.legend()
+
+    if fund_name:
+        out_dir = Path(".") / str(fund_name)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if start_date and end_date:
+            safe_fund = re.sub(r"[^A-Za-z0-9._-]+", "_", str(fund_name)).strip("_") or "fund"
+            safe_start = re.sub(r"[^A-Za-z0-9._-]+", "_", str(start_date)).strip("_") or "start"
+            safe_end = re.sub(r"[^A-Za-z0-9._-]+", "_", str(end_date)).strip("_") or "end"
+            out_path = out_dir / f"{safe_fund}_{safe_start}_{safe_end}.png"
+        else:
+            safe_year = re.sub(r"[^A-Za-z0-9._-]+", "_", str(year_label)).strip("_") or "trend"
+            safe_a = re.sub(r"[^A-Za-z0-9._-]+", "_", str(label_a)).strip("_") or "a"
+            safe_b = re.sub(r"[^A-Za-z0-9._-]+", "_", str(label_b)).strip("_") or "b"
+            safe_bm = re.sub(r"[^A-Za-z0-9._-]+", "_", str(benchmark_label)).strip("_") or "benchmark"
+            out_path = out_dir / f"{safe_year}__{safe_a}__{safe_b}__{safe_bm}.png"
+
+        plt.tight_layout()
+        plt.gcf().savefig(out_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 

@@ -71,7 +71,7 @@ def plot_year_trend(df, title):
     # 如需通用 trend 画图，可在 portfolio_analysis.py 扩展相应 API。
     raise NotImplementedError("plot_year_trend is not used in the current CLI")
 
-def plot_three_way_trend(p_wcm, p_eq, sp500, year_label):
+def plot_three_way_trend(p_wcm, p_eq, sp500, year_label, start_date=None, end_date=None):
     return pa.plot_three_way_trend(
         p_wcm,
         p_eq,
@@ -80,6 +80,9 @@ def plot_three_way_trend(p_wcm, p_eq, sp500, year_label):
         label_a="COATUE-weighted",
         label_b="Equal-weight",
         benchmark_label="S&P 500",
+        fund_name="COATUE",
+        start_date=start_date,
+        end_date=end_date,
     )
 
 # =========================================================
@@ -113,7 +116,7 @@ if __name__ == "__main__":
     sp500 = get_sp500(START_DATE, END_DATE)
 
     if choice in {"1", "4"}:
-        plot_three_way_trend(p_wcm, p_eq, sp500, YEAR_LABEL)
+        plot_three_way_trend(p_wcm, p_eq, sp500, YEAR_LABEL, start_date=START_DATE, end_date=END_DATE)
 
     if choice in {"2", "4"}:
         ohlc = make_synthetic_ohlc(p_wcm)
