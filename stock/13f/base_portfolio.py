@@ -216,7 +216,7 @@ class BasePortfolio:
         plt.tight_layout()
 
         if start_date and end_date:
-            out_dir = Path(".") / str(self.FUND_NAME)
+            out_dir = Path(".") / "three_lines"
             out_dir.mkdir(parents=True, exist_ok=True)
             safe_fund = re.sub(r"[^A-Za-z0-9._-]+", "_", str(self.FUND_NAME)).strip("_") or "fund"
             safe_start = re.sub(r"[^A-Za-z0-9._-]+", "_", str(start_date)).strip("_") or "start"

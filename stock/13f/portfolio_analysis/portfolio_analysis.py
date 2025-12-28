@@ -101,7 +101,7 @@ def plot_three_way_trend(
     plt.legend()
 
     if fund_name:
-        out_dir = Path(".") / str(fund_name)
+        out_dir = Path(".") / "three_lines"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         if start_date and end_date:
