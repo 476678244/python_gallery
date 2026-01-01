@@ -36,7 +36,7 @@ def download_close_prices(tickers: list[str], start: str, end: str) -> pd.DataFr
     if isinstance(prices, pd.Series):
         prices = prices.to_frame()
 
-    return prices.dropna(how="any")
+    return prices
 
 
 def download_index_close(symbol: str, start: str, end: str) -> pd.Series:
@@ -59,8 +59,9 @@ def build_portfolio_close(prices: pd.DataFrame, weights: dict[str, float]) -> pd
     if missing:
         raise ValueError(f"prices missing columns for tickers: {missing}")
 
-    normalized = prices[tickers] / prices[tickers].iloc[0]
-    close = sum(weights[t] * normalized[t] for t in tickers)
+    returns = prices[tickers].pct_change().fillna(0)
+    portfolio_returns = sum(weights[t] * returns[t] for t in tickers)
+    close = (1 + portfolio_returns).cumprod()
     return pd.DataFrame({"Close": close})
 
 

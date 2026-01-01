@@ -103,7 +103,8 @@ class BasePortfolio:
 
     def build_portfolio_close(self, prices, weights):
         """Build portfolio returns from prices and weights."""
-        returns = prices.pct_change().dropna()
+        returns = prices.pct_change()
+        returns = returns.fillna(0)
         weighted_returns = returns.mul(weights, axis=1)
         return weighted_returns.sum(axis=1).add(1).cumprod()
 
