@@ -17,20 +17,37 @@ A collection of Python utilities and examples for stock analysis and music file 
   - `base_portfolio.py`: Core portfolio analysis functionality
   - `wcm_portfolio.py`: WCM Investment Management portfolio implementation
   - `coatue_portfolio.py`: Coatue Management portfolio implementation
+  - `viking_portfolio.py`: Viking portfolio implementation
+  - `three_lines/`: Generated trend charts (PNG)
 - `stock/tiger/`: Trading strategies and position management
   - Individual stock analysis (AMD, NVDA, UVXY, etc.)
   - Real-time cash and position tracking
 
 ### Example Usage
 
-```python
-# Analyze WCM portfolio performance
-from stock.wcm_portfolio import WCMPortfolio
+Run a portfolio analysis from CLI:
 
-portfolio = WCMPortfolio()
-performance = portfolio.analyze_performance()
-portfolio.plot_performance()
+```bash
+python stock/13f/wcm_portfolio.py 2025-01-01 2025-12-31
+python stock/13f/coatue_portfolio.py 2025-01-01 2025-12-31
+python stock/13f/viking_portfolio.py 2025-01-01 2025-12-31
 ```
+
+Trend charts will be saved to:
+
+```text
+stock/13f/three_lines/${FUND_NAME}_${start_date}_${end_date}.png
+```
+
+Notes:
+
+- **Default cash behavior**: `BasePortfolio.NORMALIZE_WEIGHTS = False` by default. If your `RAW_WEIGHTS` sum to `< 1.0`, the remaining `1 - sum(weights)` is treated as cash.
+- **Aggressive mode**: set `NORMALIZE_WEIGHTS = True` in a portfolio class to fully invest (normalize weights to sum to 1).
+- **IPO handling**: missing price history (e.g., IPO mid-year) is treated as cash (0 return) before the first available price.
+
+Example output (WCM):
+
+![WCM Trend Example](stock/13f/three_lines/WCM_2025-01-01_2025-12-31.png)
 
 ## 🎵 Music Management
 
