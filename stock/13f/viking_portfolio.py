@@ -13,22 +13,22 @@ class VikingPortfolio(BasePortfolio):
 
     # Viking portfolio weights
     RAW_WEIGHTS = {
-        "PNC": 4.1,
-        "JPM": 4.1,
-        "SCHW": 4.1,
-        "COF": 4.1,
-        "MSFT": 3.3,
-        "DIS": 3.1,
-        "TSM": 2.9,
-        "BBIO": 2.7,
-        "MCD": 2.7,
-        "FTV": 2.6,
-        "APD": 2.6,
-        "SHW": 2.6,
-        "V": 2.6,
-        "GM": 2.1,
-        "CVNA": 2.1,
-        "TMUS": 2.0,
+        "PNC": 0.041,
+        "JPM": 0.041,
+        "SCHW": 0.041,
+        "COF": 0.041,
+        "MSFT": 0.033,
+        "DIS": 0.031,
+        "TSM": 0.029,
+        "BBIO": 0.027,
+        "MCD": 0.027,
+        "FTV": 0.026,
+        "APD": 0.026,
+        "SHW": 0.026,
+        "V": 0.026,
+        "GM": 0.021,
+        "CVNA": 0.021,
+        "TMUS": 0.020,
     }
 
 

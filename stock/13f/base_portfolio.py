@@ -17,6 +17,7 @@ class BasePortfolio:
     """
     FUND_NAME = None  # To be overridden by subclasses
     RAW_WEIGHTS = {}  # To be overridden by subclasses
+    NORMALIZE_WEIGHTS = False
 
     def __init__(self):
         if self.FUND_NAME is None or not self.RAW_WEIGHTS:
@@ -36,22 +37,52 @@ class BasePortfolio:
             dict: Dictionary of ticker to weight mappings
         """
         mode = mode or self.FUND_NAME.lower()
+        weights = self._coerce_weights(self.RAW_WEIGHTS)
+        total = float(sum(weights.values()))
         if mode == self.FUND_NAME.lower():
-            return self.normalize_weights(self.RAW_WEIGHTS)
+            if self.NORMALIZE_WEIGHTS:
+                return self.normalize_weights(weights)
+            if total > 1.0 + 1e-9:
+                raise ValueError(
+                    f"weights sum to {total:.6f} (> 1.0) with NORMALIZE_WEIGHTS=False; "
+                    "reduce RAW_WEIGHTS or set NORMALIZE_WEIGHTS=True"
+                )
+            return weights
         elif mode == "equal":
             return self.equal_weights()
         else:
             raise ValueError(f"weight mode must be '{self.FUND_NAME.lower()}' or 'equal'")
 
     @staticmethod
+    def _coerce_weights(weights: dict[str, float]) -> dict[str, float]:
+        total = float(sum(weights.values()))
+        if total <= 0:
+            raise ValueError("weights must sum to a positive number")
+        if total > 1.0 + 1e-9:
+            raise ValueError(
+                f"weights sum to {total:.6f} (> 1.0). Provide fractional weights (e.g., 4.1% as 0.041) "
+                "or set NORMALIZE_WEIGHTS=True with fractional weights"
+            )
+        return {k: float(v) for k, v in weights.items()}
+
+    @staticmethod
     def normalize_weights(weights):
         """Normalize weights to sum to 1."""
-        total = sum(weights.values())
-        return {k: v / total for k, v in weights.items()}
+        total = float(sum(weights.values()))
+        if total <= 0:
+            raise ValueError("weights must sum to a positive number")
+        return {k: float(v) / total for k, v in weights.items()}
 
     def equal_weights(self):
         """Generate equal weights for all tickers."""
-        return {ticker: 1.0 / self.n for ticker in self.tickers}
+        if self.NORMALIZE_WEIGHTS:
+            return {ticker: 1.0 / self.n for ticker in self.tickers}
+
+        total_stock_weight = float(sum(self._coerce_weights(self.RAW_WEIGHTS).values()))
+        if total_stock_weight <= 0:
+            raise ValueError("weights must sum to a positive number")
+        w = total_stock_weight / self.n
+        return {ticker: w for ticker in self.tickers}
 
     def download_close_prices(self, tickers, start, end):
         """Download adjusted close prices for the given tickers."""
