@@ -37,7 +37,8 @@ if __name__ == "__main__":
     # Get date range from command line or use defaults
     start_date = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_START_DATE
     end_date = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_END_DATE
+    mode = sys.argv[3] if len(sys.argv) > 3 else None
     
     # Run the analysis
     print(f"Running WCM portfolio analysis from {start_date} to {end_date}")
-    WCMPortfolio.from_command_line(start_date, end_date)
+    WCMPortfolio.from_command_line(start_date, end_date, mode)

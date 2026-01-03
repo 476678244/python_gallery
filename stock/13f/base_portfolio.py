@@ -230,10 +230,10 @@ class BasePortfolio:
         def rebase(series):
             return (series / series.iloc[0]) * 100
             
-        # Plot all series
-        plt.plot(rebase(p_fund), label=f"{self.FUND_NAME}-weighted")
-        plt.plot(rebase(p_eq), label="Equal-weight")
-        plt.plot(rebase(sp500), label="S&P 500", linestyle="--")
+        # Plot all series with specified colors
+        plt.plot(rebase(sp500), label="S&P 500", color='green', linestyle="--")
+        plt.plot(rebase(p_eq), label="Equal-weight", color='blue')
+        plt.plot(rebase(p_fund), label=f"{self.FUND_NAME}-weighted", color='orange')
         
         # Formatting
         plt.title(f"Portfolio Performance | {year_label}")
@@ -257,13 +257,14 @@ class BasePortfolio:
             plt.gcf().savefig(out_path, dpi=150, bbox_inches="tight")
         plt.show()
 
-    def run_analysis(self, start_date, end_date):
+    def run_analysis(self, start_date, end_date, mode=None):
         """
         Run the portfolio analysis with the given date range.
         
         Args:
             start_date (str): Start date in 'YYYY-MM-DD' format
             end_date (str): End date in 'YYYY-MM-DD' format
+            mode (int, optional): If 1, automatically run YTD analysis without prompt
         """
         print(f"{self.FUND_NAME} Portfolio Analysis Tool")
         print("1. Fund / Equal-weight / SP500 Trend")
@@ -271,7 +272,10 @@ class BasePortfolio:
         print("3. Equal-weight Portfolio Candlestick")
         print("4. Run All")
 
-        choice = input("Select an option (1-4): ")
+        if mode == 1:
+            choice = '1'
+        else:
+            choice = input("Select an option (1-4): ")
 
         # Download data
         print("Downloading data...")
@@ -295,18 +299,20 @@ class BasePortfolio:
             self.plot_ytd_candlestick(ohlc, "Equal-weight Portfolio | YTD")
 
     @classmethod
-    def from_command_line(cls, start_date=None, end_date=None):
+    def from_command_line(cls, start_date=None, end_date=None, mode=None):
         """
         Run the analysis from command line with optional date parameters.
         
         Args:
             start_date (str, optional): Start date in 'YYYY-MM-DD' format
             end_date (str, optional): End date in 'YYYY-MM-DD' format
+            mode (int, optional): If 1, automatically run YTD analysis without prompt
         """
+        mode = int(mode) if mode is not None else None
         if start_date is None:
             start_date = input("Enter start date (YYYY-MM-DD): ")
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
             
         portfolio = cls()
-        portfolio.run_analysis(start_date, end_date)
+        portfolio.run_analysis(start_date, end_date, mode=mode)

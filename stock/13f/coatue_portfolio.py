@@ -32,7 +32,7 @@ class CoatuePortfolio(BasePortfolio):
 if __name__ == "__main__":
     # Example usage:
     # python coatue_portfolio.py
-    # Or with custom date range: python coatue_portfolio.py 2025-01-01 2025-12-31
+    # Or with custom date range: python coatue_portfolio.py 2025-01-01 2025-12-31 1
     import sys
     
     # Default date range: 2025-01-01 to 2025-12-31
@@ -42,7 +42,8 @@ if __name__ == "__main__":
     # Get date range from command line or use defaults
     start_date = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_START_DATE
     end_date = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_END_DATE
+    mode = sys.argv[3] if len(sys.argv) > 3 else None
     
     # Run the analysis
     print(f"Running COATUE portfolio analysis from {start_date} to {end_date}")
-    CoatuePortfolio.from_command_line(start_date, end_date)
+    CoatuePortfolio.from_command_line(start_date, end_date, mode)
