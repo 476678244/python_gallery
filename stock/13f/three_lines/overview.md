@@ -1,20 +1,89 @@
-# 13F Three Lines Overview
+# 13F Portfolio Performance Overview
 
-<table>
-  <tr>
-    <td>
-      <h3>WCM</h3>
-      <img src="WCM_2025-01-01_2025-12-31.png" alt="WCM Trend Example" style="max-width: 100%;">
-    </td>
-    <td>
-      <h3>COATUE</h3>
-      <img src="COATUE_2025-01-01_2025-12-31.png" alt="COATUE Trend Example" style="max-width: 100%;">
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <h3>Viking</h3>
-      <img src="Viking_2025-01-01_2025-12-31.png" alt="Viking Trend Example" style="max-width: 100%;">
-    </td>
-  </tr>
-</table>
+## WCM
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="WCM_2025-01-01_2025-12-31.png" alt="WCM Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>SE (9.8%)</li>
+      <li>APP (7.3%)</li>
+      <li>TSM (5.7%)</li>
+      <li>SPOT (5.1%)</li>
+      <li>ASML (3.9%)</li>
+      <li>PM (3.8%)</li>
+      <li>IBN (3.4%)</li>
+      <li>LIN (3.4%)</li>
+      <li>CPNG (3.3%)</li>
+      <li>AMZN (2.9%)</li>
+    </ol>
+  </div>
+</div>
+
+## COATUE
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="COATUE_2025-01-01_2025-12-31.png" alt="COATUE Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>META (7.3%)</li>
+      <li>MSFT (5.9%)</li>
+      <li>GOOGL (5.6%)</li>
+      <li>TSM (5.5%)</li>
+      <li>GEV (5.5%)</li>
+      <li>AMZN (4.7%)</li>
+      <li>AVGO (4.7%)</li>
+      <li>CEG (4.6%)</li>
+      <li>NVDA (4.5%)</li>
+      <li>ETN (4.4%)</li>
+    </ol>
+  </div>
+</div>
+
+## Viking
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="Viking_2025-01-01_2025-12-31.png" alt="Viking Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>PNC (4.1%)</li>
+      <li>JPM (4.1%)</li>
+      <li>SCHW (4.1%)</li>
+      <li>COF (4.1%)</li>
+      <li>MSFT (3.3%)</li>
+      <li>DIS (3.1%)</li>
+      <li>TSM (2.9%)</li>
+      <li>BBIO (2.7%)</li>
+      <li>MCD (2.7%)</li>
+      <li>FTV (2.6%)</li>
+    </ol>
+  </div>
+</div>
+
+## Tiger
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="Tiger_2025-01-01_2025-12-31.png" alt="Tiger Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>MSFT (10.5%)</li>
+      <li>SE (8.9%)</li>
+      <li>GOOGL (8.0%)</li>
+      <li>AMZN (7.5%)</li>
+      <li>NVDA (6.8%)</li>
+      <li>META (6.4%)</li>
+      <li>TTWO (4.7%)</li>
+      <li>APP (4.5%)</li>
+      <li>TSM (4.0%)</li>
+      <li>RDDT (3.3%)</li>
+    </ol>
+  </div>
+</div>
