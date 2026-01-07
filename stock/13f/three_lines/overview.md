@@ -1,6 +1,11 @@
-# 13F Portfolio Performance Overview
+# 13F Portfolio Performance Overview (Q3)
+Simulation in 20250101 - 20251231
 
-## WCM
+## N1 Group
+
+---
+
+### WCM
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
   <div style="flex: 2;">
     <img src="WCM_2025-01-01_2025-12-31.png" alt="WCM Trend" style="width: 100%;">
@@ -22,10 +27,10 @@
   </div>
 </div>
 
-## COATUE
+### Newlands
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
   <div style="flex: 2;">
-    <img src="COATUE_2025-01-01_2025-12-31.png" alt="COATUE Trend" style="width: 100%;">
+    <img src="Newlands_2025-01-01_2025-12-31.png" alt="Newlands Trend" style="width: 100%;">
   </div>
   <div style="flex: 1;">
     <h3>Top 10 Holdings</h3>
@@ -44,7 +49,33 @@
   </div>
 </div>
 
-## Viking
+## Crossover Group
+
+---
+
+### COATUE
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="COATUE_2025-01-01_2025-12-31.png" alt="COATUE Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>META (12.5%)</li>
+      <li>MSFT (11.2%)</li>
+      <li>AMZN (8.7%)</li>
+      <li>GOOGL (7.9%)</li>
+      <li>NVDA (6.3%)</li>
+      <li>TSM (5.8%)</li>
+      <li>AVGO (5.2%)</li>
+      <li>ASML (4.9%)</li>
+      <li>ADBE (4.5%)</li>
+      <li>CRM (4.2%)</li>
+    </ol>
+  </div>
+</div>
+
+### Viking
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
   <div style="flex: 2;">
     <img src="Viking_2025-01-01_2025-12-31.png" alt="Viking Trend" style="width: 100%;">
@@ -66,7 +97,7 @@
   </div>
 </div>
 
-## Tiger
+### Tiger
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
   <div style="flex: 2;">
     <img src="Tiger_2025-01-01_2025-12-31.png" alt="Tiger Trend" style="width: 100%;">
