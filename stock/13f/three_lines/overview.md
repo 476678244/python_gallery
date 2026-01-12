@@ -49,6 +49,32 @@ Simulation in 20250101 - 20251231
   </div>
 </div>
 
+## N2 Group
+
+---
+
+### Fundsmith
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="Fundsmith_2025-01-01_2025-12-31.png" alt="Fundsmith Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>SYK (8.6%)</li>
+      <li>IDXX (8.4%)</li>
+      <li>GOOGL (7.7%)</li>
+      <li>MSFT (6.8%)</li>
+      <li>V (6.7%)</li>
+      <li>ADP (6.4%)</li>
+      <li>WAT (6.0%)</li>
+      <li>PM (5.9%)</li>
+      <li>META (5.8%)</li>
+      <li>MAR (5.6%)</li>
+    </ol>
+  </div>
+</div>
+
 ## Crossover Group
 
 ---
