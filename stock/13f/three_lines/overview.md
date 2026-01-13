@@ -1,6 +1,33 @@
 # 13F Portfolio Performance Overview (Q3)
 Simulation in 20250101 - 20251231
 
+## N0.5 Group
+
+---
+
+### ARK
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="ARK_2025-01-01_2025-12-31.png" alt="ARK Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <ol>
+      <li>TSLA (9.5%)</li>
+      <li>COIN (4.8%)</li>
+      <li>ROKU (4.4%)</li>
+      <li>PLTR (4.4%)</li>
+      <li>RBLX (4.4%)</li>
+      <li>HOOD (4.3%)</li>
+      <li>SHOP (4.3%)</li>
+      <li>CRSP (3.8%)</li>
+      <li>TEM (3.5%)</li>
+      <li>AMD (2.9%)</li>
+    </ol>
+  </div>
+</div>
+
+
 ## N1 Group
 
 ---
