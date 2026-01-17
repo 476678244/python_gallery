@@ -137,3 +137,23 @@ Simulation in 20250101 - 20251231
     </div>
   </div>
 </div>
+
+## 非对称 Group
+
+---
+
+### Pershing
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="Pershing_2025-01-01_2025-12-31.png" alt="Pershing Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <div style="font-size: 0.9em; line-height: 1.6;">
+      <span style="color: #e74c3c; font-weight: bold;">UBER 20.3%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">BN 19.2%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">GOOG 18.6%</span> • 
+      HHH 10.6% • QSR 10.0% • AMZN 8.7% • CMG 5.8% • HLT 5.4% • SEG 0.8% • HTZ 0.6%
+    </div>
+  </div>
+</div>
