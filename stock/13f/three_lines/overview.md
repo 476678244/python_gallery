@@ -157,3 +157,25 @@ Simulation in 20250101 - 20251231
     </div>
   </div>
 </div>
+
+## Biotech Group
+
+---
+
+### BAKER BROS. ADVISORS LP
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 1;">
+    <div style="margin-bottom: 8px;">
+      <h5>Top 10 Holdings</h5>
+      <div style="font-size: 0.8em; line-height: 1.5;">
+        <span style="color: #e74c3c; font-weight: bold;">ONC 21.7%</span> • 
+        <span style="color: #e74c3c; font-weight: bold;">INCY 18.8%</span> • 
+        <span style="color: #e74c3c; font-weight: bold;">MDGL 7.1%</span> • 
+        INSM 7.0% • ACAD 6.6% • SMMT 5.0% • RYTM 4.1% • RVMD 3.2% • CELC 2.8% • KYMR 2.7%
+      </div>
+    </div>
+    <div>
+      <img src="Pershing_2025-01-01_2025-12-31.png" alt="Baker Bros Trend" style="width: 100%;">
+    </div>
+  </div>
+</div>
