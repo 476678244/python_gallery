@@ -136,7 +136,23 @@ Simulation in 20250101 - 20251231
       <img src="Tiger_2025-01-01_2025-12-31.png" alt="Tiger Trend" style="width: 100%;">
     </div>
   </div>
+  <div style="flex: 1;">
+    <h4>LonePine</h4>
+    <div style="margin-bottom: 8px;">
+      <h5>Top 10 Holdings</h5>
+      <div style="font-size: 0.8em; line-height: 1.5;">
+        <span style="color: #e74c3c; font-weight: bold;">META 7.0%</span> • 
+        <span style="color: #e74c3c; font-weight: bold;">VST 6.7%</span> • 
+        <span style="color: #e74c3c; font-weight: bold;">TSM 6.2%</span> • 
+        APP 5.8% • LPLA 5.4% • PM 5.4% • BN 5.1% • CVNA 4.8% • MSFT 4.5% • AMZN 4.5%
+      </div>
+    </div>
+    <div>
+      <img src="LonePine_Capital_2025-01-01_2025-12-31.png" alt="LonePine Trend" style="width: 100%;">
+    </div>
+  </div>
 </div>
+
 
 ## 非对称 Group
 
