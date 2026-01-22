@@ -90,6 +90,14 @@ Simulation in 20250101 - 20251231
     <img src="Akre_2025-01-01_2025-12-31.png" alt="Akre Trend" style="width: 100%;">
   </div>
   <div style="flex: 1;">
+    <div style="margin-bottom: 15px;">
+      <img src="https://s.wsj.net/public/resources/images/IF-AD403_AKRE_M_20180130140639.jpg" alt="Chuck Akre" style="width: 70%; border-radius: 8px; display: block; margin: 0 auto;">
+    </div>
+    <div style="margin-bottom: 15px;">
+      <p style="font-style: italic; color: #555; font-size: 0.9em; text-align: center; margin: 10px 0;">
+        "Great businesses get better. Bad businesses disappear."
+      </p>
+    </div>
     <h3>Top 10 Holdings</h3>
     <div style="font-size: 0.9em; line-height: 1.6;">
       <span style="color: #e74c3c; font-weight: bold;">MA 17.9%</span> • 
