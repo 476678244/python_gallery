@@ -84,6 +84,22 @@ Simulation in 20250101 - 20251231
   </div>
 </div>
 
+### Akre
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="Akre_2025-01-01_2025-12-31.png" alt="Akre Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <div style="font-size: 0.9em; line-height: 1.6;">
+      <span style="color: #e74c3c; font-weight: bold;">MA 17.9%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">BN 13.1%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">KKR 11.3%</span> • 
+      V 10.1% • MCO 10.1% • ORLY 9.3% • CSGP 7.8% • ROP 5.8% • ABNB 4.2% • FICO 3.9%
+    </div>
+  </div>
+</div>
+
 ## Crossover Group
 
 ---
