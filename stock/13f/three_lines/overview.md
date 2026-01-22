@@ -86,12 +86,10 @@ Simulation in 20250101 - 20251231
 
 ### Akre
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
-  <div style="flex: 2;">
-    <img src="Akre_2025-01-01_2025-12-31.png" alt="Akre Trend" style="width: 100%;">
-  </div>
+  
   <div style="flex: 1;">
     <div style="margin-bottom: 15px;">
-      <img src="https://s.wsj.net/public/resources/images/IF-AD403_AKRE_M_20180130140639.jpg" alt="Chuck Akre" style="width: 70%; border-radius: 8px; display: block; margin: 0 auto;">
+      <img src="https://s.wsj.net/public/resources/images/IF-AD403_AKRE_M_20180130140639.jpg" alt="Chuck Akre" style="width: 50%; border-radius: 8px; display: block; margin: 0 auto;">
     </div>
     <div style="margin-bottom: 15px;">
       <p style="font-style: italic; color: #555; font-size: 0.9em; text-align: center; margin: 10px 0;">
@@ -105,6 +103,9 @@ Simulation in 20250101 - 20251231
       <span style="color: #e74c3c; font-weight: bold;">KKR 11.3%</span> • 
       V 10.1% • MCO 10.1% • ORLY 9.3% • CSGP 7.8% • ROP 5.8% • ABNB 4.2% • FICO 3.9%
     </div>
+  </div>
+  <div style="flex: 2;">
+    <img src="Akre_2025-01-01_2025-12-31.png" alt="Akre Trend" style="width: 100%;">
   </div>
 </div>
 
