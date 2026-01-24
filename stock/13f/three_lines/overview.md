@@ -111,10 +111,16 @@ Simulation in 20250101 - 20251231
 
 ### Madison Asset Management
 <div style="display: flex; gap: 20px; margin-bottom: 40px;">
-  <div style="flex: 2;">
-    <img src="Madison_Asset_Management_2025-01-01_2025-12-31.png" alt="Madison Asset Management Trend" style="width: 100%;">
-  </div>
+  
   <div style="flex: 1;">
+    <div style="margin-bottom: 15px;">
+      <img src="https://madisonfunds.com/wp-content/uploads/2022/09/haruki-toyama-icon.jpg" alt="Haruki Toyama" style="width: 50%; border-radius: 8px; display: block; margin: 0 auto;">
+    </div>
+    <div style="margin-bottom: 15px;">
+      <p style="font-style: italic; color: #555; font-size: 0.9em; text-align: center; margin: 10px 0;">
+        "What we're really looking for are 'A' management running 'A' businesses."
+      </p>
+    </div>
     <h3>Top 10 Holdings</h3>
     <div style="font-size: 0.9em; line-height: 1.6;">
       <span style="color: #e74c3c; font-weight: bold;">ACGL 4.7%</span> • 
@@ -122,6 +128,9 @@ Simulation in 20250101 - 20251231
       <span style="color: #e74c3c; font-weight: bold;">ROST 2.7%</span> • 
       PCAR 2.7% • CDW 2.3% • GOOG 2.3% • CPRT 2.2% • BRO 2.1% • IT 2.1% • CSL 1.9%
     </div>
+  </div>
+  <div style="flex: 2;">
+    <img src="Madison_Asset_Management_2025-01-01_2025-12-31.png" alt="Madison Asset Management Trend" style="width: 100%;">
   </div>
 </div>
 
