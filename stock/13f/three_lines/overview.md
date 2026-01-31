@@ -245,3 +245,23 @@ Simulation in 20250101 - 20251231
     </div>
   </div>
 </div>
+
+## Multistrategy Group
+
+---
+
+### ThirdPoint
+<div style="display: flex; gap: 20px; margin-bottom: 40px;">
+  <div style="flex: 2;">
+    <img src="ThirdPoint_2025-01-01_2025-12-31.png" alt="ThirdPoint Trend" style="width: 100%;">
+  </div>
+  <div style="flex: 1;">
+    <h3>Top 10 Holdings</h3>
+    <div style="font-size: 0.9em; line-height: 1.6;">
+      <span style="color: #e74c3c; font-weight: bold;">PCG 8.4%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">AMZN 6.9%</span> • 
+      <span style="color: #e74c3c; font-weight: bold;">PUT_SPY 6.5%</span> • 
+      MSFT 6.3% • NVDA 5.9% • NSC 5.5% • BN 3.6% • TSM 3.4% • COF 3.3% • FLUT 3.2%
+    </div>
+  </div>
+</div>

@@ -19,11 +19,30 @@ class BasePortfolio:
     RAW_WEIGHTS = {}  # To be overridden by subclasses
     NORMALIZE_WEIGHTS = False
 
+    PROXY_PREFIXES = ("PUT_",)
+
     def __init__(self):
         if self.FUND_NAME is None or not self.RAW_WEIGHTS:
             raise NotImplementedError("Subclasses must define FUND_NAME and RAW_WEIGHTS")
-        self.tickers = list(self.RAW_WEIGHTS.keys())
+        self._resolved_weights = self._resolve_proxy_weights(self.RAW_WEIGHTS)
+        self.tickers = list(self._resolved_weights.keys())
         self.n = len(self.tickers)
+
+    def _resolve_proxy_weights(self, weights: dict[str, float]) -> dict[str, float]:
+        """Translate proxy tickers (e.g. PUT_*) into actual tickers with inverted weights."""
+        resolved: dict[str, float] = {}
+        for ticker, value in weights.items():
+            matched_prefix = None
+            for prefix in self.PROXY_PREFIXES:
+                if ticker.startswith(prefix):
+                    matched_prefix = prefix
+                    break
+            if matched_prefix is not None:
+                underlying = ticker[len(matched_prefix):]
+                resolved[underlying] = resolved.get(underlying, 0.0) - abs(value)
+            else:
+                resolved[ticker] = resolved.get(ticker, 0.0) + value
+        return resolved
 
     def get_weights(self, mode=None):
         """
@@ -37,8 +56,8 @@ class BasePortfolio:
             dict: Dictionary of ticker to weight mappings
         """
         mode = mode or self.FUND_NAME.lower()
-        weights = self._coerce_weights(self.RAW_WEIGHTS)
-        total = float(sum(weights.values()))
+        weights = self._coerce_weights(self._resolved_weights)
+        total = float(sum(abs(v) for v in weights.values()))
         if mode == self.FUND_NAME.lower():
             if self.NORMALIZE_WEIGHTS:
                 return self.normalize_weights(weights)
@@ -55,7 +74,7 @@ class BasePortfolio:
 
     @staticmethod
     def _coerce_weights(weights: dict[str, float]) -> dict[str, float]:
-        total = float(sum(weights.values()))
+        total = float(sum(abs(v) for v in weights.values()))
         if total <= 0:
             raise ValueError("weights must sum to a positive number")
         if total > 1.0 + 1e-9:
@@ -68,7 +87,7 @@ class BasePortfolio:
     @staticmethod
     def normalize_weights(weights):
         """Normalize weights to sum to 1."""
-        total = float(sum(weights.values()))
+        total = float(sum(abs(v) for v in weights.values()))
         if total <= 0:
             raise ValueError("weights must sum to a positive number")
         return {k: float(v) / total for k, v in weights.items()}
@@ -78,7 +97,7 @@ class BasePortfolio:
         if self.NORMALIZE_WEIGHTS:
             return {ticker: 1.0 / self.n for ticker in self.tickers}
 
-        total_stock_weight = float(sum(self._coerce_weights(self.RAW_WEIGHTS).values()))
+        total_stock_weight = float(sum(abs(v) for v in self._coerce_weights(self._resolved_weights).values()))
         if total_stock_weight <= 0:
             raise ValueError("weights must sum to a positive number")
         w = total_stock_weight / self.n
