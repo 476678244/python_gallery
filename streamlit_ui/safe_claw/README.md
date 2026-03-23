@@ -1,228 +1,346 @@
 # SafeClaw 🦞
 
-> 基于 LangGraph Deep Agents + OpenClaw 思想的本地 AI 助手
+> **TRASA (The Real AI Safety Assistant)** - 安全优先的本地 AI 助手
+> 基于 LangGraph Deep Agents + 4层记忆系统 + 安全策略
 > 安全优先 · 文件优先 · 隐私可控
 
 ---
 
-## 简介
+## 🎯 项目概述
 
-SafeClaw（安全之爪）是一个**安全优先**、**文件优先**的本地 AI 助手，借鉴 OpenClaw 的设计思想，使用 **LangGraph + Streamlit** 技术栈实现。所有数据本地存储，配置可手动编辑，操作透明可审计。
+SafeClaw（安全之爪）是一个**安全优先**、**文件优先**的本地 AI 助手，采用 **LangGraph + Streamlit** 技术栈实现。具备完整的 4 层记忆系统、多 Agent 协作、安全策略和技能系统。
 
 ---
 
-## 核心特性
+## ✨ 核心特性
 
 | 特性 | 说明 |
 |------|------|
-| **本地优先** | 数据不出境，隐私完全可控 |
-| **文件优先** | 所有配置和记忆都是可编辑的 Markdown/JSON |
-| **安全导向** | 敏感操作二次确认，三级安全策略 |
-| **LangGraph 架构** | 基于 LangGraph 的 Deep Agents 状态图工作流 |
-| **多 Agent 协作** | 支持多 Agent 节点协作处理复杂任务 |
-| **智能技能系统** | 技能自动转换为 LLM 可理解的工具定义 |
-| **简单易用** | Streamlit 单页应用，无需守护进程 |
+| **🛡️ 安全优先** | 三级安全策略，敏感操作确认，完整审计日志 |
+| **🧠 4层记忆系统** | Active/Dormant/Deep/Forgotten 智能记忆管理 |
+| **🤖 多 Agent 架构** | Chat/Memory/Router/Safety Agent 协作 |
+| **🔧 技能系统** | 文件操作、代码分析、可扩展技能框架 |
+| **📊 可视化界面** | Streamlit 多页面应用，实时统计 |
+| **🔒 本地优先** | 数据不出境，配置可编辑，完全透明 |
 
 ---
 
-## 技术栈
+## 🏗️ 技术架构
 
+### 核心组件
+- **LangGraph 工作流**: 状态图驱动的多 Agent 协作
+- **4层记忆系统**: 智能记忆分层和自动管理
+- **安全检查器**: 实时安全策略和审计日志
+- **技能框架**: 可扩展的工具和技能系统
+- **LLM 网关**: 支持 OpenAI/Anthropic/Ollama
+
+### 技术栈
 - **Python 3.10+**
 - **Streamlit** - Web 界面框架
 - **LangGraph** - Deep Agents 状态图管理
 - **LangChain** - 工具调用和 LLM 抽象
 - **Pydantic** - 数据验证和配置管理
-- **ChromaDB** (可选) - 向量记忆检索
 
 ---
 
-## 安装
+## 🚀 快速开始
 
 ### 环境要求
-
 - Python 3.10+
-- macOS / Linux / Windows (WSL)
+- 8GB+ RAM 推荐
+- OpenAI/Anthropic API 密钥
 
-### 快速安装
+### 安装步骤
 
 ```bash
-# 克隆仓库
-git clone <repo-url>
+# 1. 克隆仓库
+git clone <repository-url>
 cd safe_claw
 
-# 安装依赖
-pip install -r requirements.txt
+# 2. 创建环境
+conda env create -f environment.yml
+conda activate safe_claw
 
-# 启动应用
-streamlit run app.py
+# 3. 配置 API 密钥
+cp .env.example .env
+# 编辑 .env 添加你的 API 密钥
+
+# 4. 启动应用
+streamlit run streamlit_ui/app.py
+```
+
+### 首次配置
+1. 打开设置页面配置 LLM 提供商
+2. 测试连接确保 API 密钥有效
+3. 开始在聊天页面与 SafeClaw 对话
+
+---
+
+## 📁 项目结构
+
+```
+safe_claw/
+├── streamlit_ui/                # Streamlit UI 层
+│   ├── app.py                   # 主应用入口
+│   ├── pages/                   # 多页面
+│   │   ├── 00_💬_Chat.py       # 主聊天页
+│   │   ├── 01_📚_Memory.py     # 记忆管理
+│   │   ├── 02_⚙️_Settings.py  # 设置页
+│   │   └── 03_📊_Stats.py      # 统计页
+│   ├── components/              # UI 组件
+│   └── styles/                  # CSS 样式
+│
+├── core/                        # 核心业务层
+│   ├── agents/                  # LangGraph Agents
+│   ├── graph/                   # 工作流定义
+│   ├── memory/                  # 4层记忆系统
+│   ├── skills/                  # 技能系统
+│   └── safety/                  # 安全策略
+│
+├── services/                    # 服务层
+├── models/                      # 数据模型
+├── utils/                       # 工具函数
+├── workspace/                   # 用户数据
+└── docs/                        # 文档
 ```
 
 ---
 
-## 项目结构
+## 🧠 记忆系统
 
-```
-~/.safe_claw/                    # 用户数据目录
-├── config.json                  # 主配置
-├── sessions/                    # 会话状态
-│   └── {session_id}.json
-├── agents/                      # 多 Agent 配置
-│   ├── default/                 # 默认 Agent
-│   │   ├── AGENTS.md           # Agent 提示词
-│   │   ├── SOUL.md             # 人格定义
-│   │   ├── USER.md             # 用户偏好
-│   │   └── skills/             # Agent 专属技能
-│   ├── coding/                  # 编程 Agent
-│   ├── analysis/                # 分析 Agent
-│   └── planning/                # 规划 Agent
-├── memory/                      # 全局记忆（跨 Agent 共享）
-│   ├── 2026-03-22.md
-│   └── index/
-├── shared_skills/               # 共享技能（所有 Agent 可用）
-│   └── file_operations/
-└── graphs/                      # Graph 定义
-    ├── default.json             # 简单对话图
-    └── multi_agent.json         # 多 Agent 协作图
-```
+SafeClaw 采用 4 层智能记忆架构：
+
+### Active Layer (活跃层)
+- **容量**: 20 条记忆
+- **内容**: 最近对话和重要信息
+- **特点**: 快速访问，优先检索
+
+### Dormant Layer (休眠层)
+- **触发**: 重要性 ≥ 0.6 或 24 小时前
+- **唤醒**: 关键词匹配阈值 0.6
+- **特点**: 中等重要性，可被唤醒
+
+### Deep Layer (深层层)
+- **压缩**: 内容智能压缩存储
+- **触发**: 重要性 < 0.6 或 30 天前
+- **特点**: 长期存储，节省空间
+
+### Forgotten Layer (遗忘层)
+- **归档**: 重要性 < 0.2 或 1 年前
+- **清理**: 定期清理机制
+- **特点**: 可恢复，可永久删除
 
 ---
 
-## 使用方法
+## 🛡️ 安全策略
 
-### 首次使用
-
-1. 启动应用后会自动创建工作区
-2. 在设置页选择 LLM 提供商并输入 API 密钥
-3. 开始对话！
-
-### 日常对话
-
-1. 在聊天框输入问题
-2. DeepAgents 状态图自动处理：
-   - 分析输入，识别是否需要技能调用
-   - 智能选择合适的技能组合
-   - 自动检索相关历史记忆
-   - 执行技能并整合结果
-   - 生成响应并更新长期记忆
-
-### 自定义技能
-
-在 `skills/` 目录下创建技能包：
-
-```
-skills/
-└── my_skill/
-    ├── SKILL.md          # 技能描述
-    └── main.py           # 技能实现
-```
-
----
-
-## 配置说明
-
-### AGENTS.md
-
-定义 Agent 的行为和能力范围：
-
-```markdown
-# Agent 定义
-
-## 角色
-你是一个专业的编程助手...
-
-## 能力
-- 代码分析和重构
-- Bug 修复建议
-- 代码生成
-```
-
-### SOUL.md
-
-定义 Agent 的人格特征：
-
-```markdown
-# 人格定义
-
-## 性格
-严谨、耐心、乐于解释
-
-## 沟通风格
-技术准确，通俗易懂
-```
-
-### USER.md
-
-存储用户偏好（自动更新）：
-
-```markdown
-# 用户偏好
-
-- 编程语言偏好: Python
-- 回复风格偏好: 详细解释
-```
-
----
-
-## 安全策略
-
-SafeClaw 采用三级安全策略：
+### 三级安全策略
 
 | 级别 | 操作类型 | 处理方式 |
 |------|---------|---------|
-| **黑名单** | 格式化系统、修改 BIOS 等 | 完全禁止 |
-| **白名单** | 文件读取、记忆查询、聊天响应 | 自动允许 |
-| **确认级** | 文件删除、系统命令、网络请求 | 需用户确认 |
+| **黑名单** | `rm -rf /`, `format`, 系统破坏 | 完全禁止 |
+| **确认级** | 文件删除、系统命令、网络请求 | 用户确认 |
+| **白名单** | 文件读取、聊天、记忆查询 | 自动允许 |
+
+### 安全特性
+- **实时检查**: 所有操作实时安全验证
+- **审计日志**: 完整的操作审计记录
+- **策略引擎**: 可配置的安全策略
+- **确认机制**: 危险操作二次确认
 
 ---
 
-## 路线图
+## 🔧 技能系统
 
-### Phase 1: 基础 Graph (MVP)
-- [ ] InputNode + AgentNode + MemoryNode + ResponseNode
-- [ ] 简单线性图（单 Agent）
-- [ ] 基础 Streamlit UI
+### 内置技能
 
-### Phase 2: 多 Agent 支持
-- [ ] RouterNode（智能路由）
-- [ ] 多 Agent Workspace 管理
-- [ ] 条件边和循环
+#### 文件操作技能
+- `read_file` - 安全文件读取
+- `write_file` - 文件写入
+- `list_files` - 目录浏览
+- `delete_file` - 文件删除（需确认）
+- `create_directory` - 目录创建
 
-### Phase 3: 高级功能
-- [ ] SkillNode（工具执行）
-- [ ] SupervisorNode（监督者模式）
-- [ ] Graph 可视化
+#### 代码分析技能
+- `analyze_code` - 代码结构分析
+- `code_quality` - 代码质量检查
+- `format_code` - 代码格式化
 
-### Phase 4: 优化
-- [ ] 并行节点执行
-- [ ] 状态检查点（断点续传）
-- [ ] 人机协同节点
+### 自定义技能
+```python
+from core.skills.base_skill import BaseSkill
 
----
-
-## 与 OpenClaw 的关系
-
-SafeClaw 借鉴 OpenClaw 的核心设计思想：
-
-| OpenClaw 特性 | SafeClaw 实现 |
-|--------------|--------------|
-| 多 Agent 隔离 | 每个 LangGraph 节点是一个独立 Agent |
-| 文件优先配置 | AGENTS.md / SOUL.md / USER.md 驱动行为 |
-| 会话路由 | Graph 中的条件边实现智能路由 |
-| 技能系统 | 节点可调用技能工具 |
-| 本地优先 | 所有状态本地存储，可版本控制 |
-
-**差异化**：使用 LangGraph 动态工作流替代静态配置绑定，多 Agent 协作处理复杂任务，流程可视化可追踪。
+class MySkill(BaseSkill):
+    def __init__(self):
+        super().__init__("my_skill", "My custom skill")
+    
+    def execute(self, **kwargs):
+        # 技能实现
+        return {"success": True, "result": "..."}
+```
 
 ---
 
-## 许可证
+## 📊 使用界面
 
-MIT License
+### 💬 聊天页面
+- 实时对话界面
+- 记忆上下文显示
+- Agent 执行路径追踪
+- 调试信息展示
+
+### 📚 记忆管理
+- 4层记忆浏览
+- 记忆搜索和过滤
+- 重要性调整
+- 批量操作
+
+### ⚙️ 设置页面
+- LLM 配置
+- 安全策略设置
+- 记忆系统配置
+- 连接测试
+
+### 📊 统计页面
+- 使用统计图表
+- 性能指标
+- 记忆分布
+- 系统健康状态
 
 ---
 
-## 参考
+## 🔄 工作流程
 
-- [OpenClaw 官方文档](https://docs.openclaw.ai)
-- [LangGraph 文档](https://python.langchain.com/docs/langgraph)
-- [Streamlit 文档](https://docs.streamlit.io)
+### 用户输入处理流程
+1. **初始化** - 创建状态，设置会话
+2. **记忆检索** - 搜索相关记忆
+3. **路由决策** - 选择合适的 Agent
+4. **Agent 执行** - 处理用户请求
+5. **安全检查** - 验证操作安全性
+6. **结果整合** - 生成响应
+7. **记忆更新** - 存储新记忆
+
+### 多 Agent 协作
+- **Router Agent**: 智能路由决策
+- **Chat Agent**: 主要对话处理
+- **Memory Agent**: 记忆管理操作
+- **Safety Agent**: 安全策略执行
+
+---
+
+## 📈 开发状态
+
+### ✅ 已完成 (Phase 1 MVP)
+- [x] 基础项目结构
+- [x] 核心模型定义
+- [x] LLM 网关服务
+- [x] 4层记忆系统
+- [x] LangGraph Agent 系统
+- [x] Streamlit UI 界面
+- [x] 安全策略层
+- [x] 基础技能系统
+
+### 🚧 进行中 (Phase 2)
+- [ ] 向量搜索集成
+- [ ] 更多内置技能
+- [ ] 性能优化
+- [ ] 错误处理增强
+
+### 📋 计划中 (Phase 3)
+- [ ] Graph 可视化编辑器
+- [ ] 插件系统
+- [ ] 多语言支持
+- [ ] 分布式部署
+
+---
+
+## 🔧 配置说明
+
+### 环境变量 (.env)
+```bash
+# LLM 配置
+OPENAI_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here
+
+# 安全设置
+ENABLE_CONFIRMATION=true
+SAFETY_LOG_LEVEL=INFO
+
+# 记忆设置
+ACTIVE_MEMORY_MAX=20
+ENABLE_VECTOR_SEARCH=false
+```
+
+### 配置文件 (config.json)
+```json
+{
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-3.5-turbo",
+    "temperature": 0.7
+  },
+  "safety": {
+    "enable_confirmation": true,
+    "blacklist_commands": ["rm -rf /", "format"]
+  },
+  "memory": {
+    "active_memory_max": 20,
+    "dormant_wakeup_threshold": 0.6
+  }
+}
+```
+
+---
+
+## 📚 文档
+
+| 文档 | 说明 |
+|------|------|
+| **[📖 快速开始](STARTUP_GUIDE.md)** | 安装配置和启动指南 |
+| **[🔧 开发指南](docs/DEVELOPMENT_GUIDELINES.md)** | 开发规范和常见错误 |
+| **[📋 检查清单](docs/CHECKLIST.md)** | 代码质量和发布检查 |
+| **[🧪 测试指南](tests/README.md)** | 测试策略和运行方法 |
+| **[📋 API 文档](docs/API.md)** | 接口文档和示例 |
+
+---
+
+## 🤝 贡献指南
+
+### 开发环境设置
+```bash
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest
+
+# 代码格式化
+black .
+flake8 .
+```
+
+### 贡献流程
+1. Fork 项目
+2. 创建功能分支
+3. 提交更改
+4. 创建 Pull Request
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🙏 致谢
+
+- [LangGraph](https://python.langchain.com/docs/langgraph) - 状态图工作流
+- [Streamlit](https://docs.streamlit.io) - Web 应用框架
+- [LangChain](https://python.langchain.com) - LLM 应用框架
+- OpenClaw 项目 - 设计思想启发
+
+---
+
+**SafeClaw TRASA** - Version 0.1.0  
+*The Real AI Safety Assistant* | Built with ❤️ for safety and privacy
