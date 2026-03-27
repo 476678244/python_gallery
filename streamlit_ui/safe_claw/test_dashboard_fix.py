@@ -13,7 +13,7 @@ def test_dashboard_navigation():
     print("=" * 50)
     
     # Check that the fixed file exists
-    dashboard_file = Path("streamlit_ui/components/dashboard.py")
+    dashboard_file = Path("../components/dashboard.py")
     if not dashboard_file.exists():
         print("❌ Dashboard component not found")
         return False
@@ -52,7 +52,7 @@ def test_dashboard_navigation():
     # Check that the target files exist
     print("")
     print("📁 Checking target page files:")
-    pages_dir = Path("streamlit_ui/pages")
+    pages_dir = Path("../pages")
     
     target_files = [
         "01_📚_Memory.py",

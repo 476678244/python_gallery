@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import streamlit as st
@@ -11,8 +11,8 @@ from typing import Dict, Any, Iterator
 from datetime import datetime
 from langchain_core.messages import HumanMessage, AIMessage
 
-from streamlit_ui.components.session_manager import get_session_state
-from core.graph.state import SafeClawState
+from components.session_manager import get_session_state
+from safe_claw.core.graph.state import SafeClawState
 
 logger = logging.getLogger(__name__)
 

@@ -4,9 +4,9 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError
 
-from models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
-from models.session import Session, Message
-from models.memory import Memory, MemoryLayer, MemorySearchResult
+from safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from safe_claw.models.session import Session, Message
+from safe_claw.models.memory import Memory, MemoryLayer, MemorySearchResult
 
 class TestLLMConfig:
     """Test LLM configuration model"""

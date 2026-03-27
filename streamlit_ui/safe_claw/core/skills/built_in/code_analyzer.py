@@ -5,7 +5,7 @@ import re
 from typing import Dict, Any, List, Optional
 import logging
 
-from core.skills.base_skill import CodeSkill
+from safe_claw.core.skills.base_skill import CodeSkill
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class AnalyzeCodeSkill(CodeSkill):
             "required": ["code"]
         }
     
-    def execute(self, code: str, language: str = None, file_extension: str = None) -> Dict[str, Any]:
+    def _execute_skill(self, code: str, language: str = None, file_extension: str = None) -> Dict[str, Any]:
         """Execute code analysis"""
         try:
             # Detect language
@@ -217,11 +217,19 @@ class AnalyzeCodeSkill(CodeSkill):
         
         for node in ast.walk(tree):
             # Cyclomatic complexity
-            if isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor)):
+            if isinstance(node, ast.If):
+                complexity["cyclomatic_complexity"] += 1
+            elif isinstance(node, ast.While):
+                complexity["cyclomatic_complexity"] += 1
+            elif isinstance(node, ast.For):
+                complexity["cyclomatic_complexity"] += 1
+            elif hasattr(ast, 'AsyncFor') and isinstance(node, ast.AsyncFor):
                 complexity["cyclomatic_complexity"] += 1
             elif isinstance(node, ast.ExceptHandler):
                 complexity["cyclomatic_complexity"] += 1
-            elif isinstance(node, ast.With, ast.AsyncWith):
+            elif isinstance(node, ast.With):
+                complexity["cyclomatic_complexity"] += 1
+            elif hasattr(ast, 'AsyncWith') and isinstance(node, ast.AsyncWith):
                 complexity["cyclomatic_complexity"] += 1
             elif isinstance(node, ast.BoolOp):
                 complexity["cyclomatic_complexity"] += len(node.values) - 1
@@ -251,7 +259,7 @@ class CodeQualitySkill(CodeSkill):
             "required": ["code"]
         }
     
-    def execute(self, code: str, language: str = None) -> Dict[str, Any]:
+    def _execute_skill(self, code: str, language: str = None) -> Dict[str, Any]:
         """Execute code quality check"""
         try:
             if not language:
@@ -438,7 +446,7 @@ class CodeFormatterSkill(CodeSkill):
             "required": ["code"]
         }
     
-    def execute(self, code: str, language: str = None) -> Dict[str, Any]:
+    def _execute_skill(self, code: str, language: str = None) -> Dict[str, Any]:
         """Execute code formatting"""
         try:
             if not language:

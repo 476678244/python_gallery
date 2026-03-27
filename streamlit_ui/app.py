@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-# Add project root to Python path
+# Add project root to Python path (where streamlit_ui package can be found)
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -18,13 +18,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import SafeClaw components
-from models.config import SafeClawConfig, LLMConfig
-from services.llm_gateway import LLMService
-from core.memory.manager import MemoryManager
-from core.graph.builder import SafeClawGraphBuilder
-from core.skills.registry import SkillRegistry
-from core.safety.checker import SafetyChecker
-from core.safety.audit import AuditLogger
+from safe_claw.models.config import SafeClawConfig, LLMConfig
+from safe_claw.services.llm_gateway import LLMService
+from safe_claw.core.memory.manager import MemoryManager
+from safe_claw.core.graph.builder import SafeClawGraphBuilder
+from safe_claw.core.skills.registry import SkillRegistry
+from safe_claw.core.safety.checker import SafetyChecker
+from safe_claw.core.safety.audit import AuditLogger
 
 # Page imports - import directly to avoid emoji filename issues
 import importlib
@@ -90,29 +90,6 @@ def initialize_session_state():
                     max_tokens=2000
                 )
             ),
-            # 2. OpenAI (if API key available)
-            SafeClawConfig(
-                llm=LLMConfig(
-                    provider="openai",
-                    model="gpt-3.5-turbo",
-                    api_key="your-api-key-here",
-                    base_url=None,
-                    temperature=0.7,
-                    max_tokens=2000
-                )
-            ),
-            # 3. Mock/Dummy config for testing (always works)
-            SafeClawConfig(
-                llm=LLMConfig(
-                    provider="openai",
-                    model="gpt-3.5-turbo",
-                    api_key="mock-key",
-                    base_url=None,
-                    temperature=0.7,
-                    max_tokens=2000
-                ),
-                debug=True
-            )
         ]
         
         # Try each configuration until one works
@@ -188,15 +165,32 @@ def initialize_session_state():
         st.session_state.graph_builder = None
         st.session_state.current_graph = None
     
-    # Initialize optional services (don't depend on LLM)
-    # Skill Registry
+    # Skill Registry - with pre-loading of external skills
     if 'skill_registry' not in st.session_state:
         try:
-            st.session_state.skill_registry = SkillRegistry()
-            logger.info("✅ Skill registry initialized successfully")
+            from safe_claw.core.skills.registry import SkillRegistry, load_builtin_skills
+            from safe_claw.core.skills.scanner import get_skill_scanner
+            
+            # Start with built-in skills
+            registry = load_builtin_skills()
+            
+            # Pre-load external skills from safe_claw.configured paths
+            skills_paths = [
+                Path("/streamlit_ui/skills"),
+            ]
+            
+            scanner = get_skill_scanner()
+            preloaded_skills = scanner.scan_paths(skills_paths, recursive=True)
+            
+            logger.info(f"✅ Pre-loaded {len(preloaded_skills)} external skills from {len(skills_paths)} paths")
+            
+            st.session_state.skill_registry = registry
+            st.session_state.skill_scanner = scanner
+            logger.info("✅ Skill registry initialized with pre-loaded skills")
         except Exception as e:
             logger.error(f"❌ Failed to initialize skill registry: {e}")
             st.session_state.skill_registry = None
+            st.session_state.skill_scanner = None
     
     # Safety Checker
     if 'safety_checker' not in st.session_state:

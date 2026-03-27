@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 class BaseSkill(ABC):
     """Abstract base class for all SafeClaw skills"""
     
@@ -17,7 +19,6 @@ class BaseSkill(ABC):
         
         logger.info(f"Initialized skill: {self.name}")
     
-    @abstractmethod
     def execute(self, **kwargs) -> Dict[str, Any]:
         """Execute the skill with given parameters"""
         return self._execute_with_validation(**kwargs)
@@ -122,27 +123,6 @@ class BaseSkill(ABC):
             "usage_count": getattr(self, 'usage_count', 0),
             "success_rate": getattr(self, 'success_rate', 0.0),
             "last_used": getattr(self, 'last_used', None)
-        }
-    
-    def validate_parameters(self, parameters: Dict[str, Any]) -> tuple[bool, str]:
-        """Validate parameters before execution"""
-        required_params = self.get_parameters().get("required", [])
-        
-        for param in required_params:
-            if param not in parameters:
-                return False, f"Missing required parameter: {param}"
-        
-        return True, ""
-    
-    def get_skill_info(self) -> Dict[str, Any]:
-        """Get skill information"""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "category": self.category,
-            "created_at": self.created_at.isoformat(),
-            "usage_count": self.usage_count,
-            "parameters": self.get_parameters()
         }
     
     def increment_usage(self):
@@ -274,6 +254,30 @@ class CodeSkill(BaseSkill):
                 return False, "Potentially dangerous code execution detected"
         
         return True, ""
+    
+    def extract_keywords(self, text: str, max_keywords: int = 20) -> List[str]:
+        """Extract keywords from text"""
+        import re
+        from collections import Counter
+        
+        # Extract words
+        words = re.findall(r'\b\w+\b', text.lower())
+        
+        # Filter stop words
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those',
+            'i', 'you', 'he', 'she', 'it', 'we', 'they'
+        }
+        
+        filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+        
+        # Count frequency
+        word_freq = Counter(filtered_words)
+        
+        # Return top keywords
+        return [word for word, count in word_freq.most_common(max_keywords)]
 
 class AnalysisSkill(BaseSkill):
     """Base class for analysis skills"""

@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from models.memory import Memory, MemoryLayer
+from safe_claw.models.memory import Memory, MemoryLayer
 
 def render_memory_browser(memory_manager, show_controls: bool = True):
     """Render memory browser interface"""

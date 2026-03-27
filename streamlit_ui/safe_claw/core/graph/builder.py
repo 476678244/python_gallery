@@ -7,11 +7,11 @@ from datetime import datetime
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from core.graph.state import SafeClawState
-from core.agents.router_agent import RouterAgent
-from core.agents.chat_agent import ChatAgent
-from core.agents.memory_agent import MemoryAgent
-from services.llm_gateway import LLMService
+from safe_claw.core.graph.state import SafeClawState
+from safe_claw.core.agents.router_agent import RouterAgent
+from safe_claw.core.agents.chat_agent import ChatAgent
+from safe_claw.core.agents.memory_agent import MemoryAgent
+from safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
 

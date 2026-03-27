@@ -4,9 +4,9 @@ import logging
 import json
 from typing import Dict, Any, List
 
-from core.agents.base_agent import BaseAgent
-from core.graph.state import SafeClawState
-from services.llm_gateway import LLMService
+from safe_claw.core.agents.base_agent import BaseAgent
+from safe_claw.core.graph.state import SafeClawState
+from safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
 

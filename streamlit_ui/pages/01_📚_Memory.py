@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import streamlit as st
@@ -10,7 +10,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
-from models.memory import MemoryLayer
+from safe_claw.models.memory import MemoryLayer
 
 def render():
     """Render the memory page"""

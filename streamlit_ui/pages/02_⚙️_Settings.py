@@ -2,14 +2,14 @@
 
 import sys
 from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import streamlit as st
 import logging
 from typing import Dict, Any
 
-from models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
 
 logger = logging.getLogger(__name__)
 

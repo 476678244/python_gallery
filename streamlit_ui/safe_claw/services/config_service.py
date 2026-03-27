@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
 
 logger = logging.getLogger(__name__)
 

@@ -5,10 +5,10 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 from pathlib import Path
 
-from services.llm_gateway import LLMService, OpenAIGateway, AnthropicGateway, OllamaGateway, LLMGatewayFactory
-from services.session_service import SessionService
-from services.config_service import ConfigService
-from models.config import SafeClawConfig, LLMConfig
+from safe_claw.services.llm_gateway import LLMService, OpenAIGateway, AnthropicGateway, OllamaGateway, LLMGatewayFactory
+from safe_claw.services.session_service import SessionService
+from safe_claw.services.config_service import ConfigService
+from safe_claw.models.config import SafeClawConfig, LLMConfig
 from pydantic import ValidationError
 
 class TestLLMGateway:

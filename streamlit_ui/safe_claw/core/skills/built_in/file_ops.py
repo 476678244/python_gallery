@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 import logging
 
-from core.skills.base_skill import FileSkill
+from safe_claw.core.skills.base_skill import FileSkill
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class ReadFileSkill(FileSkill):
             "required": ["file_path"]
         }
     
-    def execute(self, file_path: str, encoding: str = "utf-8", max_lines: int = None) -> Dict[str, Any]:
+    def _execute_skill(self, file_path: str, encoding: str = "utf-8", max_lines: int = None) -> Dict[str, Any]:
         """Execute file reading"""
         try:
             # Validate file path
@@ -124,7 +124,7 @@ class WriteFileSkill(FileSkill):
             "required": ["file_path", "content"]
         }
     
-    def execute(self, file_path: str, content: str, encoding: str = "utf-8", create_dirs: bool = True) -> Dict[str, Any]:
+    def _execute_skill(self, file_path: str, content: str, encoding: str = "utf-8", create_dirs: bool = True) -> Dict[str, Any]:
         """Execute file writing"""
         try:
             # Validate file path
@@ -190,7 +190,7 @@ class ListFilesSkill(FileSkill):
             "required": ["directory_path"]
         }
     
-    def execute(self, directory_path: str, recursive: bool = False, 
+    def _execute_skill(self, directory_path: str, recursive: bool = False, 
                 show_hidden: bool = False, pattern: str = "*") -> Dict[str, Any]:
         """Execute directory listing"""
         try:
@@ -284,7 +284,7 @@ class DeleteFileSkill(FileSkill):
             "required": ["path"]
         }
     
-    def execute(self, path: str, recursive: bool = False) -> Dict[str, Any]:
+    def _execute_skill(self, path: str, recursive: bool = False) -> Dict[str, Any]:
         """Execute file/directory deletion"""
         try:
             # Validate path
@@ -350,7 +350,7 @@ class CreateDirectorySkill(FileSkill):
             "required": ["directory_path"]
         }
     
-    def execute(self, directory_path: str, parents: bool = True) -> Dict[str, Any]:
+    def _execute_skill(self, directory_path: str, parents: bool = True) -> Dict[str, Any]:
         """Execute directory creation"""
         try:
             # Validate directory path

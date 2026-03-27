@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import streamlit as st
@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
-from core.memory.manager import MemoryManager
+from safe_claw.core.memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 

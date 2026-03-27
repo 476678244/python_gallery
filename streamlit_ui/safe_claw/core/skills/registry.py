@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Any, Optional, Type
-from core.skills.base_skill import BaseSkill
+from safe_claw.core.skills.base_skill import BaseSkill
 
 logger = logging.getLogger(__name__)
 
@@ -164,27 +164,24 @@ class SkillRegistry:
         return stats
 
 def load_builtin_skills() -> SkillRegistry:
-    """Load built-in skills"""
+    """Load built-in skills with progressive discovery support"""
     registry = SkillRegistry()
     
+    # Load built-in skills (hot cache)
     try:
-        # Import and register file operation skills
-        from core.skills.built_in.file_ops import (
+        from safe_claw.core.skills.built_in.file_ops import (
             ReadFileSkill, WriteFileSkill, ListFilesSkill,
             DeleteFileSkill, CreateDirectorySkill
         )
-        
         registry.register_skill(ReadFileSkill())
         registry.register_skill(WriteFileSkill())
         registry.register_skill(ListFilesSkill())
         registry.register_skill(DeleteFileSkill())
         registry.register_skill(CreateDirectorySkill())
         
-        # Import and register code analysis skills
-        from core.skills.built_in.code_analyzer import (
+        from safe_claw.core.skills.built_in.code_analyzer import (
             AnalyzeCodeSkill, CodeQualitySkill, CodeFormatterSkill
         )
-        
         registry.register_skill(AnalyzeCodeSkill())
         registry.register_skill(CodeQualitySkill())
         registry.register_skill(CodeFormatterSkill())
@@ -195,3 +192,49 @@ def load_builtin_skills() -> SkillRegistry:
         logger.error(f"Failed to load built-in skills: {e}")
     
     return registry
+
+
+def load_skills_with_discovery(query: str = None) -> tuple[SkillRegistry, Any]:
+    """Load skills with progressive discovery system
+    
+    Args:
+        query: Optional initial query to trigger skill discovery
+        
+    Returns:
+        (SkillRegistry, DiscoveryResult) - registry and discovery result
+    """
+    from safe_claw.core.skills.discovery import SkillDiscovery, DiscoveryResult
+    
+    # Start with built-in skills
+    registry = load_builtin_skills()
+    
+    # Initialize discovery system
+    discovery = SkillDiscovery(registry)
+    
+    result = None
+    if query:
+        # Trigger progressive discovery
+        result = discovery.find_skill(query)
+        logger.info(f"Discovery result: {result.level.name} - {result.skill.name if result.skill else 'None'}")
+    
+    return registry, result
+
+
+def auto_discover_skill(registry: SkillRegistry, query: str) -> Any:
+    """Auto-discover and load a skill for a query
+    
+    This is the main entry point for lazy skill discovery.
+    Example: auto_discover_skill(registry, "parse csv file")
+    """
+    from safe_claw.core.skills.discovery import SkillDiscovery
+    
+    discovery = SkillDiscovery(registry)
+    result = discovery.find_skill(query)
+    
+    if result.skill:
+        return result.skill
+    
+    if result.missing_skill_hint:
+        logger.warning(f"Missing skill detected: {result.missing_skill_hint['missing_skill']}")
+    
+    return None

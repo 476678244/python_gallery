@@ -134,4 +134,5 @@ apt/
 **.DS_Store
 .vscode/
 /streamlit_ui/reference_project/
-# /streamlit_ui/skills/private_skills/  # Commented out to allow tracking custom skills
+streamlit_ui/skills/public_skills/*
+!streamlit_ui/skills/public_skills/.gitkeepstreamlit_ui/skills/public_skills/*

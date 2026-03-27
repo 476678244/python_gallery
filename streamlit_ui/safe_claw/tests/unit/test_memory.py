@@ -7,15 +7,15 @@ from pathlib import Path
 import json
 import pandas as pd
 
-from core.memory.manager import MemoryManager
-from core.memory.storage import FileStorage
-from core.memory.retriever import MemoryRetriever
-from core.memory.layers.active import ActiveMemoryLayer
-from core.memory.layers.dormant import DormantMemoryLayer
-from core.memory.layers.deep import DeepMemoryLayer
-from core.memory.layers.forgotten import ForgottenMemoryLayer
-from models.memory import Memory, MemoryLayer
-from models.config import MemoryConfig
+from safe_claw.core.memory.manager import MemoryManager
+from safe_claw.core.memory.storage import FileStorage
+from safe_claw.core.memory.retriever import MemoryRetriever
+from safe_claw.core.memory.layers.active import ActiveMemoryLayer
+from safe_claw.core.memory.layers.dormant import DormantMemoryLayer
+from safe_claw.core.memory.layers.deep import DeepMemoryLayer
+from safe_claw.core.memory.layers.forgotten import ForgottenMemoryLayer
+from safe_claw.models.memory import Memory, MemoryLayer
+from safe_claw.models.config import MemoryConfig
 
 class TestFileStorage:
     """Test file storage for memory"""

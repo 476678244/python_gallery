@@ -32,7 +32,7 @@ def test_logging():
         
         # Test settings page logging
         print("2. Testing settings page logging...")
-        from streamlit_ui.pages.settings_page import logger as settings_logger
+        from streamlit_ui.pages import logger as settings_logger
         settings_logger.info("🧪 Test log from settings page")
         print("✅ Settings page logging works")
         

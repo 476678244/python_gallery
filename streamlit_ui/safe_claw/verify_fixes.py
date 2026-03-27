@@ -35,7 +35,7 @@ def verify_fixes():
     # 2. Check system monitor memory info fix
     print("\n2. Checking system monitor memory info fix...")
     try:
-        with open("streamlit_ui/components/system_monitor.py", 'r') as f:
+        with open("../components/system_monitor.py", 'r') as f:
             content = f.read()
         
         if "hasattr(memory_info, 'shared')" in content:
@@ -50,7 +50,7 @@ def verify_fixes():
     # 3. Check Tools page service dependency fixes
     print("\n3. Checking Tools page service dependency fixes...")
     try:
-        with open("streamlit_ui/pages/04_🔧_Tools.py", 'r') as f:
+        with open("../pages/04_🔧_Tools.py", 'r') as f:
             content = f.read()
         
         if "if skill_registry:" in content and "if safety_checker and audit_logger:" in content:
@@ -65,7 +65,7 @@ def verify_fixes():
     # 4. Check chat page welcome message
     print("\n4. Checking chat page welcome message...")
     try:
-        with open("streamlit_ui/pages/00_💬_Chat.py", 'r') as f:
+        with open("../pages/00_💬_Chat.py", 'r') as f:
             content = f.read()
         
         if "Hello! I'm SafeClaw" in content and "simple_render_message" in content:
@@ -80,7 +80,7 @@ def verify_fixes():
     # 5. Check dashboard navigation fix
     print("\n5. Checking dashboard navigation fix...")
     try:
-        with open("streamlit_ui/components/dashboard.py", 'r') as f:
+        with open("../components/dashboard.py", 'r') as f:
             content = f.read()
         
         if 'st.switch_page("pages/01_📚_Memory.py")' in content:
@@ -95,7 +95,7 @@ def verify_fixes():
     # 6. Check logging enhancements
     print("\n6. Checking logging enhancements...")
     try:
-        with open("streamlit_ui/app.py", 'r') as f:
+        with open("../app.py", 'r') as f:
             content = f.read()
         
         if "🔄 Starting session state initialization" in content and "📱 Routing to page:" in content:
