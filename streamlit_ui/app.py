@@ -176,7 +176,7 @@ def initialize_session_state():
             
             # Pre-load external skills from safe_claw.configured paths
             skills_paths = [
-                Path("/streamlit_ui/skills"),
+                Path(__file__).parent / "skills",
             ]
             
             scanner = get_skill_scanner()

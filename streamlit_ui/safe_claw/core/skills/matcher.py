@@ -1,18 +1,19 @@
 """Semantic Matcher for Skills - BM25 + Keyword-based matching
 
-Stage 2: Semantic matching without loading code
+Stage 2: Semantic matching on Level 1 metadata only
 - TF-IDF / BM25 for text similarity
 - Keyword expansion for recall
+- Works with SkillIndexEntry (L1 data)
 """
 
 import re
 import math
 import logging
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Union
 from collections import Counter
 from dataclasses import dataclass
 
-from safe_claw.core.skills.scanner import SkillMetadata
+from safe_claw.core.skills.scanner import SkillIndexEntry
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MatchResult:
     """Skill match result with score"""
-    skill: SkillMetadata
+    skill: SkillIndexEntry
     score: float
     matched_terms: List[str]
 
@@ -122,16 +123,20 @@ class KeywordExpander:
 
 
 class SemanticMatcher:
-    """Semantic skill matcher using BM25 + keyword expansion"""
+    """Semantic skill matcher using BM25 + keyword expansion
+    
+    Works with Level 1 metadata (SkillIndexEntry) for efficient matching
+    without loading full SKILL.md content.
+    """
 
     def __init__(self):
-        self.bm25: Optional[BM25] = []
-        self.skills: List[SkillMetadata] = []
+        self.bm25: Optional[BM25] = None
+        self.skills: List[SkillIndexEntry] = []
         self.documents: List[str] = []
         self.fitted = False
 
-    def _create_document(self, skill: SkillMetadata) -> str:
-        """Create searchable document from skill metadata"""
+    def _create_document(self, skill: SkillIndexEntry) -> str:
+        """Create searchable document from skill metadata (L1 only)"""
         parts = [
             skill.name,
             skill.description,
@@ -141,8 +146,8 @@ class SemanticMatcher:
         ]
         return " ".join(parts).lower()
 
-    def fit(self, skills: List[SkillMetadata]):
-        """Fit matcher on skill corpus"""
+    def fit_l1(self, skills: List[SkillIndexEntry]):
+        """Fit matcher on Level 1 skill corpus"""
         self.skills = skills
         self.documents = [self._create_document(s) for s in skills]
 
@@ -150,16 +155,16 @@ class SemanticMatcher:
         self.bm25.fit(self.documents)
         self.fitted = True
 
-        logger.info(f"SemanticMatcher fitted on {len(skills)} skills")
+        logger.info(f"SemanticMatcher fitted on {len(skills)} skills (L1)")
 
-    def find_skills(
+    def find_skills_l1(
         self,
         query: str,
         top_k: int = 5,
         min_score: float = 0.1,
         use_expansion: bool = True
     ) -> List[MatchResult]:
-        """Find matching skills for a query"""
+        """Find matching skills for a query using L1 metadata"""
         if not self.fitted or not self.skills:
             return []
 
@@ -198,13 +203,13 @@ class SemanticMatcher:
 
         return results
 
-    def simple_match(
+    def simple_match_l1(
         self,
         query: str,
-        skills: List[SkillMetadata],
+        skills: List[SkillIndexEntry],
         top_k: int = 5
     ) -> List[MatchResult]:
-        """Simple keyword overlap matching (no BM25 fitting required)"""
+        """Simple keyword overlap matching on L1 metadata (no BM25 fitting required)"""
         query_lower = query.lower()
         query_terms = set(re.findall(r'\b\w+\b', query_lower))
 
@@ -240,6 +245,20 @@ class SemanticMatcher:
         # Sort by score
         results.sort(key=lambda x: x.score, reverse=True)
         return results[:top_k]
+
+    # Legacy compatibility methods
+    def fit(self, skills: List[SkillIndexEntry]):
+        """Legacy method - delegates to fit_l1"""
+        return self.fit_l1(skills)
+
+    def find_skills(self, query: str, top_k: int = 5, min_score: float = 0.1,
+                   use_expansion: bool = True) -> List[MatchResult]:
+        """Legacy method - delegates to find_skills_l1"""
+        return self.find_skills_l1(query, top_k, min_score, use_expansion)
+
+    def simple_match(self, query: str, skills: List[SkillIndexEntry], top_k: int = 5) -> List[MatchResult]:
+        """Legacy method - delegates to simple_match_l1"""
+        return self.simple_match_l1(query, skills, top_k)
 
 
 # Singleton instance
