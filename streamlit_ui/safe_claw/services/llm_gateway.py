@@ -27,6 +27,16 @@ class BaseLLMGateway(ABC):
         pass
     
     @abstractmethod
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream LLM response asynchronously"""
+        pass
+    
+    @abstractmethod
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke LLM asynchronously"""
+        pass
+    
+    @abstractmethod
     def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""
         pass
@@ -77,6 +87,27 @@ class OpenAIGateway(BaseLLMGateway):
             return response.content
         except Exception as e:
             logger.error(f"OpenAI invoke error: {e}")
+            return f"Error: {str(e)}"
+    
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream OpenAI response asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            async for chunk in self.llm.astream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"OpenAI async streaming error: {e}")
+            yield f"Error: {str(e)}"
+    
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke OpenAI asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            response = await self.llm.ainvoke(lc_messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"OpenAI async invoke error: {e}")
             return f"Error: {str(e)}"
     
     def get_model_info(self) -> Dict[str, Any]:
@@ -134,6 +165,27 @@ class AnthropicGateway(BaseLLMGateway):
             return response.content
         except Exception as e:
             logger.error(f"Anthropic invoke error: {e}")
+            return f"Error: {str(e)}"
+    
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream Anthropic response asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            async for chunk in self.llm.astream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"Anthropic async streaming error: {e}")
+            yield f"Error: {str(e)}"
+    
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke Anthropic asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            response = await self.llm.ainvoke(lc_messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"Anthropic async invoke error: {e}")
             return f"Error: {str(e)}"
     
     def get_model_info(self) -> Dict[str, Any]:

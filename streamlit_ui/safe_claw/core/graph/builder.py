@@ -11,6 +11,7 @@ from safe_claw.core.graph.state import SafeClawState
 from safe_claw.core.agents.router_agent import RouterAgent
 from safe_claw.core.agents.chat_agent import ChatAgent
 from safe_claw.core.agents.memory_agent import MemoryAgent
+from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
 from safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
@@ -24,19 +25,27 @@ class SafeClawGraphBuilder:
         self.memory_manager = memory_manager
         self.config = config or {}
         
-        # Initialize agents
+        # Initialize official DeepAgent
+        self.deep_agent = DeepAgentFactory.create_with_memory(
+            llm_service=llm_service,
+            memory_manager=memory_manager,
+            config=config
+        )
+        
+        # Initialize legacy agents (for backward compatibility)
         self.router_agent = RouterAgent(llm_service, config)
         self.chat_agent = ChatAgent(llm_service, config)
         self.memory_agent = MemoryAgent(llm_service, memory_manager, config)
         
         # Agent registry for router
         self.agent_registry = {
+            "deep_agent": self.deep_agent,
             "chat_agent": self.chat_agent,
             "memory_agent": self.memory_agent
         }
         self.router_agent.update_agent_registry(self.agent_registry)
         
-        logger.info("SafeClaw graph builder initialized")
+        logger.info("SafeClaw graph builder initialized with official DeepAgent")
     
     def build_simple_chat_graph(self) -> StateGraph:
         """Build a simple chat-only workflow"""
@@ -48,6 +57,22 @@ class SafeClawGraphBuilder:
         # Add edges
         workflow.set_entry_point("chat")
         workflow.add_edge("chat", END)
+        
+        # Add memory
+        memory = MemorySaver()
+        
+        return workflow.compile(checkpointer=memory)
+    
+    def build_deep_agent_graph(self) -> StateGraph:
+        """Build a DeepAgent-only workflow"""
+        workflow = StateGraph(SafeClawState)
+        
+        # Add nodes
+        workflow.add_node("deep_agent", self._deep_agent_node)
+        
+        # Add edges
+        workflow.set_entry_point("deep_agent")
+        workflow.add_edge("deep_agent", END)
         
         # Add memory
         memory = MemorySaver()
@@ -167,6 +192,48 @@ class SafeClawGraphBuilder:
         """Process with chat agent"""
         return self.chat_agent.process(state)
     
+    def _deep_agent_node(self, state: SafeClawState) -> SafeClawState:
+        """Process with official DeepAgent"""
+        try:
+            # Prepare messages for DeepAgent
+            user_input = state.get("user_input", "")
+            messages = [
+                {"role": "user", "content": user_input}
+            ]
+            
+            # Add conversation history if available
+            if state.get("messages"):
+                for msg in state["messages"][-5:]:  # Last 5 messages
+                    if hasattr(msg, 'type'):
+                        role = "user" if msg.type == "human" else "assistant"
+                        messages.append({"role": role, "content": msg.content})
+            
+            # Execute DeepAgent
+            result = self.deep_agent.invoke(messages)
+            
+            # Update state with result
+            state["response"] = result.get("content", "")
+            state["current_agent"] = "deep_agent"
+            state["execution_path"].append("deep_agent")
+            
+            # Add metadata
+            state["deep_agent_metadata"] = {
+                "success": result.get("success", False),
+                "tool_calls": result.get("tool_calls", []),
+                "metadata": result.get("metadata", {})
+            }
+            
+            if not result.get("success", False):
+                error_msg = result.get("metadata", {}).get("error", "DeepAgent execution failed")
+                state["response"] = f"Error: {error_msg}"
+            
+        except Exception as e:
+            logger.error(f"DeepAgent execution error: {e}")
+            state["response"] = f"DeepAgent error: {str(e)}"
+            state["current_agent"] = "deep_agent"
+        
+        return state
+    
     def _memory_node(self, state: SafeClawState) -> SafeClawState:
         """Process with memory agent"""
         return self.memory_agent.process(state)
@@ -228,6 +295,7 @@ class SafeClawGraphBuilder:
         """Get information about available graphs"""
         return {
             "simple_chat": "Basic chat-only workflow",
+            "deep_agent": "Official DeepAgent workflow with planning and sub-agents",
             "multi_agent": "Multi-agent workflow with routing",
             "advanced": "Advanced workflow with memory and safety"
         }
@@ -236,9 +304,15 @@ class SafeClawGraphBuilder:
         """Create a graph of the specified type"""
         if graph_type == "simple_chat":
             return self.build_simple_chat_graph()
+        elif graph_type == "deep_agent":
+            return self.build_deep_agent_graph()
         elif graph_type == "multi_agent":
             return self.build_multi_agent_graph()
         elif graph_type == "advanced":
             return self.build_advanced_graph()
         else:
             raise ValueError(f"Unknown graph type: {graph_type}")
+    
+    def get_deep_agent_stats(self) -> Dict[str, Any]:
+        """Get DeepAgent statistics"""
+        return self.deep_agent.get_agent_info()
