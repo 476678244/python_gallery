@@ -399,26 +399,29 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             else:
                 user_content = ""
             
-            # Create execution context
-            from deepagents import ExecutionContext
-            context = ExecutionContext(
-                session_id="streamlit_session",
-                user_id="streamlit_user"
-            )
+            # Create state for LangGraph
+            state = {
+                "messages": [{"role": "user", "content": user_content}],
+                "session_id": "streamlit_session",
+                "user_id": "streamlit_user"
+            }
             
-            logger.info(f"🔍 DEBUG: 准备调用 self.deep_agent.execute...")
-            # Execute DeepAgent
-            result = self.deep_agent.execute(user_content, context)
-            logger.info(f"🔍 DEBUG: self.deep_agent.execute 调用完成")
+            # Configure execution
+            config = {"configurable": {"thread_id": "streamlit_session"}}
+            
+            logger.info(f"🔍 DEBUG: 准备调用 self.deep_agent.invoke...")
+            # Execute DeepAgent using LangGraph's invoke method
+            result = self.deep_agent.invoke(state, config)
+            logger.info(f"🔍 DEBUG: self.deep_agent.invoke 调用完成")
             
             # Convert result back to SafeClaw format
             return {
-                "content": result.content if result.success else result.error_message,
-                "tool_calls": [],
-                "success": result.success,
+                "content": result.get("response", str(result)),
+                "tool_calls": result.get("tool_calls", []),
+                "success": True,
                 "metadata": {
-                    "execution_time": result.execution_time,
-                    "error": result.error_message
+                    "execution_time": result.get("execution_time", 0),
+                    "error": result.get("error")
                 }
             }
             
@@ -433,35 +436,43 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
     
     def stream(self, messages: List[Dict[str, str]]):
         """Stream DeepAgent response"""
+        if not self.deep_agent:
+            yield {"content": "DeepAgent not initialized", "success": False}
+            return
+        
         try:
-            # Convert messages to single input string for DeepAgent
-            if messages:
-                user_content = messages[-1].get("content", "")  # Get last message as user input
-            else:
-                user_content = ""
+            # Convert messages to user content format
+            user_content = ""
+            for msg in messages:
+                if msg.get("role") == "user":
+                    user_content += msg.get("content", "") + "\n"
             
-            # Create execution context
-            from deepagents import ExecutionContext
-            context = ExecutionContext(
-                session_id="streamlit_session",
-                user_id="streamlit_user"
-            )
+            # Create state for LangGraph
+            state = {
+                "messages": [{"role": "user", "content": user_content}],
+                "session_id": "streamlit_session",
+                "user_id": "streamlit_user"
+            }
             
-            # Stream from DeepAgent
-            for chunk in self.deep_agent.stream(user_content, context):
-                yield {
-                    "content": chunk,
-                    "type": "chunk",
-                    "metadata": {}
-                }
-                
+            # Configure execution
+            config = {"configurable": {"thread_id": "streamlit_session"}}
+            
+            # Stream using LangGraph's stream method
+            for chunk in self.deep_agent.stream(state, config):
+                # Extract content from chunk based on LangGraph's streaming format
+                if isinstance(chunk, dict):
+                    content = chunk.get("response", chunk.get("content", str(chunk)))
+                    if content:
+                        yield {"content": content, "success": True}
+                else:
+                    # Handle string chunks
+                    if chunk and str(chunk).strip():
+                        yield {"content": str(chunk), "success": True}
+                        
         except Exception as e:
             logger.error(f"DeepAgent streaming error: {e}")
-            yield {
-                "content": f"Error: {str(e)}",
-                "type": "error",
-                "metadata": {"error": str(e)}
-            }
+            yield {"content": f"Error: {str(e)}", "success": False}
+
     
     def get_agent_info(self) -> Dict[str, Any]:
         """Get DeepAgent information including skills statistics"""

@@ -2,6 +2,9 @@
 
 import sys
 from pathlib import Path
+
+from streamlit_ui.safe_claw.core.deepagents.official_integration import DeepAgentFactory
+
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -95,12 +98,15 @@ def render():
                 # Use streaming response
                 messages = [{"role": msg["role"], "content": msg["content"]} for msg in st.session_state.messages]
                 
+                # Create SafeClawDeepAgent with memory
+                deep_agent = DeepAgentFactory.create_with_memory(llm_service, memory_manager)
+                
                 # Display assistant message container with streaming
                 with st.chat_message("assistant"):
                     response_placeholder = st.empty()
                     response_chunks = []
-                    for chunk in llm_service.stream(messages):
-                        response_chunks.append(chunk)
+                    for chunk in deep_agent.stream(messages):
+                        response_chunks.append(chunk.get("content", ""))
                         response_placeholder.write("".join(response_chunks))
                     response = "".join(response_chunks)
             else:
