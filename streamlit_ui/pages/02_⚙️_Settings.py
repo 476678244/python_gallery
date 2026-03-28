@@ -10,6 +10,9 @@ import logging
 from typing import Dict, Any
 
 from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+from streamlit_ui.safe_claw.core.graph.builder import SafeClawGraphBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,7 @@ def render():
         )
         
         if provider == "openai":
-            model_options = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o"]
+            model_options = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o", "qwen3-32b"]
         elif provider == "anthropic":
             model_options = ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"]
         else:  # ollama
@@ -81,6 +84,15 @@ def render():
             max_value=8000,
             value=current_config.llm.max_tokens,
             step=100
+        )
+        
+        context_length = st.number_input(
+            "Context Length",
+            min_value=1024,
+            max_value=32768,
+            value=getattr(current_config.llm, 'context_length', 4096) if hasattr(current_config.llm, 'context_length') else 4096,
+            step=1024,
+            help="Maximum context window size for the model. Higher values allow for longer conversations."
         )
     
     st.markdown("---")
@@ -178,7 +190,8 @@ def render():
                     api_key=api_key if api_key else None,
                     base_url=base_url if base_url else None,
                     temperature=temperature,
-                    max_tokens=int(max_tokens)
+                    max_tokens=int(max_tokens),
+                    context_length=int(context_length)
                 ),
                 safety=SafetyConfig(
                     enable_confirmation=enable_confirmation,

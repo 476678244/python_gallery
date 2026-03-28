@@ -91,13 +91,18 @@ class SafeClawDeepAgent:
             f"openai:{llm_config.model}"  # Default to OpenAI
         )
         
-        return init_chat_model(
-            model=model_string,
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url,
-            temperature=llm_config.temperature,
-            max_tokens=llm_config.max_tokens
-        )
+        # Create model with basic configuration
+        # Note: context length is handled by the LM Studio server configuration
+        # The LangChain OpenAI client doesn't need explicit context length setting
+        model_kwargs = {
+            "model": model_string,
+            "api_key": llm_config.api_key,
+            "base_url": llm_config.base_url,
+            "temperature": llm_config.temperature,
+            "max_tokens": llm_config.max_tokens,
+        }
+        
+        return init_chat_model(**model_kwargs)
     
     def _get_default_prompt(self) -> str:
         """Get default SafeClaw system prompt"""

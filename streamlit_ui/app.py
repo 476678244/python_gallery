@@ -83,11 +83,12 @@ def initialize_session_state():
             SafeClawConfig(
                 llm=LLMConfig(
                     provider="openai",
-                    model="openai/gpt-oss-20b",
+                    model="qwen3-32b",
                     api_key="lm-studio",
                     base_url="http://192.168.50.30:1234/v1",
                     temperature=0.7,
-                    max_tokens=2000
+                    max_tokens=2000,
+                    context_length=32768  # Match Qwen3-32B context length
                 )
             ),
         ]

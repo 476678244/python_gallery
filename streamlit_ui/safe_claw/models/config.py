@@ -12,6 +12,7 @@ class LLMConfig(BaseModel):
     base_url: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=2000, gt=0)
+    context_length: int = Field(default=4096, gt=0)
 
 
 class SafetyConfig(BaseModel):
