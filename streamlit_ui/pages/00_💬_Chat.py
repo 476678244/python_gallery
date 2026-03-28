@@ -12,7 +12,7 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage, AIMessage
 
 from components.session_manager import get_session_state
-from safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
 
 logger = logging.getLogger(__name__)
 

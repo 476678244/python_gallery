@@ -18,13 +18,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import SafeClaw components
-from safe_claw.models.config import SafeClawConfig, LLMConfig
-from safe_claw.services.llm_gateway import LLMService
-from safe_claw.core.memory.manager import MemoryManager
-from safe_claw.core.graph.builder import SafeClawGraphBuilder
-from safe_claw.core.skills.registry import SkillRegistry
-from safe_claw.core.safety.checker import SafetyChecker
-from safe_claw.core.safety.audit import AuditLogger
+from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+from streamlit_ui.safe_claw.core.graph.builder import SafeClawGraphBuilder
+from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
+from streamlit_ui.safe_claw.core.safety.checker import SafetyChecker
+from streamlit_ui.safe_claw.core.safety.audit import AuditLogger
 
 # Page imports - import directly to avoid emoji filename issues
 import importlib
@@ -168,13 +168,13 @@ def initialize_session_state():
     # Skill Registry - with pre-loading of external skills
     if 'skill_registry' not in st.session_state:
         try:
-            from safe_claw.core.skills.registry import SkillRegistry, load_builtin_skills
-            from safe_claw.core.skills.scanner import get_skill_scanner
+            from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry, load_builtin_skills
+            from streamlit_ui.safe_claw.core.skills.scanner import get_skill_scanner
             
             # Start with built-in skills
             registry = load_builtin_skills()
             
-            # Pre-load external skills from safe_claw.configured paths
+            # Pre-load external skills from streamlit_ui.safe_claw.configured paths
             skills_paths = [
                 Path(__file__).parent / "skills",
             ]

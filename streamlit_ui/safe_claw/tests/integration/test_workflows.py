@@ -5,12 +5,12 @@ from unittest.mock import Mock, patch, AsyncMock
 from datetime import datetime
 import json
 
-from safe_claw.core.graph.builder import SafeClawGraphBuilder
-from safe_claw.core.graph.state import SafeClawState
-from safe_claw.services.llm_gateway import LLMService
-from safe_claw.core.memory.manager import MemoryManager
-from safe_claw.core.skills.registry import SkillRegistry
-from safe_claw.models.config import SafeClawConfig, LLMConfig
+from streamlit_ui.safe_claw.core.graph.builder import SafeClawGraphBuilder
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
+from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig
 
 class TestWorkflowIntegration:
     """Test end-to-end workflow integration"""

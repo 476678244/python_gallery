@@ -9,7 +9,7 @@ import streamlit as st
 import logging
 from typing import Dict, Any
 
-from safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
 
 logger = logging.getLogger(__name__)
 

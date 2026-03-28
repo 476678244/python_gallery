@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
-from safe_claw.core.skills.manifest import (
+from streamlit_ui.safe_claw.core.skills.manifest import (
     SkillManifest, SkillLevel1, SkillLevel2, SkillLevel3,
     parse_skill_md, DYNAMIC_INJECTION_PATTERN
 )

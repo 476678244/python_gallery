@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, Callable, Tuple
 from dataclasses import dataclass, field
 
-from safe_claw.core.skills.manifest import SkillManifest, SkillContext, SkillFrontmatter
-from safe_claw.core.skills.loader import LoadContext, SkillLoader
+from streamlit_ui.safe_claw.core.skills.manifest import SkillManifest, SkillContext, SkillFrontmatter
+from streamlit_ui.safe_claw.core.skills.loader import LoadContext, SkillLoader
 
 logger = logging.getLogger(__name__)
 

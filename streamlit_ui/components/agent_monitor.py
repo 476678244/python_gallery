@@ -4,8 +4,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-from safe_claw.core.agents.base_agent import BaseAgent
-from safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.core.agents.base_agent import BaseAgent
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
 
 def render_agent_monitor(graph_builder, current_graph=None):
     """Render agent monitoring interface"""

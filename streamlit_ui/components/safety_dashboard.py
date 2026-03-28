@@ -4,9 +4,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-from safe_claw.core.safety.checker import SafetyChecker
-from safe_claw.core.safety.policies import PolicyEngine
-from safe_claw.core.safety.audit import AuditLogger, AuditLevel
+from streamlit_ui.safe_claw.core.safety.checker import SafetyChecker
+from streamlit_ui.safe_claw.core.safety.policies import PolicyEngine
+from streamlit_ui.safe_claw.core.safety.audit import AuditLogger, AuditLevel
 
 def render_safety_dashboard(safety_checker: SafetyChecker, audit_logger: AuditLogger):
     """Render safety dashboard interface"""

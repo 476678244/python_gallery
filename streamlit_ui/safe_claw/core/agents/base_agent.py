@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Iterator, Optional, List
 from datetime import datetime
 
-from safe_claw.core.graph.state import SafeClawState
-from safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
 

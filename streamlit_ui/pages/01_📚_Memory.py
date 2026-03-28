@@ -10,7 +10,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
-from safe_claw.models.memory import MemoryLayer
+from streamlit_ui.safe_claw.models.memory import MemoryLayer
 
 def render():
     """Render the memory page"""

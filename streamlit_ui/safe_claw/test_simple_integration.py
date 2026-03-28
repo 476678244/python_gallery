@@ -9,10 +9,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 def test_import():
     """Test if imports work correctly"""
     try:
-        from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
+        from streamlit_ui.safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
         print("✅ Successfully imported SafeClawDeepAgent and DeepAgentFactory")
         
-        from safe_claw.services.llm_gateway import LLMService, LLMConfig
+        from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
         print("✅ Successfully imported LLMService and LLMConfig")
         
         # Test LLMConfig creation
@@ -38,8 +38,8 @@ def test_import():
 def test_deepagent_creation():
     """Test DeepAgent creation"""
     try:
-        from safe_claw.core.deepagents.official_integration import DeepAgentFactory
-        from safe_claw.services.llm_gateway import LLMService, LLMConfig
+        from streamlit_ui.safe_claw.core.deepagents.official_integration import DeepAgentFactory
+        from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
         
         llm_config = LLMConfig(
             provider="mock",

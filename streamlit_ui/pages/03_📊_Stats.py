@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
-from safe_claw.core.memory.manager import MemoryManager
+from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 

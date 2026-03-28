@@ -6,8 +6,8 @@ import os
 # Add the project root to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
-from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
-from safe_claw.services.llm_gateway import LLMService, LLMConfig
+from streamlit_ui.safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
 
 
 def test_official_deepagents():

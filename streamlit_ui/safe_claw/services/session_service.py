@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
 
-from safe_claw.models.session import Session, Message
+from streamlit_ui.safe_claw.models.session import Session, Message
 
 logger = logging.getLogger(__name__)
 

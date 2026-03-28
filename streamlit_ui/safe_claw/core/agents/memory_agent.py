@@ -3,9 +3,9 @@
 import logging
 from typing import Dict, Any, List
 
-from safe_claw.core.agents.base_agent import BaseAgent
-from safe_claw.core.graph.state import SafeClawState
-from safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.agents.base_agent import BaseAgent
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
 

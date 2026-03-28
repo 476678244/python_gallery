@@ -5,8 +5,8 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
-from safe_claw.models.config import SafetyConfig
-from safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.models.config import SafetyConfig
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
 
 logger = logging.getLogger(__name__)
 

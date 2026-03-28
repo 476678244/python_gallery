@@ -11,7 +11,7 @@ def test_tools_integration():
     
     try:
         # 模拟 SafeClawDeepAgent 初始化
-        from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent
+        from streamlit_ui.safe_claw.core.deepagents.official_integration import SafeClawDeepAgent
         
         # 创建模拟 LLM 服务
         class MockLLMService:
@@ -126,7 +126,7 @@ def test_skills_system():
     print("\n=== 测试技能系统 ===\n")
     
     try:
-        from safe_claw.core.skills import SkillDiscovery, get_skill_scanner
+        from streamlit_ui.safe_claw.core.skills import SkillDiscovery, get_skill_scanner
         
         # 初始化扫描器
         scanner = get_skill_scanner()

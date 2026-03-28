@@ -9,7 +9,7 @@ Reference: https://code.claude.com/docs/llms.txt
 """
 
 # Core manifest and loading
-from safe_claw.core.skills.manifest import (
+from streamlit_ui.safe_claw.core.skills.manifest import (
     SkillManifest,
     SkillLevel1,
     SkillLevel2,
@@ -20,26 +20,26 @@ from safe_claw.core.skills.manifest import (
     parse_skill_md,
 )
 
-from safe_claw.core.skills.loader import (
+from streamlit_ui.safe_claw.core.skills.loader import (
     SkillLoader,
     LoadContext,
     get_skill_loader,
 )
 
-from safe_claw.core.skills.executor import (
+from streamlit_ui.safe_claw.core.skills.executor import (
     SkillExecutor,
     ExecutionContext,
     ToolPermissionManager,
 )
 
 # Scanning and discovery
-from safe_claw.core.skills.scanner import (
+from streamlit_ui.safe_claw.core.skills.scanner import (
     SkillScanner,
     SkillIndexEntry,
     get_skill_scanner,
 )
 
-from safe_claw.core.skills.matcher import (
+from streamlit_ui.safe_claw.core.skills.matcher import (
     SemanticMatcher,
     MatchResult,
     get_semantic_matcher,
@@ -47,7 +47,7 @@ from safe_claw.core.skills.matcher import (
     BM25,
 )
 
-from safe_claw.core.skills.discovery import (
+from streamlit_ui.safe_claw.core.skills.discovery import (
     SkillDiscovery,
     DiscoveryResult,
     DiscoveryLevel,
@@ -55,14 +55,14 @@ from safe_claw.core.skills.discovery import (
 )
 
 # Legacy support
-from safe_claw.core.skills.base_skill import (
+from streamlit_ui.safe_claw.core.skills.base_skill import (
     BaseSkill,
     FileSkill,
     CodeSkill,
     AnalysisSkill,
 )
 
-from safe_claw.core.skills.registry import (
+from streamlit_ui.safe_claw.core.skills.registry import (
     SkillRegistry,
     load_builtin_skills,
     load_skills_with_discovery,

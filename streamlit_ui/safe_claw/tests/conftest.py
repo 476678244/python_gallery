@@ -7,14 +7,14 @@ from pathlib import Path
 from unittest.mock import Mock, MagicMock
 import json
 
-from safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
-from safe_claw.services.llm_gateway import LLMService
-from safe_claw.core.memory.manager import MemoryManager
-from safe_claw.core.safety.checker import SafetyChecker
-from safe_claw.services.session_service import SessionService
-from safe_claw.services.config_service import ConfigService
-from safe_claw.core.skills.registry import SkillRegistry
-from safe_claw.core.graph.builder import SafeClawGraphBuilder
+from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig, SafetyConfig, MemoryConfig
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+from streamlit_ui.safe_claw.core.safety.checker import SafetyChecker
+from streamlit_ui.safe_claw.services.session_service import SessionService
+from streamlit_ui.safe_claw.services.config_service import ConfigService
+from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
+from streamlit_ui.safe_claw.core.graph.builder import SafeClawGraphBuilder
 
 @pytest.fixture
 def temp_workspace():

@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Any, Optional, Type
-from safe_claw.core.skills.base_skill import BaseSkill
+from streamlit_ui.safe_claw.core.skills.base_skill import BaseSkill
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +169,7 @@ def load_builtin_skills() -> SkillRegistry:
     
     # Load built-in skills (hot cache)
     try:
-        from safe_claw.core.skills.built_in.file_ops import (
+        from streamlit_ui.safe_claw.core.skills.built_in.file_ops import (
             ReadFileSkill, WriteFileSkill, ListFilesSkill,
             DeleteFileSkill, CreateDirectorySkill
         )
@@ -179,7 +179,7 @@ def load_builtin_skills() -> SkillRegistry:
         registry.register_skill(DeleteFileSkill())
         registry.register_skill(CreateDirectorySkill())
         
-        from safe_claw.core.skills.built_in.code_analyzer import (
+        from streamlit_ui.safe_claw.core.skills.built_in.code_analyzer import (
             AnalyzeCodeSkill, CodeQualitySkill, CodeFormatterSkill
         )
         registry.register_skill(AnalyzeCodeSkill())
@@ -203,7 +203,7 @@ def load_skills_with_discovery(query: str = None) -> tuple[SkillRegistry, Any]:
     Returns:
         (SkillRegistry, DiscoveryResult) - registry and discovery result
     """
-    from safe_claw.core.skills.discovery import SkillDiscovery, DiscoveryResult
+    from streamlit_ui.safe_claw.core.skills.discovery import SkillDiscovery, DiscoveryResult
     
     # Start with built-in skills
     registry = load_builtin_skills()
@@ -226,7 +226,7 @@ def auto_discover_skill(registry: SkillRegistry, query: str) -> Any:
     This is the main entry point for lazy skill discovery.
     Example: auto_discover_skill(registry, "parse csv file")
     """
-    from safe_claw.core.skills.discovery import SkillDiscovery
+    from streamlit_ui.safe_claw.core.skills.discovery import SkillDiscovery
     
     discovery = SkillDiscovery(registry)
     result = discovery.find_skill(query)

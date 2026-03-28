@@ -15,11 +15,11 @@ from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass
 
-from safe_claw.core.skills.scanner import SkillScanner, SkillIndexEntry, get_skill_scanner
-from safe_claw.core.skills.matcher import SemanticMatcher, MatchResult, get_semantic_matcher
-from safe_claw.core.skills.manifest import SkillManifest
-from safe_claw.core.skills.loader import SkillLoader, LoadContext
-from safe_claw.core.skills.executor import SkillExecutor, ExecutionContext
+from streamlit_ui.safe_claw.core.skills.scanner import SkillScanner, SkillIndexEntry, get_skill_scanner
+from streamlit_ui.safe_claw.core.skills.matcher import SemanticMatcher, MatchResult, get_semantic_matcher
+from streamlit_ui.safe_claw.core.skills.manifest import SkillManifest
+from streamlit_ui.safe_claw.core.skills.loader import SkillLoader, LoadContext
+from streamlit_ui.safe_claw.core.skills.executor import SkillExecutor, ExecutionContext
 
 logger = logging.getLogger(__name__)
 

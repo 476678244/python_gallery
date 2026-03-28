@@ -7,12 +7,12 @@ from datetime import datetime
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from safe_claw.core.graph.state import SafeClawState
-from safe_claw.core.agents.router_agent import RouterAgent
-from safe_claw.core.agents.chat_agent import ChatAgent
-from safe_claw.core.agents.memory_agent import MemoryAgent
-from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
-from safe_claw.services.llm_gateway import LLMService
+from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.safe_claw.core.agents.router_agent import RouterAgent
+from streamlit_ui.safe_claw.core.agents.chat_agent import ChatAgent
+from streamlit_ui.safe_claw.core.agents.memory_agent import MemoryAgent
+from streamlit_ui.safe_claw.core.deepagents.official_integration import SafeClawDeepAgent, DeepAgentFactory
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService
 
 logger = logging.getLogger(__name__)
 

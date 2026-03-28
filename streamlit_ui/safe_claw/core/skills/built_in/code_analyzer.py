@@ -5,7 +5,7 @@ import re
 from typing import Dict, Any, List, Optional
 import logging
 
-from safe_claw.core.skills.base_skill import CodeSkill
+from streamlit_ui.safe_claw.core.skills.base_skill import CodeSkill
 
 logger = logging.getLogger(__name__)
 

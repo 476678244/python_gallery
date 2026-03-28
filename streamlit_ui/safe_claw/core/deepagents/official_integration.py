@@ -12,8 +12,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
 
 from deepagents import create_deep_agent
-from safe_claw.services.llm_gateway import LLMService, LLMConfig
-from safe_claw.core.skills import (
+from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
+from streamlit_ui.safe_claw.core.skills import (
     SkillDiscovery, SkillScanner, SkillExecutor,
     discover_skill, get_skill_scanner
 )

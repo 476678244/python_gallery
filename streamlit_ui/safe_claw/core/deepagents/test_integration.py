@@ -5,8 +5,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from safe_claw.core.skills import SkillDiscovery, get_skill_scanner
-from safe_claw.core.deepagents.official_integration import SafeClawDeepAgent
+from streamlit_ui.safe_claw.core.skills import SkillDiscovery, get_skill_scanner
+from streamlit_ui.safe_claw.core.deepagents.official_integration import SafeClawDeepAgent
 
 def test_skills_discovery():
     """Test skills discovery system"""

@@ -4,8 +4,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from safe_claw.core.skills.registry import SkillRegistry
-from safe_claw.core.skills.base_skill import BaseSkill
+from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
+from streamlit_ui.safe_claw.core.skills.base_skill import BaseSkill
 
 def render_skill_manager(skill_registry: SkillRegistry):
     """Render skill management interface"""

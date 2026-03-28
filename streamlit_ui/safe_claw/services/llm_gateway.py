@@ -8,7 +8,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-from safe_claw.models.config import LLMConfig
+from streamlit_ui.safe_claw.models.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 

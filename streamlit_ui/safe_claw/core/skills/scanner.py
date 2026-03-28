@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass, asdict
 
-from safe_claw.core.skills.manifest import SkillLevel1, SkillManifest
-from safe_claw.core.skills.loader import SkillLoader
+from streamlit_ui.safe_claw.core.skills.manifest import SkillLevel1, SkillManifest
+from streamlit_ui.safe_claw.core.skills.loader import SkillLoader
 
 logger = logging.getLogger(__name__)
 

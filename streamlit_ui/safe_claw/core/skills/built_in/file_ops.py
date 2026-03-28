@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 import logging
 
-from safe_claw.core.skills.base_skill import FileSkill
+from streamlit_ui.safe_claw.core.skills.base_skill import FileSkill
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ def test_tools_creation():
     
     try:
         # 模拟 SafeClawDeepAgent 的工具创建部分
-        from safe_claw.core.skills import SkillDiscovery, get_skill_scanner
+        from streamlit_ui.safe_claw.core.skills import SkillDiscovery, get_skill_scanner
         from langchain_core.tools import tool
         
         # 初始化技能系统

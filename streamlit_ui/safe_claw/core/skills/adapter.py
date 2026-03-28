@@ -5,8 +5,8 @@ from typing import Dict, Any, List, Optional, Callable
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from safe_claw.core.skills.registry import SkillRegistry
-from safe_claw.core.skills.base_skill import BaseSkill
+from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
+from streamlit_ui.safe_claw.core.skills.base_skill import BaseSkill
 
 logger = logging.getLogger(__name__)
 

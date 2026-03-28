@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Tuple, Optional, Union
 from collections import Counter
 from dataclasses import dataclass
 
-from safe_claw.core.skills.scanner import SkillIndexEntry
+from streamlit_ui.safe_claw.core.skills.scanner import SkillIndexEntry
 
 logger = logging.getLogger(__name__)
 
