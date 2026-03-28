@@ -151,7 +151,7 @@ def initialize_session_state():
         if 'current_graph' not in st.session_state:
             try:
                 if st.session_state.graph_builder:
-                    st.session_state.current_graph = st.session_state.graph_builder.create_graph("advanced")
+                    st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
                     logger.info("✅ Current graph created successfully")
                 else:
                     st.session_state.current_graph = None

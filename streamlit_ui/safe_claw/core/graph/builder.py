@@ -294,22 +294,13 @@ class SafeClawGraphBuilder:
     def get_graph_info(self) -> Dict[str, Any]:
         """Get information about available graphs"""
         return {
-            "simple_chat": "Basic chat-only workflow",
-            "deep_agent": "Official DeepAgent workflow with planning and sub-agents",
-            "multi_agent": "Multi-agent workflow with routing",
-            "advanced": "Advanced workflow with memory and safety"
+            "deep_agent": "Official DeepAgent workflow with planning and sub-agents"
         }
     
-    def create_graph(self, graph_type: str = "advanced") -> StateGraph:
+    def create_graph(self, graph_type: str = "deep_agent") -> StateGraph:
         """Create a graph of the specified type"""
-        if graph_type == "simple_chat":
-            return self.build_simple_chat_graph()
-        elif graph_type == "deep_agent":
+        if graph_type == "deep_agent":
             return self.build_deep_agent_graph()
-        elif graph_type == "multi_agent":
-            return self.build_multi_agent_graph()
-        elif graph_type == "advanced":
-            return self.build_advanced_graph()
         else:
             raise ValueError(f"Unknown graph type: {graph_type}")
     

@@ -217,7 +217,7 @@ def render():
                 )
                 
                 # Recreate graph
-                st.session_state.current_graph = st.session_state.graph_builder.create_graph("advanced")
+                st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
                 
                 st.success("✅ Configuration saved and services reinitialized!")
                 
