@@ -227,13 +227,23 @@ class SkillScanner:
             load_l2: Load Level 2 (SKILL.md body content)
             scan_l3: Scan Level 3 (supporting file list)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # DEBUG: 记录manifest获取开始
+        logger.info(f"🔍 DEBUG: scanner.get_manifest 开始: {skill_name}")
+        logger.info(f"🔍 DEBUG: load_l2={load_l2}, scan_l3={scan_l3}")
+        
         # Check cache
         if skill_name in self._manifest_cache:
             manifest = self._manifest_cache[skill_name]
+            logger.info(f"🔍 DEBUG: 从缓存获取manifest: {skill_name}")
             # Load additional levels if requested
             if load_l2 and not manifest.level2_loaded:
+                logger.info(f"🔍 DEBUG: 开始加载L2内容...")
                 self._load_level2(manifest)
             if scan_l3 and not manifest.level3_scanned:
+                logger.info(f"🔍 DEBUG: 开始扫描L3文件...")
                 self._scan_level3(manifest)
             return manifest
         
@@ -259,11 +269,25 @@ class SkillScanner:
     
     def _load_level2(self, manifest: SkillManifest) -> bool:
         """Load Level 2 content for a manifest"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🔍 DEBUG: _load_level2 开始读取SKILL.md: {manifest.path}")
         level2 = self._loader.load_level2(manifest.path)
         if level2:
             manifest.level2 = level2
             manifest.level2_loaded = True
+            
+            # DEBUG: 记录实际加载的内容大小
+            if hasattr(level2, 'description') and level2.description:
+                desc_length = len(level2.description)
+                logger.info(f"🔍 DEBUG: L2描述长度: {desc_length} 字符")
+                logger.info(f"🔍 DEBUG: L2估算tokens: {desc_length // 4}")
+            
+            logger.info(f"🔍 DEBUG: _load_level2 完成: {manifest.path}")
             return True
+        else:
+            logger.error(f"🔍 DEBUG: _load_level2 失败: {manifest.path}")
         return False
     
     def _scan_level3(self, manifest: SkillManifest) -> bool:

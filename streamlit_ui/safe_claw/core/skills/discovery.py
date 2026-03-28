@@ -132,22 +132,39 @@ class SkillDiscovery:
     def _load_and_trigger(self, skill_name: str, query: str, arguments: List[str] = None,
                          session_id: Optional[str] = None) -> Optional[DiscoveryResult]:
         """Load L2 and trigger skill execution"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # DEBUG: 记录动态加载开始
+        logger.info(f"🔍 DEBUG: _load_and_trigger 开始加载skill: {skill_name}")
+        logger.info(f"🔍 DEBUG: 准备加载L2 manifest和扫描L3文件...")
+        
         manifest = self.scanner.get_manifest(skill_name, load_l2=True, scan_l3=True)
         if not manifest:
+            logger.error(f"🔍 DEBUG: 加载manifest失败: {skill_name}")
             return None
         
+        # DEBUG: 记录manifest信息
+        if hasattr(manifest, 'description') and manifest.description:
+            desc_length = len(manifest.description)
+            logger.info(f"🔍 DEBUG: Skill描述长度: {desc_length} 字符")
+            logger.info(f"🔍 DEBUG: 估算描述tokens: {desc_length // 4}")
+        
+        logger.info(f"🔍 DEBUG: 准备执行skill: {skill_name}")
         context = ExecutionContext(
             session_id=session_id,
             arguments=arguments or [],
             working_dir=Path.cwd()
         )
         
+        logger.info(f"🔍 DEBUG: 调用executor.execute...")
         execution_result = self.executor.execute(
             manifest=manifest,
             arguments=arguments or [],
             session_id=session_id,
             working_dir=Path.cwd()
         )
+        logger.info(f"🔍 DEBUG: executor.execute 完成")
         
         return DiscoveryResult(
             skill_name=skill_name,
@@ -206,11 +223,21 @@ class SkillDiscovery:
                    arguments: List[str] = None, session_id: Optional[str] = None,
                    auto_trigger: bool = False) -> DiscoveryResult:
         """Main discovery method - progressive disclosure"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # DEBUG: 记录skill发现开始
+        logger.info(f"🔍 DEBUG: SkillDiscovery.find_skill 开始")
+        logger.info(f"🔍 DEBUG: 查询: '{query}'")
+        logger.info(f"🔍 DEBUG: 自动触发: {auto_trigger}")
+        
         # Exact match by name
         if query.startswith("/"):
             skill_name = query[1:].split()[0]
             if skill_name in self.scanner.index:
+                logger.info(f"🔍 DEBUG: 精确匹配skill: {skill_name}")
                 if auto_trigger:
+                    logger.info(f"🔍 DEBUG: 准备加载并触发skill: {skill_name}")
                     return self._load_and_trigger(skill_name, query, arguments, session_id)
                 else:
                     return DiscoveryResult(

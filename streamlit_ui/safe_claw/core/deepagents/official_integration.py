@@ -47,10 +47,23 @@ class SafeClawDeepAgent:
             tools = self._get_safe_claw_tools()
             skills_paths = self._get_skills_paths()
             
+            # DEBUG: 详细记录skills准备过程
+            logger.info(f"🔍 DEBUG: 准备传递给create_deep_agent的数据:")
+            logger.info(f"🔍 DEBUG: 工具数量: {len(tools)}")
+            logger.info(f"🔍 DEBUG: Skills路径数量: {len(skills_paths)}")
+            logger.info(f"🔍 DEBUG: Skills路径列表: {skills_paths}")
+            
+            # 计算预估的token数量
+            system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            prompt_tokens = len(system_prompt.split()) * 1.3  # 粗略估算
+            logger.info(f"🔍 DEBUG: 系统prompt约 {prompt_tokens:.0f} tokens")
+            logger.info(f"🔍 DEBUG: 每个skill约 100-5000 tokens，总计约 {len(skills_paths) * 100}-{len(skills_paths) * 5000} tokens")
+            
             # Create DeepAgent with SafeClaw configuration
+            logger.info(f"🔍 DEBUG: 正在调用create_deep_agent...")
             self.deep_agent = create_deep_agent(
                 model=model,
-                system_prompt=self.config.get("system_prompt", self._get_default_prompt()),
+                system_prompt=system_prompt,
                 tools=tools,
                 skills=skills_paths  # Pass skills paths instead of names
             )
@@ -373,18 +386,40 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
     def invoke(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """Invoke DeepAgent with messages"""
         try:
-            # Convert SafeClaw message format to DeepAgent format
-            deep_agent_input = {"messages": messages}
+            # DEBUG: 记录输入消息
+            total_chars = sum(len(msg.get("content", "")) for msg in messages)
+            logger.info(f"🔍 DEBUG: DeepAgent.invoke 输入:")
+            logger.info(f"🔍 DEBUG: 消息数量: {len(messages)}")
+            logger.info(f"🔍 DEBUG: 总字符数: {total_chars}")
+            logger.info(f"🔍 DEBUG: 估算tokens: {total_chars // 4} (粗略估算: 1 token ≈ 4 chars)")
             
+            # Convert messages to single input string for DeepAgent
+            if messages:
+                user_content = messages[-1].get("content", "")  # Get last message as user input
+            else:
+                user_content = ""
+            
+            # Create execution context
+            from deepagents import ExecutionContext
+            context = ExecutionContext(
+                session_id="streamlit_session",
+                user_id="streamlit_user"
+            )
+            
+            logger.info(f"🔍 DEBUG: 准备调用 self.deep_agent.execute...")
             # Execute DeepAgent
-            result = self.deep_agent.invoke(deep_agent_input)
+            result = self.deep_agent.execute(user_content, context)
+            logger.info(f"🔍 DEBUG: self.deep_agent.execute 调用完成")
             
             # Convert result back to SafeClaw format
             return {
-                "content": result.get("content", ""),
-                "tool_calls": result.get("tool_calls", []),
-                "success": True,
-                "metadata": result.get("metadata", {})
+                "content": result.content if result.success else result.error_message,
+                "tool_calls": [],
+                "success": result.success,
+                "metadata": {
+                    "execution_time": result.execution_time,
+                    "error": result.error_message
+                }
             }
             
         except Exception as e:
@@ -399,13 +434,25 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
     def stream(self, messages: List[Dict[str, str]]):
         """Stream DeepAgent response"""
         try:
-            deep_agent_input = {"messages": messages}
+            # Convert messages to single input string for DeepAgent
+            if messages:
+                user_content = messages[-1].get("content", "")  # Get last message as user input
+            else:
+                user_content = ""
             
-            for chunk in self.deep_agent.stream(deep_agent_input):
+            # Create execution context
+            from deepagents import ExecutionContext
+            context = ExecutionContext(
+                session_id="streamlit_session",
+                user_id="streamlit_user"
+            )
+            
+            # Stream from DeepAgent
+            for chunk in self.deep_agent.stream(user_content, context):
                 yield {
-                    "content": chunk.get("content", ""),
-                    "type": chunk.get("type", "chunk"),
-                    "metadata": chunk.get("metadata", {})
+                    "content": chunk,
+                    "type": "chunk",
+                    "metadata": {}
                 }
                 
         except Exception as e:

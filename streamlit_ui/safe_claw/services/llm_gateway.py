@@ -13,6 +13,30 @@ from streamlit_ui.safe_claw.models.config import LLMConfig
 logger = logging.getLogger(__name__)
 
 
+def _debug_prompt(messages: List, call_type: str = "Invoke"):
+    """Debug function to log complete prompt content"""
+    logger.info(f"🔍 DEBUG: === LLM Gateway {call_type} 开始 ===")
+    logger.info(f"🔍 DEBUG: 消息数量: {len(messages)}")
+    
+    total_chars = 0
+    for i, msg in enumerate(messages):
+        msg_content = msg.content if hasattr(msg, 'content') else str(msg)
+        msg_type = msg.__class__.__name__ if hasattr(msg, '__class__') else type(msg).__name__
+        char_count = len(msg_content)
+        total_chars += char_count
+        
+        logger.info(f"🔍 DEBUG: 消息 {i+1} ({msg_type}): {char_count} 字符")
+        logger.info(f"🔍 DEBUG: 内容预览: {msg_content[:200]}...")
+        
+        # 如果是系统消息，记录完整内容
+        if hasattr(msg, '__class__') and 'System' in msg_type:
+            logger.info(f"🔍 DEBUG: 完整系统消息:\n{msg_content}")
+    
+    logger.info(f"🔍 DEBUG: 总字符数: {total_chars}")
+    logger.info(f"🔍 DEBUG: 估算tokens: {total_chars // 4}")
+    logger.info(f"🔍 DEBUG: === 开始{call_type}实际LLM ===")
+
+
 class BaseLLMGateway(ABC):
     """Abstract base class for LLM gateways"""
     
@@ -72,9 +96,16 @@ class OpenAIGateway(BaseLLMGateway):
         """Stream OpenAI response"""
         try:
             lc_messages = self._convert_messages(messages)
+            
+            # DEBUG: 记录完整的prompt内容
+            _debug_prompt(lc_messages, "Stream")
+            
             for chunk in self.llm.stream(lc_messages):
                 if chunk.content:
                     yield chunk.content
+                    
+            logger.info("🔍 DEBUG: === LLM Stream 完成 ===")
+                    
         except Exception as e:
             logger.error(f"OpenAI streaming error: {e}")
             yield f"Error: {str(e)}"
@@ -83,7 +114,15 @@ class OpenAIGateway(BaseLLMGateway):
         """Invoke OpenAI synchronously"""
         try:
             lc_messages = self._convert_messages(messages)
+            
+            # DEBUG: 记录完整的prompt内容
+            _debug_prompt(lc_messages, "Invoke")
+            
             response = self.llm.invoke(lc_messages)
+            
+            logger.info("🔍 DEBUG: === LLM调用完成 ===")
+            logger.info(f"🔍 DEBUG: 响应长度: {len(response.content)} 字符")
+            
             return response.content
         except Exception as e:
             logger.error(f"OpenAI invoke error: {e}")
