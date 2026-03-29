@@ -12,10 +12,33 @@ import logging
 from typing import Dict, Any
 import uuid
 from datetime import datetime
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Enable debug logging for external deepagents library and all its modules
+logging.getLogger('deepagents').setLevel(logging.DEBUG)
+logging.getLogger('deepagents.*').setLevel(logging.DEBUG)
+
+# Also enable debug for all related libraries to see deepagents internal logs
+logging.getLogger('langchain').setLevel(logging.DEBUG)
+logging.getLogger('langgraph').setLevel(logging.DEBUG)
+logging.getLogger('langchain_core').setLevel(logging.DEBUG)
+
+# Set root logger to DEBUG to capture everything
+logging.getLogger().setLevel(logging.DEBUG)
+
+# Enable DeepAgents debug logging if environment variable is set
+if os.getenv('DEEPAGENTS_DEBUG', 'false').lower() == 'true':
+    try:
+        from streamlit_ui.safe_claw.deepagents_external_debug import setup_external_deepagents_debug, quick_debug_enable
+        setup_external_deepagents_debug()
+        quick_debug_enable()
+        logger.info("External DeepAgents debug logging enabled")
+    except ImportError as e:
+        logger.warning(f"Could not enable external DeepAgents debug logging: {e}")
 
 # Import SafeClaw components
 from streamlit_ui.safe_claw.models.config import SafeClawConfig, LLMConfig
