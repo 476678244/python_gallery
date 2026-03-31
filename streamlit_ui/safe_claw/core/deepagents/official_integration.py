@@ -8,10 +8,14 @@ Integrates with the new 3-level progressive disclosure skills system:
 
 from typing import Dict, Any, Optional, List
 import logging
+import json
+from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from deepagents import create_deep_agent
+from deepagents.graph import AgentMiddleware
 from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
 from streamlit_ui.safe_claw.core.skills import (
     SkillDiscovery, SkillScanner, SkillExecutor,
@@ -19,6 +23,127 @@ from streamlit_ui.safe_claw.core.skills import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class PromptLoggerMiddleware(AgentMiddleware):
+    """Custom middleware to capture and log realtime prompts sent to LLM"""
+    
+    def __init__(self, log_file: Optional[str] = None, print_to_console: bool = True):
+        self.log_file = log_file
+        self.print_to_console = print_to_console
+        self.prompt_count = 0
+        
+    def before_model(self, state, runtime):
+        """Called before the model is invoked - captures the prompt"""
+        self.prompt_count += 1
+        
+        # Extract messages from state
+        messages = state.get("messages", [])
+        if not messages:
+            return state
+            
+        # Format the prompt for display (handle both dict and LangChain message objects)
+        prompt_text = self._format_prompt(messages)
+        
+        # Create log entry
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "prompt_count": self.prompt_count,
+            "messages": self._serialize_messages(messages),
+            "formatted_prompt": prompt_text,
+            "token_estimate": len(prompt_text.split()) * 1.3  # Rough estimate
+        }
+        
+        # Log to console
+        if self.print_to_console:
+            print(f"\n{'='*80}")
+            print(f"🔍 PROMPT #{self.prompt_count} - {datetime.now().strftime('%H:%M:%S')}")
+            print(f"📊 Estimated tokens: {log_entry['token_estimate']:.0f}")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
+            
+        # Log to file if specified
+        if self.log_file:
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_entry, indent=2, ensure_ascii=False) + "\n")
+            except Exception as e:
+                logger.error(f"Failed to write prompt log to file: {e}")
+        
+        # Log using standard logger
+        logger.info(f"🔍 PROMPT #{self.prompt_count}: {log_entry['token_estimate']:.0f} tokens, {len(messages)} messages")
+        
+        return state
+    
+    def _serialize_messages(self, messages: List) -> List[Dict]:
+        """Serialize messages (both dict and LangChain objects) to dict format"""
+        serialized = []
+        for msg in messages:
+            if hasattr(msg, 'dict'):  # LangChain message object
+                # Convert LangChain message to dict
+                msg_dict = msg.dict()
+                # Simplify the structure for logging
+                serialized.append({
+                    "role": self._get_role_from_message(msg),
+                    "content": msg.content
+                })
+            elif isinstance(msg, dict):  # Already a dict
+                serialized.append(msg)
+            else:
+                # Fallback for unknown message types
+                serialized.append({
+                    "role": "unknown",
+                    "content": str(msg)
+                })
+        return serialized
+    
+    def _get_role_from_message(self, msg) -> str:
+        """Extract role from LangChain message object"""
+        msg_type = type(msg).__name__.lower()
+        if "human" in msg_type:
+            return "user"
+        elif "ai" in msg_type or "assistant" in msg_type:
+            return "assistant"
+        elif "system" in msg_type:
+            return "system"
+        elif "tool" in msg_type or "function" in msg_type:
+            return "tool"
+        else:
+            return "unknown"
+    
+    def _format_prompt(self, messages: List) -> str:
+        """Format messages into a readable prompt string (handles both dict and LangChain objects)"""
+        formatted_parts = []
+        
+        for msg in messages:
+            if hasattr(msg, 'content'):  # LangChain message object
+                role = self._get_role_from_message(msg)
+                content = msg.content
+                tool_name = getattr(msg, 'name', None)
+            elif isinstance(msg, dict):  # Dict message
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                tool_name = msg.get("name")
+            else:
+                role = "unknown"
+                content = str(msg)
+                tool_name = None
+            
+            # Format based on role
+            if role == "system":
+                formatted_parts.append(f"🔧 SYSTEM:\n{content}")
+            elif role == "user":
+                formatted_parts.append(f"👤 USER:\n{content}")
+            elif role == "assistant":
+                formatted_parts.append(f"🤖 ASSISTANT:\n{content}")
+            elif role == "tool":
+                tool_name = tool_name or "unknown_tool"
+                formatted_parts.append(f"🔧 TOOL ({tool_name}):\n{content}")
+            else:
+                formatted_parts.append(f"📝 {role}:\n{content}")
+        
+        return "\n\n".join(formatted_parts)
 
 
 class SafeClawDeepAgent:
@@ -34,6 +159,18 @@ class SafeClawDeepAgent:
         self.skill_discovery = SkillDiscovery(self.skill_scanner)
         self.skill_executor = SkillExecutor()
         self._skill_tools_cache: Dict[str, Any] = {}
+        
+        # Initialize prompt logger middleware
+        prompt_log_file = config.get("prompt_log_file") if config else None
+        print_prompts = config.get("print_prompts", True) if config else True
+        self.prompt_logger = PromptLoggerMiddleware(
+            log_file=prompt_log_file, 
+            print_to_console=print_prompts
+        )
+        
+        # Context length monitoring
+        self.max_context_length = config.get("max_context_length", 8192) if config else 8192
+        self.system_prompt_limit = config.get("system_prompt_limit", 4096) if config else 4096
         
         self._initialize_agent()
     
@@ -55,9 +192,39 @@ class SafeClawDeepAgent:
             
             # 计算预估的token数量
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
-            prompt_tokens = len(system_prompt.split()) * 1.3  # 粗略估算
+            
+            # Estimate tokens for each component
+            prompt_tokens = len(system_prompt.split()) * 1.3  # System prompt
+            skills_tokens = len(skills_paths) * 100  # Level 1 metadata only
+            tools_tokens = self._estimate_tools_tokens(tools)  # Tools descriptions
+            total_estimated = prompt_tokens + skills_tokens + tools_tokens
+            
             logger.info(f"🔍 DEBUG: 系统prompt约 {prompt_tokens:.0f} tokens")
-            logger.info(f"🔍 DEBUG: 每个skill约 100-5000 tokens，总计约 {len(skills_paths) * 100}-{len(skills_paths) * 5000} tokens")
+            logger.info(f"🔍 DEBUG: Skills metadata约 {skills_tokens} tokens (Level 1 only)")
+            logger.info(f"🔍 DEBUG: Tools约 {tools_tokens} tokens")
+            logger.info(f"🔍 DEBUG: 预估总计: {total_estimated:.0f} tokens")
+            logger.info(f"🔍 DEBUG: 上下文限制: {self.max_context_length} tokens")
+            
+            # Context length warning
+            if total_estimated > self.system_prompt_limit:
+                logger.warning(f"⚠️ CONTEXT LENGTH WARNING: Estimated {total_estimated:.0f} tokens exceeds limit {self.system_prompt_limit}")
+                logger.warning(f"⚠️ Consider reducing skills/tools loading or increasing context length")
+                
+                # Implement selective skills loading
+                if len(skills_paths) > 15:  # Further reduce skills limit due to tools
+                    logger.warning(f"🔧 Limiting skills from {len(skills_paths)} to 15 to fit context (including tools)")
+                    skills_paths = skills_paths[:15]
+                    skills_tokens = len(skills_paths) * 100
+                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
+                    logger.info(f"🔧 New estimated total: {total_estimated:.0f} tokens")
+                    
+                # If still too large, consider reducing tools
+                if total_estimated > self.system_prompt_limit and len(tools) > 4:
+                    logger.warning(f"🔧 Limiting tools from {len(tools)} to 4 to fit context")
+                    tools = tools[:4]  # Keep only essential tools
+                    tools_tokens = self._estimate_tools_tokens(tools)
+                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
+                    logger.info(f"🔧 Final estimated total: {total_estimated:.0f} tokens")
             
             # Create DeepAgent with SafeClaw configuration
             logger.info(f"🔍 DEBUG: 正在调用create_deep_agent...")
@@ -65,7 +232,8 @@ class SafeClawDeepAgent:
                 model=model,
                 system_prompt=system_prompt,
                 tools=tools,
-                skills=skills_paths  # Pass skills paths instead of names
+                skills=skills_paths,  # Pass limited skills paths
+                middleware=[self.prompt_logger]  # Add prompt logging middleware
             )
             
             logger.info(f"Official DeepAgent initialized successfully with {len(tools)} tools and {len(skills_paths)} skills")
@@ -73,6 +241,26 @@ class SafeClawDeepAgent:
         except Exception as e:
             logger.error(f"Failed to initialize DeepAgent: {e}")
             raise
+    
+    def _estimate_tools_tokens(self, tools: List) -> int:
+        """Estimate tokens consumed by tools descriptions"""
+        total_tokens = 0
+        
+        for tool in tools:
+            if hasattr(tool, 'name') and hasattr(tool, 'description'):
+                # LangChain tool object
+                name_tokens = len(tool.name.split()) * 1.3
+                desc_tokens = len(tool.description.split()) * 1.3
+                total_tokens += name_tokens + desc_tokens
+            elif hasattr(tool, '__doc__'):
+                # Function-based tool
+                doc_tokens = len(str(tool.__doc__).split()) * 1.3 if tool.__doc__ else 0
+                total_tokens += doc_tokens
+            else:
+                # Default estimate for unknown tool types
+                total_tokens += 50  # Conservative estimate per tool
+        
+        return int(total_tokens)
     
     def _create_langchain_model(self):
         """Create LangChain model from LLMService config"""
@@ -398,15 +586,32 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             logger.info(f"🔍 DEBUG: 总字符数: {total_chars}")
             logger.info(f"🔍 DEBUG: 估算tokens: {total_chars // 4} (粗略估算: 1 token ≈ 4 chars)")
             
-            # Convert messages to single input string for DeepAgent
-            if messages:
-                user_content = messages[-1].get("content", "")  # Get last message as user input
-            else:
-                user_content = ""
+            # Convert messages to LangChain format for DeepAgent
+            langchain_messages = []
             
-            # Create state for LangGraph
+            # Add system prompt if available
+            system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            if system_prompt:
+                langchain_messages.append(SystemMessage(content=system_prompt))
+            
+            # Convert input messages to LangChain format
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    langchain_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    langchain_messages.append(AIMessage(content=content))
+                elif role == "system":
+                    langchain_messages.append(SystemMessage(content=content))
+                else:
+                    # Default to human message for unknown roles
+                    langchain_messages.append(HumanMessage(content=content))
+            
+            # Create state for LangGraph with proper message format
             state = {
-                "messages": [{"role": "user", "content": user_content}],
+                "messages": langchain_messages,
                 "session_id": "streamlit_session",
                 "user_id": "streamlit_user"
             }
@@ -415,6 +620,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             config = {"configurable": {"thread_id": "streamlit_session"}}
             
             logger.info(f"🔍 DEBUG: 准备调用 self.deep_agent.invoke...")
+            logger.info(f"🔍 DEBUG: LangChain消息数量: {len(langchain_messages)}")
             # Execute DeepAgent using LangGraph's invoke method
             result = self.deep_agent.invoke(state, config)
             logger.info(f"🔍 DEBUG: self.deep_agent.invoke 调用完成")
@@ -446,15 +652,32 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             return
         
         try:
-            # Convert messages to user content format
-            user_content = ""
-            for msg in messages:
-                if msg.get("role") == "user":
-                    user_content += msg.get("content", "") + "\n"
+            # Convert messages to LangChain format
+            langchain_messages = []
             
-            # Create state for LangGraph
+            # Add system prompt if available
+            system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            if system_prompt:
+                langchain_messages.append(SystemMessage(content=system_prompt))
+            
+            # Convert input messages to LangChain format
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    langchain_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    langchain_messages.append(AIMessage(content=content))
+                elif role == "system":
+                    langchain_messages.append(SystemMessage(content=content))
+                else:
+                    # Default to human message for unknown roles
+                    langchain_messages.append(HumanMessage(content=content))
+            
+            # Create state for LangGraph with proper message format
             state = {
-                "messages": [{"role": "user", "content": user_content}],
+                "messages": langchain_messages,
                 "session_id": "streamlit_session",
                 "user_id": "streamlit_user"
             }
