@@ -29,7 +29,8 @@ class SafetyConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Memory system configuration"""
     enable_vector_search: bool = False
-    active_memory_max: int = 20
+    max_active_memories: int = 20
+    memory_retention_days: int = 30
     dormant_wakeup_threshold: float = 0.6
     deep_memory_compression: str = "maximum"
 

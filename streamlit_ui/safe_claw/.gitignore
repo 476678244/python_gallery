@@ -130,7 +130,6 @@ dmypy.json
 
 # SafeClaw specific
 workspace/
-memory/
 logs/
 *.db
 *.sqlite
