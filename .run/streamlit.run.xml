@@ -17,7 +17,7 @@
     <option name="DEBUG_JUST_MY_CODE" value="false" />
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="streamlit" />
-    <option name="PARAMETERS" value="run streamlit_ui/app.py --server.port 8502 --server.headless false --logger.level debug" />
+    <option name="PARAMETERS" value="run streamlit_ui/app.py --server.port 8501 --server.headless false --logger.level debug" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-03-29T10:04:46.217499",
+  "prompt_count": 1,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello, this is a test to verify tools tokens calculation!"
+    }
+  ],
+  "formatted_prompt": "🔧 SYSTEM:\nYou are a helpful assistant.\n\n👤 USER:\nHello, this is a test to verify tools tokens calculation!",
+  "token_estimate": 24.7
+}

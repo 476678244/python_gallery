@@ -104,11 +104,35 @@ def render():
                 # Display assistant message container with streaming
                 with st.chat_message("assistant"):
                     response_placeholder = st.empty()
+                    thinking_placeholder = st.empty()
                     response_chunks = []
+                    full_response = ""
+                    thinking_content = []
+
                     for chunk in deep_agent.stream(messages):
-                        response_chunks.append(chunk.get("content", ""))
-                        response_placeholder.write("".join(response_chunks))
-                    response = "".join(response_chunks)
+                        # Check if this is a tool message
+                        if chunk.get("tool"):
+                            tool_name = chunk.get("tool")
+                            tool_content = chunk.get("content", "")
+
+                            # Display tool name as a component badge
+                            thinking_content.append({"tool_name": tool_name, "tool_content": tool_content})
+                            with thinking_placeholder.container():
+                                with st.expander("🤔 Thinking", expanded=True):
+                                    for item in thinking_content:
+                                        st.markdown(f"🔧 `{item['tool_name']}`")
+                                        st.text(item['tool_content'])
+                                        st.divider()
+                            continue
+                        
+                        # Handle regular content chunks
+                        chunk_content = chunk.get("content", "")
+                        if chunk_content:
+                            response_chunks.append(chunk_content)
+                            full_response += chunk_content
+                            response_placeholder.write(full_response)
+                    
+                    response = full_response
             else:
                 # Fallback to blocking call
                 with st.spinner("SafeClaw is thinking..."):

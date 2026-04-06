@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-03-29T09:56:06.097347",
+  "prompt_count": 1,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful AI assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello! This is a test message to verify prompt logging is working correctly."
+    },
+    {
+      "role": "assistant",
+      "content": "I understand! I'll help you test the prompt logging functionality."
+    },
+    {
+      "role": "tool",
+      "name": "test_tool",
+      "content": "Tool result: Success!"
+    }
+  ],
+  "formatted_prompt": "🔧 SYSTEM:\nYou are a helpful AI assistant.\n\n👤 USER:\nHello! This is a test message to verify prompt logging is working correctly.\n\n🤖 ASSISTANT:\nI understand! I'll help you test the prompt logging functionality.\n\n🔧 TOOL (test_tool):\nTool result: Success!",
+  "token_estimate": 53.300000000000004
+}
+{
+  "timestamp": "2026-03-29T09:56:16.761888",
+  "prompt_count": 1,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful AI assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello! This is a test message to verify prompt logging is working correctly."
+    },
+    {
+      "role": "assistant",
+      "content": "I understand! I'll help you test the prompt logging functionality."
+    },
+    {
+      "role": "tool",
+      "name": "test_tool",
+      "content": "Tool result: Success!"
+    }
+  ],
+  "formatted_prompt": "🔧 SYSTEM:\nYou are a helpful AI assistant.\n\n👤 USER:\nHello! This is a test message to verify prompt logging is working correctly.\n\n🤖 ASSISTANT:\nI understand! I'll help you test the prompt logging functionality.\n\n🔧 TOOL (test_tool):\nTool result: Success!",
+  "token_estimate": 53.300000000000004
+}

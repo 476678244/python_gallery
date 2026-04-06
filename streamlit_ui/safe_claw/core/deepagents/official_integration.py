@@ -628,6 +628,14 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             for chunk in self.deep_agent.stream(state, config):
                 # Extract content from chunk based on LangGraph's streaming format
                 if isinstance(chunk, dict):
+                    # If the chunk contains tool messages, yield tool info directly
+                    if "tools" in chunk:
+                        tool_messages = chunk.get("tools", {}).get("messages", [])
+                        for tool_msg in tool_messages:
+                            if hasattr(tool_msg, 'name') and hasattr(tool_msg, 'content'):
+                                yield {"tool": tool_msg.name, "content": tool_msg.content, "success": True}
+                        continue
+
                     chunk_str = str(chunk)
 
                     # Handle model middleware events - log but extract AIMessage content
