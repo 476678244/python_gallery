@@ -90,6 +90,7 @@ class SkillLoader:
         aliases = []
         disable_model_invocation = False
         user_invocable = True
+        auto_trigger = False
         
         if content.startswith("---"):
             parts = content.split("---", 2)
@@ -102,6 +103,7 @@ class SkillLoader:
                     aliases = fm.get("aliases", [])
                     disable_model_invocation = fm.get("disable_model_invocation", False)
                     user_invocable = fm.get("user_invocable", True)
+                    auto_trigger = fm.get("auto_trigger", False)
                     category = fm.get("category") or self._infer_category(path.parent, fm)
                 except yaml.YAMLError:
                     pass
@@ -125,6 +127,7 @@ class SkillLoader:
             aliases=aliases,
             disable_model_invocation=disable_model_invocation,
             user_invocable=user_invocable,
+            auto_trigger=auto_trigger,
         )
     
     def _load_l1_from_yaml(self, path: Path) -> Optional[SkillLevel1]:
@@ -141,6 +144,7 @@ class SkillLoader:
                 aliases=data.get("aliases", []),
                 disable_model_invocation=data.get("disable_model_invocation", False),
                 user_invocable=data.get("user_invocable", True),
+                auto_trigger=data.get("auto_trigger", False),
             )
         except Exception as e:
             logger.warning(f"Failed to parse {path}: {e}")

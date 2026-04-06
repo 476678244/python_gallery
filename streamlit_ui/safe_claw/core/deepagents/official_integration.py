@@ -581,73 +581,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             return []
 
     def invoke(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Invoke DeepAgent with messages"""
-        try:
-            # DEBUG: 记录输入消息
-            total_chars = sum(len(msg.get("content", "")) for msg in messages)
-            logger.info(f"🔍 DEBUG: DeepAgent.invoke 输入:")
-            logger.info(f"🔍 DEBUG: 消息数量: {len(messages)}")
-            logger.info(f"🔍 DEBUG: 总字符数: {total_chars}")
-            logger.info(f"🔍 DEBUG: 估算tokens: {total_chars // 4} (粗略估算: 1 token ≈ 4 chars)")
-
-            # Convert messages to LangChain format for DeepAgent
-            langchain_messages = []
-
-            # Add system prompt if available
-            system_prompt = self.config.get("system_prompt", self._get_default_prompt())
-            if system_prompt:
-                langchain_messages.append(SystemMessage(content=system_prompt))
-
-            # Convert input messages to LangChain format
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-
-                if role == "user":
-                    langchain_messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                elif role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                else:
-                    # Default to human message for unknown roles
-                    langchain_messages.append(HumanMessage(content=content))
-
-            # Create state for LangGraph with proper message format
-            state = {
-                "messages": langchain_messages,
-                "session_id": "streamlit_session",
-                "user_id": "streamlit_user"
-            }
-
-            # Configure execution
-            config = {"configurable": {"thread_id": "streamlit_session"}}
-
-            logger.info(f"🔍 DEBUG: 准备调用 self.deep_agent.invoke...")
-            logger.info(f"🔍 DEBUG: LangChain消息数量: {len(langchain_messages)}")
-            # Execute DeepAgent using LangGraph's invoke method
-            result = self.deep_agent.invoke(state, config)
-            logger.info(f"🔍 DEBUG: self.deep_agent.invoke 调用完成")
-
-            # Convert result back to SafeClaw format
-            return {
-                "content": result.get("response", str(result)),
-                "tool_calls": result.get("tool_calls", []),
-                "success": True,
-                "metadata": {
-                    "execution_time": result.get("execution_time", 0),
-                    "error": result.get("error")
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"DeepAgent invocation error: {e}")
-            return {
-                "content": f"Error: {str(e)}",
-                "tool_calls": [],
-                "success": False,
-                "metadata": {"error": str(e)}
-            }
+        pass
 
     def stream(self, messages: List[Dict[str, str]]):
         """Stream DeepAgent response"""
@@ -661,6 +595,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
 
             # Add system prompt if available
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            system_prompt = system_prompt + "\n\n" + "Be concise. No deep reasoning. /no_think"
             if system_prompt:
                 langchain_messages.append(SystemMessage(content=system_prompt))
 

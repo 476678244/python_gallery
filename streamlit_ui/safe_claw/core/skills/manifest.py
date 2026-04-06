@@ -141,6 +141,7 @@ class SkillLevel1:
     # Invocation control (from frontmatter)
     disable_model_invocation: bool = False
     user_invocable: bool = True
+    auto_trigger: bool = False
     
     # Quick match data
     tags: List[str] = field(default_factory=list)

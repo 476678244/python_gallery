@@ -35,6 +35,7 @@ class SkillIndexEntry:
     category: str
     disable_model_invocation: bool = False
     user_invocable: bool = True
+    auto_trigger: bool = False
     tags: List[str] = None
     aliases: List[str] = None
     
@@ -52,6 +53,7 @@ class SkillIndexEntry:
             "category": self.category,
             "disable_model_invocation": self.disable_model_invocation,
             "user_invocable": self.user_invocable,
+            "auto_trigger": self.auto_trigger,
             "tags": self.tags,
             "aliases": self.aliases,
         }
@@ -66,6 +68,7 @@ class SkillIndexEntry:
             category=level1.category,
             disable_model_invocation=level1.disable_model_invocation,
             user_invocable=level1.user_invocable,
+            auto_trigger=level1.auto_trigger,
             tags=level1.tags,
             aliases=level1.aliases,
         )
@@ -357,6 +360,7 @@ class SkillScanner:
                     category=entry_dict.get("category", "general"),
                     disable_model_invocation=entry_dict.get("disable_model_invocation", False),
                     user_invocable=entry_dict.get("user_invocable", True),
+                    auto_trigger=entry_dict.get("auto_trigger", False),
                     tags=entry_dict.get("tags", []),
                     aliases=entry_dict.get("aliases", []),
                 )
