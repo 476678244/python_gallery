@@ -111,7 +111,8 @@ def initialize_session_state():
                     base_url="http://192.168.50.30:1234/v1",
                     temperature=0.7,
                     max_tokens=2000,
-                    context_length=32768  # Match Qwen3-32B context length
+                    context_length=10000,  # Match Qwen3-32B context length
+                    show_thinking=False
                 )
             ),
         ]

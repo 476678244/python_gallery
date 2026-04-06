@@ -71,14 +71,25 @@ class OpenAIGateway(BaseLLMGateway):
     
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.llm = ChatOpenAI(
-            model=config.model,
-            api_key=config.api_key,
-            base_url=config.base_url,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            streaming=True
-        )
+        
+        # Model kwargs to disable thinking/reasoning mode for Qwen
+        model_kwargs = {
+            "model": config.model,
+            "api_key": config.api_key,
+            "base_url": config.base_url,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "streaming": True
+        }
+        
+        # Disable thinking mode for Qwen models
+        if "qwen" in config.model.lower():
+            model_kwargs["model_kwargs"] = {
+                "reasoning_mode": "disabled",
+                "thinking_mode": "disabled"
+            }
+        
+        self.llm = ChatOpenAI(**model_kwargs)
     
     def _convert_messages(self, messages: List[Dict[str, str]]) -> List:
         """Convert message dicts to LangChain messages"""
