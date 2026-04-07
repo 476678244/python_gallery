@@ -103,11 +103,44 @@ def render():
                 
                 # Display assistant message container with streaming
                 with st.chat_message("assistant"):
-                    response_placeholder = st.empty()
+                    # Show thinking indicator immediately
                     thinking_placeholder = st.empty()
+                    with thinking_placeholder.container():
+                        st.markdown("""
+                        <div style="padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                            <div style="display: flex; align-items: center; color: white;">
+                                <div style="margin-right: 0.5rem;">🤔</div>
+                                <div>
+                                    <div style="font-weight: bold;">SafeClaw is thinking...</div>
+                                    <div style="font-size: 0.8rem; opacity: 0.8;">Analyzing your request and preparing response</div>
+                                </div>
+                                <div style="margin-left: auto;">
+                                    <div class="thinking-dots">
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both;">.</span>
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both; animation-delay: 0.2s;">.</span>
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both; animation-delay: 0.4s;">.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <style>
+                        .thinking-dots span {
+                            display: inline-block;
+                            font-size: 1.5rem;
+                            margin-left: 0.2rem;
+                        }
+                        @keyframes thinking {
+                            0%, 60%, 100% { opacity: 0.3; transform: scale(1); }
+                            30% { opacity: 1; transform: scale(1.2); }
+                        }
+                        </style>
+                        """, unsafe_allow_html=True)
+                    
+                    response_placeholder = st.empty()
                     response_chunks = []
                     full_response = ""
                     thinking_content = []
+                    has_started_thinking = False
 
                     for chunk in deep_agent.stream(messages):
                         # Check if this is a tool message
@@ -115,30 +148,111 @@ def render():
                             tool_name = chunk.get("tool")
                             tool_content = chunk.get("content", "")
 
-                            # Display tool name as a component badge
-                            thinking_content.append({"tool_name": tool_name, "tool_content": tool_content})
-                            with thinking_placeholder.container():
-                                with st.expander("🤔 Thinking", expanded=True):
-                                    for item in thinking_content:
-                                        st.markdown(f"🔧 `{item['tool_name']}`")
-                                        st.text(item['tool_content'])
-                                        st.divider()
+                            # Update thinking indicator to show tool usage
+                            if not has_started_thinking:
+                                has_started_thinking = True
+                                thinking_content.append({"tool_name": tool_name, "tool_content": tool_content})
+                                with thinking_placeholder.container():
+                                    st.markdown("""
+                                    <div style="padding: 1rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                                        <div style="display: flex; align-items: center; color: white;">
+                                            <div style="margin-right: 0.5rem;">🔧</div>
+                                            <div>
+                                                <div style="font-weight: bold;">Using tools to help...</div>
+                                                <div style="font-size: 0.8rem; opacity: 0.8;">Processing with specialized capabilities</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    with st.expander("🤔 Agent Thinking Process", expanded=True):
+                                        for item in thinking_content:
+                                            st.markdown(f"🔧 **{item['tool_name']}**")
+                                            with st.container():
+                                                st.code(item['tool_content'], language=None)
+                                            st.divider()
+                            else:
+                                thinking_content.append({"tool_name": tool_name, "tool_content": tool_content})
+                                with thinking_placeholder.container():
+                                    st.markdown("""
+                                    <div style="padding: 1rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                                        <div style="display: flex; align-items: center; color: white;">
+                                            <div style="margin-right: 0.5rem;">🔧</div>
+                                            <div>
+                                                <div style="font-weight: bold;">Using tools to help...</div>
+                                                <div style="font-size: 0.8rem; opacity: 0.8;">Processing with specialized capabilities</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    with st.expander("🤔 Agent Thinking Process", expanded=True):
+                                        for item in thinking_content:
+                                            st.markdown(f"🔧 **{item['tool_name']}**")
+                                            with st.container():
+                                                st.code(item['tool_content'], language=None)
+                                            st.divider()
                             continue
                         
-                        # Handle regular content chunks
+                        # Handle regular content chunks - clear thinking indicator when response starts
                         chunk_content = chunk.get("content", "")
                         if chunk_content:
+                            if not has_started_thinking:
+                                # Clear the thinking indicator when actual response starts
+                                thinking_placeholder.empty()
+                                has_started_thinking = True
+                            
                             response_chunks.append(chunk_content)
                             full_response += chunk_content
                             response_placeholder.write(full_response)
                     
+                    # Clear thinking indicator if it's still showing
+                    if not has_started_thinking:
+                        thinking_placeholder.empty()
+                    
                     response = full_response
             else:
-                # Fallback to blocking call
-                with st.spinner("SafeClaw is thinking..."):
+                # Fallback to blocking call with enhanced thinking UI
+                with st.chat_message("assistant"):
+                    thinking_placeholder = st.empty()
+                    with thinking_placeholder.container():
+                        st.markdown("""
+                        <div style="padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                            <div style="display: flex; align-items: center; color: white;">
+                                <div style="margin-right: 0.5rem;">🤔</div>
+                                <div>
+                                    <div style="font-weight: bold;">SafeClaw is thinking...</div>
+                                    <div style="font-size: 0.8rem; opacity: 0.8;">Analyzing your request and preparing response</div>
+                                </div>
+                                <div style="margin-left: auto;">
+                                    <div class="thinking-dots">
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both;">.</span>
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both; animation-delay: 0.2s;">.</span>
+                                        <span style="animation: thinking 1.4s infinite ease-in-out both; animation-delay: 0.4s;">.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <style>
+                        .thinking-dots span {
+                            display: inline-block;
+                            font-size: 1.5rem;
+                            margin-left: 0.2rem;
+                        }
+                        @keyframes thinking {
+                            0%, 60%, 100% { opacity: 0.3; transform: scale(1); }
+                            30% { opacity: 1; transform: scale(1.2); }
+                        }
+                        </style>
+                        """, unsafe_allow_html=True)
+                    
+                    # Process the response
                     messages = [{"role": msg["role"], "content": msg["content"]} for msg in st.session_state.messages]
                     response = llm_service.invoke(messages) if llm_service else "I'm SafeClaw AI assistant running in demo mode. Please configure an LLM in Settings for full functionality."
-                    st.chat_message("assistant").write(response)
+                    
+                    # Clear thinking indicator and show response
+                    thinking_placeholder.empty()
+                    st.write(response)
             
             # Add assistant message to chat
             assistant_message = {
