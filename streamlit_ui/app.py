@@ -52,6 +52,40 @@ from streamlit_ui.safe_claw.core.safety.audit import AuditLogger
 # Page imports - import directly to avoid emoji filename issues
 import importlib
 
+# Define available models
+AVAILABLE_MODELS = {
+    "qwen3": {
+        "provider": "openai",
+        "model": "qwen3-32b",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 30000,
+        "show_thinking": False
+    },
+    "gpt_oss": {
+        "provider": "openai",
+        "model": "gpt-oss-20b",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 30000,
+        "show_thinking": False
+    },
+    "Qwen3.5-9B-VLM": {
+        "provider": "openai",
+        "model": "Qwen3.5-9B-VLM",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 262144,
+        "show_thinking": False
+    }
+}
+
 # Import pages dynamically
 def import_page(page_name):
     """Import a page module dynamically"""
@@ -61,7 +95,7 @@ def import_page(page_name):
         return None
 
 # Get page modules
-chat_module = import_page('00_💬_Chat')
+chat_module = import_page('00_Chat')
 memory_module = import_page('01_📚_Memory')
 settings_module = import_page('02_⚙️_Settings')
 stats_module = import_page('03_📊_Stats')
@@ -98,41 +132,28 @@ def initialize_session_state():
     else:
         logger.info(f"ℹ️ messages already exists: {len(st.session_state.messages)} messages")
     
+    # Initialize selected model if not set
+    if 'selected_model' not in st.session_state:
+        st.session_state.selected_model = "qwen3"
+    
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")
-        # Try multiple LLM configurations in order of preference
-        configs_to_try = [
-            # 1. LM Studio Local Server
-            SafeClawConfig(
-                llm=LLMConfig(
-                    provider="openai",
-                    model="qwen3-32b",
-                    api_key="lm-studio",
-                    base_url="http://192.168.50.30:1234/v1",
-                    temperature=0.7,
-                    max_tokens=2000,
-                    context_length=10000,  # Match Qwen3-32B context length
-                    show_thinking=False
-                )
-            ),
-        ]
+        # Use the selected model from AVAILABLE_MODELS
+        model_key = st.session_state.selected_model
+        model_config = AVAILABLE_MODELS[model_key]
         
-        # Try each configuration until one works
-        for i, config in enumerate(configs_to_try):
-            try:
-                logger.info(f"🔍 Trying LLM config {i+1}: {config.llm.provider} - {config.llm.model}")
-                # Test if we can create LLM service
-                test_service = LLMService(config.llm)
-                st.session_state.safe_claw_config = config
-                st.session_state.llm_service = test_service
-                logger.info(f"✅ Successfully initialized with LLM config {i+1}")
-                break
-            except Exception as e:
-                logger.warning(f"❌ LLM config {i+1} failed: {e}")
-                if i == len(configs_to_try) - 1:  # Last attempt
-                    st.session_state.safe_claw_config = config
-                    st.session_state.llm_service = None
-                    st.error("⚠️ Could not initialize any LLM service. Please check your LLM configuration.")
+        try:
+            logger.info(f"🔍 Trying LLM config: {model_config['provider']} - {model_config['model']}")
+            config = SafeClawConfig(llm=LLMConfig(**model_config))
+            test_service = LLMService(config.llm)
+            st.session_state.safe_claw_config = config
+            st.session_state.llm_service = test_service
+            logger.info(f"✅ Successfully initialized with model: {model_key}")
+        except Exception as e:
+            logger.warning(f"❌ LLM config failed: {e}")
+            st.session_state.safe_claw_config = SafeClawConfig(llm=LLMConfig(**model_config))
+            st.session_state.llm_service = None
+            st.error("⚠️ Could not initialize LLM service. Please check your LLM configuration.")
     else:
         logger.info("ℹ️ safe_claw_config already exists")
     
@@ -263,7 +284,39 @@ def sidebar():
     with st.sidebar:
         st.title("🛡️ SafeClaw")
         
-        # Only Chat option
+        # Model selection
+        st.subheader("Model Selection")
+        if 'selected_model' not in st.session_state:
+            st.session_state.selected_model = "qwen3"
+        
+        selected_model = st.selectbox(
+            "Select Model",
+            options=list(AVAILABLE_MODELS.keys()),
+            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_model),
+            key="model_selector"
+        )
+        
+        # Update selected model if changed
+        if selected_model != st.session_state.selected_model:
+            st.session_state.selected_model = selected_model
+            # Reinitialize LLM service with new model
+            if 'safe_claw_config' in st.session_state:
+                model_config = AVAILABLE_MODELS[selected_model]
+                st.session_state.safe_claw_config.llm = LLMConfig(**model_config)
+                try:
+                    st.session_state.llm_service = LLMService(st.session_state.safe_claw_config.llm)
+                    st.success(f"✅ Switched to {selected_model}")
+                except Exception as e:
+                    st.error(f"❌ Failed to switch to {selected_model}: {e}")
+            st.rerun()
+        
+        # Display current model info
+        current_model = AVAILABLE_MODELS[st.session_state.selected_model]
+        st.caption(f"Current: {current_model['model']}")
+        
+        st.divider()
+        
+        # Chat options
         st.subheader("Chat")
         
         # Clear chat button
