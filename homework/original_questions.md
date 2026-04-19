@@ -1,32 +1,26 @@
-<div style="font-size: 18px;">
+<font size="+1">
+IV. Read and choose. (读一读，选择最恰当的答案，将字母代号写在括号内)
 
-###### I. Read and write. (连词成句并正确抄写，注意大小写变化、单词顺序和标点符号)
+(            ) 3. -- Can you skip rope? -- _________________________________________________________________________________
+A. Yes, I do.                B. I can skip rope.          C. No, we can't.
 
-**Given words:**
-```
-my, this, friend, Bob, is, ,, ., hes, great, !
-```
-____
-____
-____
-____
+II. Read and write (看图片，在横线上填入正确的单词，每线一词)
 
-##### II. Look and write (根据所给图片，填入所缺单词完成句子，每线一词)
+1. The boy ___________________________________________________________________________ the fruit with the girl.
+2. Look. There are two little ___________________________________________________________________________.
+5. The children can play a lot of ___________________________________________________________________________ in the park.
 
-1. I am so ______________ today. I want to have a rest.
+III. Read and judge (读一读，判断划线字母发音，用 T/F 表示)
 
+(              ) 3. <u>**ch**</u>ef                       wat<u>**ch**</u>
 
-###### III. Read and judge (读一读，判断所给单词划线部分字母发音是否一致，用 T/F 表示)
+IV. Read and choose (选择合适的答案，将字母代号写在括号内)
 
-(         ) 2. **e**xcited            ups**e**t
+(             ) 1. Thank you for **_________________________________________________________________________________** me.
+A. help                        B. helps               C. helping
 
+VII. Read and fill (读一读，用 can/have/be 动词的适当形式填空)
 
-###### V. Read and write (读一读，用所给单词的适当形式填空)
-4. Both Peter and I like ______________________________ (skate). We often _______________________________(skate) together.
-
-
-###### VI. Read and fill in the blanks. (阅读下列短文，根据所给首字母完成填空)
-
-Hello, everyone. We have many nice jobs around us. A **t**________ works at school. She can talk **w**_____________ the kids and help them learn new things. A doctor works in a hospital. He helps sick people. A police officer works in a police station. He keeps us safe (安全的). A cook works in a restaurant. He gives us nice food. I like singing and dancing. So I want to be a singer when I grow up (长大).
-
-</div>
+3. **_________________________________________________________________________________** we be good friends now?
+4. -- _______________________________________________________________________________ you a little mouse? -- No, I _______________________________________________________________________________ a big mouse.
+</font> 
