@@ -1,3 +1,5 @@
+<div style="font-size: 18px;">
+
 ###### I. Read and write. (连词成句并正确抄写，注意大小写变化、单词顺序和标点符号)
 
 **Given words:**
@@ -26,3 +28,5 @@ ____
 ###### VI. Read and fill in the blanks. (阅读下列短文，根据所给首字母完成填空)
 
 Hello, everyone. We have many nice jobs around us. A **t**________ works at school. She can talk **w**_____________ the kids and help them learn new things. A doctor works in a hospital. He helps sick people. A police officer works in a police station. He keeps us safe (安全的). A cook works in a restaurant. He gives us nice food. I like singing and dancing. So I want to be a singer when I grow up (长大).
+
+</div>
