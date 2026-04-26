@@ -5,132 +5,26 @@ Handles:
 - Subagent execution (context: fork)
 - Variable substitution at execution time
 - Permission validation
+- Extraction and execution of bash commands from SKILL.md
 """
 
 import re
 import yaml
 import logging
-from enum import Enum
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, Callable, Tuple
 from dataclasses import dataclass, field
 
 from streamlit_ui.safe_claw.core.skills.manifest import SkillManifest, SkillContext, SkillFrontmatter
 from streamlit_ui.safe_claw.core.skills.loader import LoadContext, SkillLoader
+from streamlit_ui.safe_claw.core.permissions import ToolPermissionManager
 
 logger = logging.getLogger(__name__)
 
 
-class ToolPermission(Enum):
-    """Permission levels for tools"""
-    ALLOWED = "allowed"
-    DENIED = "denied"
-    REQUIRES_CONFIRMATION = "confirmation"
-
-
-@dataclass
-class ToolPermissionRule:
-    """Single tool permission rule"""
-    pattern: str  # Tool name or pattern with *
-    permission: ToolPermission
-    
-    def matches(self, tool_name: str) -> bool:
-        """Check if rule matches a tool name"""
-        if self.pattern.endswith("*"):
-            prefix = self.pattern[:-1]
-            return tool_name.startswith(prefix)
-        return tool_name == self.pattern
-
-
-class ToolPermissionManager:
-    """Manages tool permissions for skills
-    
-    Parses allowed-tools from frontmatter:
-    - Tool names: "Read", "Grep", "Glob"
-    - Patterns: "Bash(git *)" - git subcommands allowed
-    - All tools with "*"
-    """
-    
-    def __init__(self, allowed_tools: List[str]):
-        self.allowed_patterns: List[ToolPermissionRule] = []
-        self.denied_patterns: List[ToolPermissionRule] = []
-        self.allow_all = False
-        
-        self._parse_patterns(allowed_tools)
-    
-    def _parse_patterns(self, allowed_tools: List[str]):
-        """Parse allowed-tools list into rules"""
-        if not allowed_tools:
-            # No restriction - allow all
-            self.allow_all = True
-            return
-        
-        for tool_spec in allowed_tools:
-            tool_spec = tool_spec.strip()
-            if not tool_spec:
-                continue
-            
-            # Check for Bash(pattern) format
-            bash_match = re.match(r'Bash\(([^)]+)\)', tool_spec)
-            if bash_match:
-                # Bash with restrictions
-                bash_pattern = bash_match.group(1).strip()
-                self.allowed_patterns.append(ToolPermissionRule(
-                    pattern=f"Bash:{bash_pattern}",
-                    permission=ToolPermission.ALLOWED
-                ))
-            else:
-                # Simple tool name
-                if tool_spec == "*":
-                    self.allow_all = True
-                    return
-                self.allowed_patterns.append(ToolPermissionRule(
-                    pattern=tool_spec,
-                    permission=ToolPermission.ALLOWED
-                ))
-    
-    def can_use_tool(self, tool_name: str, tool_args: Optional[Dict] = None) -> Tuple[bool, Optional[str]]:
-        """Check if a tool can be used
-        
-        Returns: (is_allowed, reason_if_denied)
-        """
-        if self.allow_all:
-            return True, None
-        
-        # Check Bash patterns
-        if tool_name == "Bash" and tool_args:
-            command = tool_args.get("command", "")
-            # Extract first word (command)
-            cmd_parts = command.strip().split()
-            if cmd_parts:
-                base_cmd = cmd_parts[0]
-                bash_tool_name = f"Bash:{base_cmd}"
-                
-                # Check if any Bash pattern matches
-                for rule in self.allowed_patterns:
-                    if rule.pattern.startswith("Bash:"):
-                        pattern_cmd = rule.pattern[5:]  # Remove "Bash:" prefix
-                        if pattern_cmd.endswith("*"):
-                            if base_cmd.startswith(pattern_cmd[:-1]):
-                                return True, None
-                        elif base_cmd == pattern_cmd:
-                            return True, None
-                
-                # Bash command not in allowed list
-                return False, f"Bash command '{base_cmd}' not in allowed-tools"
-        
-        # Check regular tool patterns
-        for rule in self.allowed_patterns:
-            if rule.pattern == tool_name or rule.matches(tool_name):
-                return True, None
-        
-        return False, f"Tool '{tool_name}' not in allowed-tools"
-    
-    def get_allowed_tools(self) -> List[str]:
-        """Get list of allowed tool patterns"""
-        if self.allow_all:
-            return ["*"]
-        return [rule.pattern for rule in self.allowed_patterns]
+# Regex for extracting bash:execute code blocks
+BASH_EXECUTE_PATTERN = re.compile(r'```bash:execute\n(.*?)\n```', re.DOTALL)
 
 
 @dataclass
@@ -150,6 +44,9 @@ class ExecutionContext:
     # Execution tracking
     execution_count: int = 0
     last_execution: Optional[str] = None
+    
+    # Real-time output callback
+    output_callback: Optional[Callable[[str], None]] = None
 
 
 class SkillExecutor:
@@ -159,22 +56,199 @@ class SkillExecutor:
         self.loader = loader or SkillLoader()
         self._execution_history: List[Dict[str, Any]] = []
     
+    def extract_execute_commands(self, body_content: str, 
+                                context: ExecutionContext,
+                                skill_path: Path) -> List[str]:
+        """Extract and substitute variables from bash:execute code blocks
+        
+        Args:
+            body_content: SKILL.md body content
+            context: Execution context with arguments
+            skill_path: Path to the skill directory
+        
+        Returns:
+            List of executable commands with variables substituted
+        """
+        # Extract bash:execute blocks
+        matches = BASH_EXECUTE_PATTERN.findall(body_content)
+        
+        if not matches:
+            return []
+        
+        # Prepare variable substitutions
+        substitutions = self._prepare_variable_substitutions(context, skill_path)
+        
+        # Substitute variables in each command
+        commands = []
+        for command_template in matches:
+            command = command_template.strip()
+            
+            # Substitute variables
+            for var_name, var_value in substitutions.items():
+                command = command.replace(f"${var_name}", var_value)
+            
+            commands.append(command)
+        
+        return commands
+    
+    def execute_bash_commands(self, commands: List[str], working_dir: Optional[Path] = None,
+                             output_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Execute bash commands sequentially with real-time output streaming
+        
+        Args:
+            commands: List of bash commands to execute
+            working_dir: Working directory for execution
+            output_callback: Optional callback for real-time output (called with each line)
+            
+        Returns:
+            Dict with success status, output, and error info
+        """
+        results = []
+        all_success = True
+        
+        for i, command in enumerate(commands, 1):
+            logger.info(f"Executing bash command {i}/{len(commands)}: {command[:100]}...")
+            
+            stdout_lines = []
+            stderr_lines = []
+            
+            try:
+                # Use Popen for real-time streaming
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    cwd=working_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1  # Line buffered
+                )
+                
+                # Stream stdout in real-time
+                if process.stdout:
+                    for line in process.stdout:
+                        line = line.rstrip('\n')
+                        stdout_lines.append(line)
+                        if output_callback:
+                            output_callback(line)
+                
+                # Stream stderr in real-time
+                if process.stderr:
+                    for line in process.stderr:
+                        line = line.rstrip('\n')
+                        stderr_lines.append(line)
+                        if output_callback:
+                            output_callback(f"[stderr] {line}")
+                
+                # Wait for process to complete
+                process.wait(timeout=3600)  # 1 hour timeout
+                
+                stdout = '\n'.join(stdout_lines)
+                stderr = '\n'.join(stderr_lines)
+                
+                results.append({
+                    "command": command,
+                    "success": process.returncode == 0,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "returncode": process.returncode
+                })
+                
+                if process.returncode != 0:
+                    logger.error(f"Command failed with return code {process.returncode}")
+                    logger.error(f"stderr: {stderr}")
+                    all_success = False
+                    # Stop on first error
+                    break
+                else:
+                    logger.info(f"Command {i} succeeded")
+                    
+            except subprocess.TimeoutExpired:
+                logger.error(f"Command timed out after 1 hour")
+                results.append({
+                    "command": command,
+                    "success": False,
+                    "stdout": '\n'.join(stdout_lines),
+                    "stderr": "Command timed out after 1 hour",
+                    "returncode": -1
+                })
+                all_success = False
+                process.kill()  # Ensure process is terminated
+                break
+            except Exception as e:
+                logger.error(f"Command execution error: {e}")
+                results.append({
+                    "command": command,
+                    "success": False,
+                    "stdout": '\n'.join(stdout_lines),
+                    "stderr": str(e),
+                    "returncode": -1
+                })
+                all_success = False
+                break
+        
+        return {
+            "success": all_success,
+            "results": results,
+            "total_commands": len(commands),
+            "executed_commands": len(results)
+        }
+    
+    def _prepare_variable_substitutions(self, context: ExecutionContext, 
+                                       skill_path: Path) -> Dict[str, str]:
+        """Prepare variable substitutions for command templates
+        
+        Args:
+            context: Execution context
+            skill_path: Path to the skill directory
+        
+        Returns:
+            Dictionary mapping variable names to values
+        """
+        substitutions = {}
+        
+        # Get input file from arguments
+        if context.arguments:
+            input_file = context.arguments[0] if context.arguments else ""
+            substitutions["INPUT_FILE"] = input_file
+            
+            # Generate output file name
+            if input_file:
+                # Remove extension and add _transcription.txt
+                input_path = Path(input_file)
+                output_file = str(input_path.parent / f"{input_path.stem}_transcription.txt")
+                substitutions["OUTPUT_FILE"] = output_file
+            else:
+                substitutions["OUTPUT_FILE"] = str(Path.home() / "Downloads/workspace/transcription.txt")
+        else:
+            substitutions["INPUT_FILE"] = ""
+            substitutions["OUTPUT_FILE"] = str(Path.home() / "Downloads/workspace/transcription.txt")
+        
+        # Fixed substitutions
+        substitutions["TEMP_AUDIO_FILE"] = str(Path.home() / "Downloads/workspace/extracted_audio.wav")
+        substitutions["SKILL_PATH"] = str(skill_path)
+        
+        return substitutions
+    
     def prepare_execution(self, manifest: SkillManifest, 
                          arguments: List[str] = None,
                          session_id: Optional[str] = None,
-                         working_dir: Optional[Path] = None) -> ExecutionContext:
+                         working_dir: Optional[Path] = None,
+                         output_callback: Optional[Callable[[str], None]] = None) -> ExecutionContext:
         """Prepare execution context from manifest
         
         Sets up:
         - Permission manager from allowed-tools
         - Subagent configuration from context/agent fields
         - Variable substitution context
+        - Real-time output callback
         """
         context = ExecutionContext(
             session_id=session_id,
             arguments=arguments or [],
             working_dir=working_dir,
-            env_vars={}
+            env_vars={},
+            output_callback=output_callback
         )
         
         if manifest.level2 and manifest.level2.frontmatter:
@@ -197,6 +271,7 @@ class SkillExecutor:
         
         This combines:
         - Level 2 body content (with variable substitution)
+        - Extracted executable commands from bash:execute blocks
         - Any referenced support files (Level 3)
         """
         if not manifest.level2:
@@ -220,7 +295,21 @@ class SkillExecutor:
         if manifest.description:
             prompt_parts.append(f"\n{manifest.description}\n")
         
-        # Add body content
+        # Extract executable commands from bash:execute blocks
+        execute_commands = self.extract_execute_commands(
+            manifest.level2.body_content,
+            context,
+            manifest.path
+        )
+        
+        # Add executable commands section if available
+        if execute_commands:
+            prompt_parts.append("\n## Execute Commands\n")
+            for i, cmd in enumerate(execute_commands, 1):
+                prompt_parts.append(f"**Step {i}:**\n```bash\n{cmd}\n```")
+            prompt_parts.append("\nExecute these commands to complete the task.\n")
+        
+        # Add body content (documentation)
         if include_body:
             body = manifest.level2.body_content
             
@@ -248,9 +337,50 @@ class SkillExecutor:
                       context: ExecutionContext) -> Dict[str, Any]:
         """Execute skill inline (in current context)
         
-        Returns the prompt content for the LLM to execute.
-        The actual execution happens in the main conversation.
+        If bash:execute commands exist, actually execute them.
+        Otherwise, returns the prompt content for the LLM to execute.
         """
+        # Check if skill has bash:execute commands
+        if manifest.level2 and manifest.level2.body_content:
+            commands = self.extract_execute_commands(
+                manifest.level2.body_content,
+                context,
+                manifest.path
+            )
+            
+            if commands:
+                # Actually execute the bash commands
+                logger.info(f"Executing {len(commands)} bash commands for skill {manifest.name}")
+                bash_result = self.execute_bash_commands(commands, context.working_dir, context.output_callback)
+                
+                # Record execution
+                execution_record = {
+                    "skill_name": manifest.name,
+                    "session_id": context.session_id,
+                    "context": "inline_bash",
+                    "agent_type": context.agent_type,
+                    "arguments": context.arguments,
+                    "bash_commands": commands,
+                    "bash_result": bash_result,
+                }
+                self._execution_history.append(execution_record)
+                context.execution_count += 1
+                context.last_execution = manifest.name
+                
+                # Return the actual execution result
+                return {
+                    "success": bash_result["success"],
+                    "type": "inline_bash",
+                    "bash_result": bash_result,
+                    "manifest": manifest.to_dict(
+                        include_level1=True,
+                        include_level2=True,
+                        include_level3=False
+                    ),
+                    "permissions": self._get_permission_info(context),
+                }
+        
+        # No bash commands - return prompt for LLM execution
         prompt = self.get_skill_prompt(manifest, context)
         
         # Record execution
@@ -325,7 +455,8 @@ class SkillExecutor:
     def execute(self, manifest: SkillManifest,
                 arguments: List[str] = None,
                 session_id: Optional[str] = None,
-                working_dir: Optional[Path] = None) -> Dict[str, Any]:
+                working_dir: Optional[Path] = None,
+                output_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
         """Execute a skill (main entry point)
         
         Automatically determines inline vs subagent execution
@@ -336,7 +467,8 @@ class SkillExecutor:
             manifest=manifest,
             arguments=arguments or [],
             session_id=session_id,
-            working_dir=working_dir
+            working_dir=working_dir,
+            output_callback=output_callback
         )
         
         # Determine execution mode
@@ -384,8 +516,3 @@ class SkillExecutor:
             history = [h for h in history if h.get("session_id") == session_id]
         
         return history[-limit:]
-
-
-def create_permission_manager(allowed_tools: List[str]) -> ToolPermissionManager:
-    """Factory function for permission manager"""
-    return ToolPermissionManager(allowed_tools)

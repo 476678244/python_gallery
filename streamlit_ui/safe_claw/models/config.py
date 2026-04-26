@@ -36,10 +36,29 @@ class MemoryConfig(BaseModel):
     deep_memory_compression: str = "maximum"
 
 
+class BackendConfig(BaseModel):
+    """Backend configuration for deepagents
+    
+    Security-first principles:
+    - Default to None (use deepagents default secure backend)
+    - Only enable custom backends if explicitly configured
+    - Validate all backend configurations
+    """
+    enabled: bool = False  # By default, use deepagents' secure default backend
+    backend_type: Optional[str] = None  # Type of backend (e.g., "sqlite", "memory", "custom")
+    connection_string: Optional[str] = None  # For database backends
+    enable_persistence: bool = False  # Whether to enable state persistence
+    enable_checkpoints: bool = False  # Whether to enable checkpointing
+    max_state_size_mb: int = Field(default=100, gt=0, le=1000)  # Limit state size for security
+    encrypt_state: bool = True  # Encrypt persisted state for security
+    allow_network_access: bool = False  # Deny network access by default for security
+
+
 class SafeClawConfig(BaseModel):
     """Main configuration for SafeClaw"""
     llm: LLMConfig
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    backend: BackendConfig = Field(default_factory=BackendConfig)
     debug: bool = False
     log_level: str = "INFO"

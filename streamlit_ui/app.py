@@ -54,9 +54,19 @@ import importlib
 
 # Define available models
 AVAILABLE_MODELS = {
-    "qwen3": {
+    "Qwen3.5-9B-VLM": {
         "provider": "openai",
-        "model": "qwen3-32b",
+        "model": "Qwen3.5-9B-VLM",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 262144,
+        "show_thinking": False
+    },
+    "qwen/qwen3.5-35b-a3b": {
+        "provider": "openai",
+        "model": "qwen/qwen3.5-35b-a3b",
         "api_key": "lm-studio",
         "base_url": "http://192.168.50.30:1234/v1",
         "temperature": 0.7,
@@ -74,16 +84,7 @@ AVAILABLE_MODELS = {
         "context_length": 30000,
         "show_thinking": False
     },
-    "Qwen3.5-9B-VLM": {
-        "provider": "openai",
-        "model": "Qwen3.5-9B-VLM",
-        "api_key": "lm-studio",
-        "base_url": "http://192.168.50.30:1234/v1",
-        "temperature": 0.7,
-        "max_tokens": 2000,
-        "context_length": 262144,
-        "show_thinking": False
-    }
+
 }
 
 # Import pages dynamically
@@ -134,7 +135,7 @@ def initialize_session_state():
     
     # Initialize selected model if not set
     if 'selected_model' not in st.session_state:
-        st.session_state.selected_model = "qwen3"
+        st.session_state.selected_model = "Qwen3.5-9B-VLM"
     
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")
@@ -287,7 +288,7 @@ def sidebar():
         # Model selection
         st.subheader("Model Selection")
         if 'selected_model' not in st.session_state:
-            st.session_state.selected_model = "qwen3"
+            st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
         
         selected_model = st.selectbox(
             "Select Model",

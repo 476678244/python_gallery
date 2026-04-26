@@ -10,16 +10,21 @@ from typing import Dict, Any, Optional, List
 import logging
 import json
 from datetime import datetime
+from pathlib import Path
+from deepagents import create_deep_agent
+from deepagents.graph import AgentMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
-from deepagents import create_deep_agent
-from deepagents.graph import AgentMiddleware
 from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
-from streamlit_ui.safe_claw.core.skills import (
-    SkillDiscovery, SkillScanner, SkillExecutor,
-    discover_skill, get_skill_scanner
+from streamlit_ui.safe_claw.core.tools import ToolManager
+from streamlit_ui.safe_claw.core.skills import SkillsManager
+from streamlit_ui.safe_claw.core.deepagents.backend import (
+    BackendFactory, 
+    SecureBackend,
+    FilesystemBackendFactory,
+    SecureFilesystemBackend
 )
 
 logger = logging.getLogger(__name__)
@@ -155,11 +160,31 @@ class SafeClawDeepAgent:
         self.config = config or {}
         self.deep_agent = None
 
-        # Initialize skills system
-        self.skill_scanner = get_skill_scanner()
-        self.skill_discovery = SkillDiscovery(self.skill_scanner)
-        self.skill_executor = SkillExecutor()
-        self._skill_tools_cache: Dict[str, Any] = {}
+        # Get external skills paths from config
+        external_paths_config = self.config.get("external_skills_paths", [])
+        external_skills_paths = [Path(p) for p in external_paths_config] if external_paths_config else []
+        
+        # Initialize skills manager
+        self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+        
+        # Initialize tool manager
+        self.tool_manager = ToolManager(
+            skill_scanner=self.skills_manager.get_skill_scanner(),
+            skill_discovery=self.skills_manager.get_skill_discovery(),
+            skill_executor=self.skills_manager.get_skill_executor()
+        )
+
+        # Set output callback to log shell command execution in real-time
+        self._thinking_content = []  # Store thinking content for display
+        
+        def log_shell_output(line: str):
+            """Callback to log shell command output in real-time"""
+            logger.info(f"🔧 SHELL OUTPUT: {line}")
+            # Store in thinking content for UI display
+            self._thinking_content.append(line)
+        
+        self.tool_manager.set_output_callback(log_shell_output)
+        logger.info("Shell command output logging enabled")
 
         # Initialize prompt logger middleware
         prompt_log_file = config.get("prompt_log_file") if config else None
@@ -181,9 +206,9 @@ class SafeClawDeepAgent:
             # Convert LLMService to LangChain model
             model = self._create_langchain_model()
 
-            # Get tools and skills paths list
-            tools = self._get_safe_claw_tools()
-            skills_paths = self._get_skills_paths()
+            # Get tools and skills paths list from managers
+            tools = self.tool_manager.get_all_tools()
+            skills_paths = self.skills_manager.get_skills_paths()
 
             # DEBUG: 详细记录skills准备过程
             logger.info(f"🔍 DEBUG: 准备传递给create_deep_agent的数据:")
@@ -194,10 +219,10 @@ class SafeClawDeepAgent:
             # 计算预估的token数量
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
 
-            # Estimate tokens for each component
+            # Estimate tokens for each component using managers
             prompt_tokens = len(system_prompt.split()) * 1.3  # System prompt
-            skills_tokens = len(skills_paths) * 100  # Level 1 metadata only
-            tools_tokens = self._estimate_tools_tokens(tools)  # Tools descriptions
+            skills_tokens = self.skills_manager.estimate_skills_tokens(skills_paths)  # Level 1 metadata only
+            tools_tokens = self.tool_manager.estimate_tokens()  # Tools descriptions
             total_estimated = prompt_tokens + skills_tokens + tools_tokens
 
             logger.info(f"🔍 DEBUG: 系统prompt约 {prompt_tokens:.0f} tokens")
@@ -216,17 +241,55 @@ class SafeClawDeepAgent:
                 if len(skills_paths) > 15:  # Further reduce skills limit due to tools
                     logger.warning(f"🔧 Limiting skills from {len(skills_paths)} to 15 to fit context (including tools)")
                     skills_paths = skills_paths[:15]
-                    skills_tokens = len(skills_paths) * 100
+                    skills_tokens = self.skills_manager.estimate_skills_tokens(skills_paths)
                     total_estimated = prompt_tokens + skills_tokens + tools_tokens
                     logger.info(f"🔧 New estimated total: {total_estimated:.0f} tokens")
 
                 # If still too large, consider reducing tools
                 if total_estimated > self.system_prompt_limit and len(tools) > 4:
                     logger.warning(f"🔧 Limiting tools from {len(tools)} to 4 to fit context")
-                    tools = tools[:4]  # Keep only essential tools
-                    tools_tokens = self._estimate_tools_tokens(tools)
+                    tools = self.tool_manager.limit_tools(4)  # Keep only essential tools
+                    tools_tokens = self.tool_manager.estimate_tokens()
                     total_estimated = prompt_tokens + skills_tokens + tools_tokens
                     logger.info(f"🔧 Final estimated total: {total_estimated:.0f} tokens")
+
+            # SECURITY: Prepare backend configuration based on security-first principles
+            backend = None  # Default: Use deepagents' secure default backend
+            backend_config = self.config.get("backend", {})
+            
+            # Check for filesystem backend (DeepAgents BackendProtocol)
+            filesystem_backend_config = backend_config.get("filesystem", {})
+            if filesystem_backend_config and filesystem_backend_config.get("enabled", False):
+                logger.warning("⚠️ CUSTOM FILESYSTEM BACKEND ENABLED - Ensure security review completed")
+                logger.info(f"🔧 Filesystem backend base_path: {filesystem_backend_config.get('base_path')}")
+                logger.info(f"🔧 Filesystem encryption: {filesystem_backend_config.get('encrypt_files')}")
+                logger.info(f"🔧 Filesystem allow_write: {filesystem_backend_config.get('allow_write')}")
+                
+                try:
+                    workspace_path = Path(self.config.get("workspace_path", Path.cwd()))
+                    backend = FilesystemBackendFactory.create_backend(filesystem_backend_config, workspace_path)
+                    
+                    if backend:
+                        logger.info("✅ SecureFilesystemBackend created successfully")
+                    else:
+                        logger.info("🔧 Filesystem backend factory returned None, using deepagents default")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Failed to create filesystem backend: {e}")
+                    logger.info("🔧 Falling back to deepagents default secure backend")
+                    backend = None
+            # Check for state persistence backend (for LangGraph checkpointer)
+            elif backend_config and backend_config.get("enabled", False):
+                logger.warning("⚠️ CUSTOM STATE BACKEND ENABLED - For LangGraph checkpointer, not DeepAgents backend")
+                logger.info(f"🔧 State backend type: {backend_config.get('backend_type')}")
+                logger.info(f"🔧 State encryption: {backend_config.get('encrypt_state')}")
+                
+                # Note: State backend is separate from DeepAgents backend
+                # DeepAgents backend is for file operations, state backend is for persistence
+                logger.info("ℹ️  State backend configured but DeepAgents uses filesystem backend")
+                logger.info("✅ Using deepagents default filesystem backend (recommended)")
+            else:
+                logger.info("✅ Using deepagents default secure backend (recommended)")
 
             # Create DeepAgent with SafeClaw configuration
             logger.info(f"🔍 DEBUG: 正在调用create_deep_agent...")
@@ -235,6 +298,7 @@ class SafeClawDeepAgent:
                 system_prompt=system_prompt,
                 tools=tools,
                 skills=skills_paths,  # Pass limited skills paths
+                backend=backend,  # SECURITY: Pass backend (None = secure default)
                 middleware=[self.prompt_logger]  # Add prompt logging middleware
             )
 
@@ -244,26 +308,6 @@ class SafeClawDeepAgent:
         except Exception as e:
             logger.error(f"Failed to initialize DeepAgent: {e}")
             raise
-
-    def _estimate_tools_tokens(self, tools: List) -> int:
-        """Estimate tokens consumed by tools descriptions"""
-        total_tokens = 0
-
-        for tool in tools:
-            if hasattr(tool, 'name') and hasattr(tool, 'description'):
-                # LangChain tool object
-                name_tokens = len(tool.name.split()) * 1.3
-                desc_tokens = len(tool.description.split()) * 1.3
-                total_tokens += name_tokens + desc_tokens
-            elif hasattr(tool, '__doc__'):
-                # Function-based tool
-                doc_tokens = len(str(tool.__doc__).split()) * 1.3 if tool.__doc__ else 0
-                total_tokens += doc_tokens
-            else:
-                # Default estimate for unknown tool types
-                total_tokens += 50  # Conservative estimate per tool
-
-        return int(total_tokens)
 
     def _create_langchain_model(self):
         """Create LangChain model from LLMService config"""
@@ -341,244 +385,6 @@ Skills are discovered from folders with 3-level loading for efficiency:
 - Use builtin tools for simple operations, skills for complex tasks
 
 You have access to filesystem, builtin tools, and a dynamic skills system. Use these capabilities to help users effectively and safely."""
-
-    def _get_safe_claw_tools(self) -> List:
-        """Get SafeClaw-specific tools including both builtin tools and progressive skills"""
-        tools = []
-
-        # === BUILTIN TOOLS ===
-        # Core SafeClaw builtin tools
-        @tool
-        def safe_claw_memory_search(query: str) -> str:
-            """Search SafeClaw memory for relevant information"""
-            # This would integrate with SafeClaw's memory system
-            return f"Memory search results for: {query}"
-
-        @tool
-        def safe_claw_log_operation(operation: str, details: str) -> str:
-            """Log operations for audit trail"""
-            logger.info(f"SafeClaw operation: {operation} - {details}")
-            return f"Logged operation: {operation}"
-
-        @tool
-        def safe_claw_file_read(file_path: str) -> str:
-            """Read file contents safely"""
-            try:
-                from pathlib import Path
-                path = Path(file_path)
-                if path.exists() and path.is_file():
-                    return path.read_text()[:2000]  # Limit to 2000 chars
-                else:
-                    return f"File not found: {file_path}"
-            except Exception as e:
-                return f"Error reading file: {str(e)}"
-
-        @tool
-        def safe_claw_file_write(file_path: str, content: str) -> str:
-            """Write content to file safely"""
-            try:
-                from pathlib import Path
-                path = Path(file_path)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
-                return f"Successfully wrote to: {file_path}"
-            except Exception as e:
-                return f"Error writing file: {str(e)}"
-
-        tools.extend([
-            safe_claw_memory_search,
-            safe_claw_log_operation,
-            safe_claw_file_read,
-            safe_claw_file_write
-        ])
-
-        # === SKILLS SYSTEM TOOLS ===
-        # Skills discovery and execution tools
-        @tool
-        def skill_discover_and_execute(query: str, arguments: str = "") -> str:
-            """Discover and execute a skill based on natural language query
-            
-            Skills are dynamically scanned from folders with progressive disclosure:
-            - Level 1: metadata (~100 tokens, always loaded)
-            - Level 2: SKILL.md content (~5k tokens, loaded on trigger)
-            - Level 3: supporting files (unlimited, loaded on demand)
-            
-            Args:
-                query: Natural language description of what you want to do
-                arguments: Optional space-separated arguments for the skill
-            
-            Examples:
-                - "analyze python code for bugs"
-                - "convert csv to json" with arguments="data.csv output.json"
-                - "fetch website content" with arguments="https://example.com"
-            """
-            try:
-                args_list = arguments.split() if arguments else []
-                result = self.skill_discovery.find_skill(
-                    query=query,
-                    arguments=args_list,
-                    auto_trigger=True
-                )
-
-                if result.success and result.execution_result:
-                    execution = result.execution_result
-                    if execution.get("success"):
-                        return f"✅ Skill '{result.skill_name}' executed successfully:\n{execution.get('result', '')}"
-                    else:
-                        return f"❌ Skill '{result.skill_name}' failed: {execution.get('error', 'Unknown error')}"
-                elif result.level.value >= 2:  # L2_LOADED or higher
-                    return f"⚠️ Found skill '{result.skill_name}' but execution failed. Error: {result.error}"
-                else:
-                    candidates = result.candidates[:3] if result.candidates else []
-                    if candidates:
-                        candidate_names = [c.skill.name for c in candidates]
-                        return f"❓ No suitable skill found for: {query}\nConsider trying: {', '.join(candidate_names)}"
-                    else:
-                        return f"❓ No skill found for: {query}"
-
-            except Exception as e:
-                logger.error(f"Skill execution error: {e}")
-                return f"❌ Error discovering/executing skill: {str(e)}"
-
-        @tool
-        def skill_list_available(category: str = "") -> str:
-            """List available skills, optionally filtered by category
-            
-            Skills are dynamically discovered from folders. Categories include:
-            - data: CSV, JSON, SQL processing
-            - web: HTTP, crawling, API interactions
-            - file: File operations and management
-            - code: Code analysis, formatting, linting
-            - image: Image processing and analysis
-            - text: NLP, parsing, summarization
-            - finance: Stock analysis, portfolio management
-            
-            Args:
-                category: Optional category filter
-            """
-            try:
-                if not self.skill_scanner.loaded:
-                    self.skill_scanner.scan_all_skills()
-
-                entries = list(self.skill_scanner.index.values())
-                if category:
-                    entries = [e for e in entries if e.category.lower() == category.lower()]
-
-                if not entries:
-                    return f"No skills found" + (f" in category '{category}'" if category else "")
-
-                # Group by category
-                by_category = {}
-                for entry in entries:
-                    cat = entry.category or "general"
-                    if cat not in by_category:
-                        by_category[cat] = []
-                    by_category[cat].append(entry)
-
-                result = []
-                for cat, skills in sorted(by_category.items()):
-                    result.append(f"📁 {cat.upper()} ({len(skills)} skills):")
-                    for skill in sorted(skills, key=lambda s: s.name):
-                        invocable = "🔄" if skill.auto_trigger else "👤"
-                        result.append(f"  {invocable} {skill.name}: {skill.description[:80]}")
-                    result.append("")
-
-                return "\n".join(result)
-
-            except Exception as e:
-                logger.error(f"Error listing skills: {e}")
-                return f"❌ Error listing skills: {str(e)}"
-
-        @tool
-        def skill_get_prompt(skill_name: str, arguments: str = "") -> str:
-            """Get the prompt content for a skill (for manual execution)
-            
-            This retrieves the Level 2 content of a skill without executing it.
-            Useful for understanding what a skill will do before running it.
-            
-            Args:
-                skill_name: Name of the skill
-                arguments: Optional space-separated arguments
-            """
-            try:
-                args_list = arguments.split() if arguments else []
-                prompt = self.skill_discovery.get_skill_prompt(skill_name, args_list)
-
-                if prompt:
-                    return f"📋 Skill '{skill_name}' prompt:\n\n{prompt}"
-                else:
-                    return f"❌ Skill '{skill_name}' not found or not loaded"
-
-            except Exception as e:
-                logger.error(f"Error getting skill prompt: {e}")
-                return f"❌ Error getting skill prompt: {str(e)}"
-
-        tools.extend([
-            skill_discover_and_execute,
-            skill_list_available,
-            skill_get_prompt
-        ])
-
-        logger.info(
-            f"Loaded {len(tools)} SafeClaw tools: {len([t for t in tools if 'skill_' not in t.name])} builtin + {len([t for t in tools if 'skill_' in t.name])} skills")
-        return tools
-
-    def _get_skills_paths(self) -> List[str]:
-        """Get skills paths for DeepAgents"""
-        try:
-            # Get skills directory paths relative to project root
-            from pathlib import Path
-            import os
-
-            # Find skills directories
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            skills_dir = project_root / "streamlit_ui" / "skills"
-
-            paths = []
-            if skills_dir.exists():
-                # Iterate through all directories to find SKILL.md files
-                for skill_path in skills_dir.rglob("SKILL.md"):
-                    # Get the parent directory of SKILL.md (the actual skill directory)
-                    skill_dir = skill_path.parent
-
-                    # Convert to relative path from project root
-                    rel_path = skill_dir.relative_to(project_root)
-
-                    # Convert to POSIX format and add trailing slash
-                    path_str = str(rel_path).replace("\\", "/") + "/"
-
-                    if path_str not in paths:
-                        paths.append(path_str)
-
-            logger.info(f"Found skills paths from SKILL.md files: {paths}")
-            return paths
-
-        except Exception as e:
-            logger.error(f"Error getting skills paths: {e}")
-            return []
-
-    def _get_available_skills(self) -> List[str]:
-        """Get list of available skill names for DeepAgents skills parameter"""
-        try:
-            if not self.skill_scanner.loaded:
-                self.skill_scanner.scan_all_skills()
-
-            # Get all skill names from the scanner
-            skill_names = list(self.skill_scanner.index.keys())
-
-            # Filter to only include user-invocable skills
-            user_invocable_skills = []
-            for name in skill_names:
-                entry = self.skill_scanner.index.get(name)
-                if entry and entry.user_invocable:
-                    user_invocable_skills.append(name)
-
-            logger.info(f"Found {len(user_invocable_skills)} user-invocable skills out of {len(skill_names)} total")
-            return user_invocable_skills
-
-        except Exception as e:
-            logger.error(f"Error getting available skills: {e}")
-            return []
 
     def invoke(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         pass
@@ -667,6 +473,14 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
         except Exception as e:
             logger.error(f"DeepAgent streaming error: {e}")
             yield {"content": f"Error: {str(e)}", "success": False}
+
+    def get_thinking_content(self) -> List[str]:
+        """Get the thinking content (shell output) from the last message processing"""
+        return self._thinking_content.copy()
+
+    def clear_thinking_content(self):
+        """Clear the thinking content buffer"""
+        self._thinking_content = []
 
     def get_agent_info(self) -> Dict[str, Any]:
         """Get DeepAgent information including skills statistics"""

@@ -2,6 +2,7 @@
 
 import logging
 from typing import Dict, List, Any, Optional, Type
+from pathlib import Path
 from streamlit_ui.safe_claw.core.skills.base_skill import BaseSkill
 
 logger = logging.getLogger(__name__)
@@ -194,22 +195,24 @@ def load_builtin_skills() -> SkillRegistry:
     return registry
 
 
-def load_skills_with_discovery(query: str = None) -> tuple[SkillRegistry, Any]:
+def load_skills_with_discovery(query: str = None, external_skills_paths: List[Path] = None) -> tuple[SkillRegistry, Any]:
     """Load skills with progressive discovery system
     
     Args:
         query: Optional initial query to trigger skill discovery
+        external_skills_paths: List of external skills directories to scan
         
     Returns:
         (SkillRegistry, DiscoveryResult) - registry and discovery result
     """
     from streamlit_ui.safe_claw.core.skills.discovery import SkillDiscovery, DiscoveryResult
+    from streamlit_ui.safe_claw.core.skills.scanner import get_skill_scanner
     
     # Start with built-in skills
     registry = load_builtin_skills()
     
-    # Initialize discovery system
-    discovery = SkillDiscovery(registry)
+    # Initialize discovery system with external skills paths
+    discovery = SkillDiscovery(registry, external_skills_paths=external_skills_paths)
     
     result = None
     if query:
@@ -220,19 +223,27 @@ def load_skills_with_discovery(query: str = None) -> tuple[SkillRegistry, Any]:
     return registry, result
 
 
-def auto_discover_skill(registry: SkillRegistry, query: str) -> Any:
+def auto_discover_skill(registry: SkillRegistry, query: str, external_skills_paths: List[Path] = None) -> Any:
     """Auto-discover and load a skill for a query
     
     This is the main entry point for lazy skill discovery.
     Example: auto_discover_skill(registry, "parse csv file")
+    
+    Args:
+        registry: Skill registry to use
+        query: Query to find skill for
+        external_skills_paths: List of external skills directories to scan
     """
     from streamlit_ui.safe_claw.core.skills.discovery import SkillDiscovery
+    from streamlit_ui.safe_claw.core.skills.scanner import get_skill_scanner
     
-    discovery = SkillDiscovery(registry)
+    # Initialize discovery system with external paths
+    scanner = get_skill_scanner(external_skills_paths=external_skills_paths)
+    discovery = SkillDiscovery(scanner, external_skills_paths=external_skills_paths)
     result = discovery.find_skill(query)
     
-    if result.skill:
-        return result.skill
+    if result.success:
+        return result
     
     if result.missing_skill_hint:
         logger.warning(f"Missing skill detected: {result.missing_skill_hint['missing_skill']}")

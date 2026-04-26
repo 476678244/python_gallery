@@ -10,7 +10,7 @@ Reference: https://code.claude.com/docs/llms.txt
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass
@@ -73,8 +73,8 @@ class DiscoveryResult:
 class SkillDiscovery:
     """Progressive skill discovery with 3-level disclosure"""
 
-    def __init__(self, scanner: SkillScanner = None):
-        self.scanner = scanner or get_skill_scanner()
+    def __init__(self, scanner: SkillScanner = None, external_skills_paths: List[Path] = None):
+        self.scanner = scanner or get_skill_scanner(external_skills_paths=external_skills_paths)
         self.matcher = get_semantic_matcher()
         self.loader = SkillLoader()
         self.executor = SkillExecutor(self.loader)
@@ -130,7 +130,8 @@ class SkillDiscovery:
         return None
     
     def _load_and_trigger(self, skill_name: str, query: str, arguments: List[str] = None,
-                         session_id: Optional[str] = None) -> Optional[DiscoveryResult]:
+                         session_id: Optional[str] = None,
+                         output_callback: Optional[Callable[[str], None]] = None) -> Optional[DiscoveryResult]:
         """Load L2 and trigger skill execution"""
         import logging
         logger = logging.getLogger(__name__)
@@ -154,7 +155,8 @@ class SkillDiscovery:
         context = ExecutionContext(
             session_id=session_id,
             arguments=arguments or [],
-            working_dir=Path.cwd()
+            working_dir=Path.cwd(),
+            output_callback=output_callback
         )
         
         logger.info(f"🔍 DEBUG: 调用executor.execute...")
@@ -162,7 +164,8 @@ class SkillDiscovery:
             manifest=manifest,
             arguments=arguments or [],
             session_id=session_id,
-            working_dir=Path.cwd()
+            working_dir=Path.cwd(),
+            output_callback=output_callback
         )
         logger.info(f"🔍 DEBUG: executor.execute 完成")
         
@@ -221,7 +224,8 @@ class SkillDiscovery:
 
     def find_skill(self, query: str, min_confidence: float = 0.3,
                    arguments: List[str] = None, session_id: Optional[str] = None,
-                   auto_trigger: bool = False) -> DiscoveryResult:
+                   auto_trigger: bool = False,
+                   output_callback: Optional[Callable[[str], None]] = None) -> DiscoveryResult:
         """Main discovery method - progressive disclosure"""
         import logging
         logger = logging.getLogger(__name__)
@@ -238,7 +242,7 @@ class SkillDiscovery:
                 logger.info(f"🔍 DEBUG: 精确匹配skill: {skill_name}")
                 if auto_trigger:
                     logger.info(f"🔍 DEBUG: 准备加载并触发skill: {skill_name}")
-                    return self._load_and_trigger(skill_name, query, arguments, session_id)
+                    return self._load_and_trigger(skill_name, query, arguments, session_id, output_callback)
                 else:
                     return DiscoveryResult(
                         skill_name=skill_name,
@@ -251,8 +255,15 @@ class SkillDiscovery:
         cached = self._check_hot_cache(check_name)
         if cached:
             if auto_trigger:
+                # Create context with callback for cached skills
+                context = ExecutionContext(
+                    session_id=session_id,
+                    arguments=arguments or [],
+                    working_dir=Path.cwd(),
+                    output_callback=output_callback
+                )
                 execution_result = self.executor.execute(
-                    manifest=cached, arguments=arguments or [], session_id=session_id
+                    manifest=cached, arguments=arguments or [], session_id=session_id, working_dir=Path.cwd(), output_callback=output_callback
                 )
                 return DiscoveryResult(
                     skill_name=cached.name, manifest=cached,
@@ -268,7 +279,7 @@ class SkillDiscovery:
         if l1_result and not auto_trigger:
             return l1_result
         if l1_result and auto_trigger:
-            return self._load_and_trigger(l1_result.skill_name, query, arguments, session_id)
+            return self._load_and_trigger(l1_result.skill_name, query, arguments, session_id, output_callback)
 
         # Path-guided scan
         new_skills = self._path_guided_scan(query)
@@ -277,7 +288,7 @@ class SkillDiscovery:
             if matches and matches[0].score >= min_confidence:
                 skill_name = matches[0].skill.name
                 if auto_trigger:
-                    return self._load_and_trigger(skill_name, query, arguments, session_id)
+                    return self._load_and_trigger(skill_name, query, arguments, session_id, output_callback)
                 else:
                     return DiscoveryResult(
                         skill_name=skill_name, manifest=None,
@@ -291,7 +302,7 @@ class SkillDiscovery:
                 if match.score >= min_confidence:
                     skill_name = match.skill.name
                     if auto_trigger:
-                        return self._load_and_trigger(skill_name, query, arguments, session_id)
+                        return self._load_and_trigger(skill_name, query, arguments, session_id, output_callback)
                     else:
                         return DiscoveryResult(
                             skill_name=skill_name, manifest=None,
@@ -307,9 +318,10 @@ class SkillDiscovery:
         return result
 
     def trigger_skill(self, skill_name: str, arguments: List[str] = None,
-                     session_id: Optional[str] = None) -> DiscoveryResult:
+                     session_id: Optional[str] = None,
+                     output_callback: Optional[Callable[[str], None]] = None) -> DiscoveryResult:
         """Explicitly trigger a skill by name (load L2 and execute)"""
-        return self._load_and_trigger(skill_name, skill_name, arguments, session_id)
+        return self._load_and_trigger(skill_name, skill_name, arguments, session_id, output_callback)
 
     def get_skill_prompt(self, skill_name: str, arguments: List[str] = None,
                         session_id: Optional[str] = None) -> Optional[str]:

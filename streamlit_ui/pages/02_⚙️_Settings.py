@@ -46,7 +46,7 @@ def render():
         )
         
         if provider == "openai":
-            model_options = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o", "qwen3-32b"]
+            model_options = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o", "qwen/qwen3.5-35b-a3b"]
         elif provider == "anthropic":
             model_options = ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"]
         else:  # ollama

@@ -21,14 +21,14 @@ For package import under safe_claw. follow below practice:
    - **Module name:** `streamlit`
    - **Parameters:** `run streamlit_ui/app.py --server.port 8502 --server.headless false --logger.level debug`
    - **Python interpreter:** Select your project's Python interpreter
-   - **Working directory:** `/Users/nicole/workspace/github/a476678244/python_gallery`
+   - **Working directory:** Set to your project root directory (e.g., `/path/to/python_gallery`)
 
 2. **Environment Variables:**
    ```
    STREAMLIT_SERVER_PORT=8502
    STREAMLIT_SERVER_HEADLESS=false
    STREAMLIT_LOGGER_LEVEL=debug
-   PYTHONPATH=/Users/nicole/workspace/github/a476678244/python_gallery
+   PYTHONPATH=./streamlit_ui
    ```
 
 3. **Debugging Steps:**

@@ -116,7 +116,10 @@ class SafetyChecker:
             r'\bchown\s+root': "Change ownership to root",
             r'\b>\s+/dev/': "Write to device files",
             r'\bcurl\s+\|\s+sh': "Download and execute script",
-            r'\bwget\s+\|\s+bash': "Download and execute script"
+            r'\bwget\s+\|\s+bash': "Download and execute script",
+            r'\bpip\s+install': "Package installation (pip install)",
+            r'\bpip3\s+install': "Package installation (pip3 install)",
+            r'\bconda\s+install': "Package installation (conda install)",
         }
         
         found_patterns = []
@@ -165,6 +168,14 @@ class SafetyChecker:
             "requires_confirmation": False
         }
         
+        # Check for pip install in tool arguments
+        if tool_args:
+            args_str = str(tool_args).lower()
+            if "pip install" in args_str or "pip3 install" in args_str or "conda install" in args_str:
+                result["risk_level"] = "high"
+                result["requires_confirmation"] = True
+                result["warnings"].append("Package installation detected - requires user confirmation")
+        
         # File operation tools
         if tool_name in ["write_file", "delete_file", "create_directory", "move_file"]:
             result["requires_confirmation"] = True
@@ -172,7 +183,7 @@ class SafetyChecker:
             result["warnings"].append(f"File operation '{tool_name}' requires confirmation")
         
         # System tools
-        elif tool_name in ["execute_command", "run_script"]:
+        elif tool_name in ["execute_command", "run_script", "bash"]:
             result["risk_level"] = "high"
             result["requires_confirmation"] = True
             result["warnings"].append(f"System operation '{tool_name}' requires confirmation")

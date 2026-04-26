@@ -104,8 +104,10 @@ class KeywordExpander:
         "format": ["format", "beautify", "prettify", "clean"],
 
         # Content
-        "parse": ["parse", "extract", "convert", "transform"],
-        "summarize": ["summarize", "summary", "tldr", "brief"],
+        "parse": ["parse", "extract", "convert", "transform", "提取", "解析", "转换"],
+        "summarize": ["summarize", "summary", "tldr", "brief", "总结", "摘要"],
+        "transcribe": ["transcribe", "transcription", "speech", "audio", "voice", "dictate", "转录", "文字稿", "语音", "音频"],
+        "video": ["video", "mp4", "avi", "mov", "movie", "film", "multimedia", "视频"],
     }
 
     @classmethod

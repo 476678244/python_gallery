@@ -77,9 +77,12 @@ class SkillIndexEntry:
 class SkillScanner:
     """Filesystem-native skill scanner - Lazy + Directory-semantic aware + Progressive Disclosure"""
 
-    def __init__(self, skills_base_path: Path = None):
+    def __init__(self, skills_base_path: Path = None, external_skills_paths: List[Path] = None):
         # Support both project structure and skills/ folder
         self.skills_base_path = skills_base_path or Path(__file__).parent.parent.parent.parent / "skills"
+        
+        # External skills paths (additional skill sources)
+        self.external_skills_paths = external_skills_paths or []
         
         # Level 1 index: name -> index entry (lightweight, always loaded)
         self.index: Dict[str, SkillIndexEntry] = {}
@@ -103,7 +106,7 @@ class SkillScanner:
             "code": ["code", "analyze", "format", "lint", "syntax", "ast"],
             "finance": ["stock", "portfolio", "13f", "market", "price", "finance"],
             "image": ["image", "img", "png", "jpeg", "photo", "visual", "graph"],
-            "text": ["text", "nlp", "parse", "extract", "summarize"],
+            "text": ["text", "nlp", "parse", "extract", "summarize", "transcribe", "transcription", "audio", "speech", "voice"],
         }
 
         logger.info(f"SkillScanner initialized with base path: {self.skills_base_path}")
@@ -191,6 +194,14 @@ class SkillScanner:
         private_path = self.skills_base_path / "private_skills"
         if private_path.exists():
             all_skills.extend(self.scan_directory(private_path, recursive=True))
+
+        # Scan external skills paths
+        for external_path in self.external_skills_paths:
+            if external_path.exists():
+                logger.info(f"Scanning external skills path: {external_path}")
+                all_skills.extend(self.scan_directory(external_path, recursive=True))
+            else:
+                logger.warning(f"External skills path not found: {external_path}")
 
         self.loaded = True
         logger.info(f"Total skills indexed (L1): {len(all_skills)}")
@@ -397,9 +408,9 @@ class SkillScanner:
 _scanner_instance: Optional[SkillScanner] = None
 
 
-def get_skill_scanner() -> SkillScanner:
+def get_skill_scanner(external_skills_paths: List[Path] = None) -> SkillScanner:
     """Get singleton skill scanner instance"""
     global _scanner_instance
     if _scanner_instance is None:
-        _scanner_instance = SkillScanner()
+        _scanner_instance = SkillScanner(external_skills_paths=external_skills_paths)
     return _scanner_instance

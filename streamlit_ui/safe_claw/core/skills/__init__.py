@@ -54,6 +54,8 @@ from streamlit_ui.safe_claw.core.skills.discovery import (
     discover_skill,
 )
 
+from streamlit_ui.safe_claw.core.skills.manager import SkillsManager
+
 # Legacy support
 from streamlit_ui.safe_claw.core.skills.base_skill import (
     BaseSkill,
@@ -97,6 +99,7 @@ __all__ = [
     "discover_skill",
     "get_skill_scanner",
     "get_semantic_matcher",
+    "SkillsManager",
     # Utilities
     "KeywordExpander",
     "BM25",

@@ -98,8 +98,20 @@ def render():
                 # Use streaming response
                 messages = [{"role": msg["role"], "content": msg["content"]} for msg in st.session_state.messages]
                 
-                # Create SafeClawDeepAgent with memory
-                deep_agent = DeepAgentFactory.create_with_memory(llm_service, memory_manager)
+                # Create SafeClawDeepAgent with memory and external skills paths
+                import os
+                external_skills = os.environ.get("SAFECLAW_EXTERNAL_SKILLS", "").split(",")
+                if not external_skills or external_skills == [""]:
+                    # Default relative paths
+                    external_skills = [
+                        str(Path.home() / "workspace/github/ljg-skills/skills"),
+                        "streamlit_ui/skills/private_skills"
+                    ]
+                
+                config = {
+                    "external_skills_paths": external_skills
+                }
+                deep_agent = DeepAgentFactory.create_agent(llm_service, config)
                 
                 # Display assistant message container with streaming
                 with st.chat_message("assistant"):
@@ -209,6 +221,16 @@ def render():
                     # Clear thinking indicator if it's still showing
                     if not has_started_thinking:
                         thinking_placeholder.empty()
+                    
+                    # Get and display shell output as thinking content
+                    shell_output = deep_agent.get_thinking_content()
+                    if shell_output:
+                        with st.expander("🤔 Agent Thinking Process (Shell Output)", expanded=True):
+                            st.markdown("### 🔧 Shell Command Output")
+                            for line in shell_output:
+                                st.code(line, language=None)
+                        # Clear thinking content after displaying
+                        deep_agent.clear_thinking_content()
                     
                     response = full_response
             else:
