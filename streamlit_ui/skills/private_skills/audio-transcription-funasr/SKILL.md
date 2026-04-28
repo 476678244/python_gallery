@@ -61,28 +61,55 @@ To transcribe a video file, execute the following commands:
 ffmpeg -y -i $INPUT_FILE -vn -acodec pcm_s16le -ar 16000 -ac 1 $TEMP_AUDIO_FILE
 ```
 
-**Step 2: Transcribe audio to text**
+**Step 2: Split audio into chunks (for large files)**
 ```bash:execute
-source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python $SKILL_PATH/scripts/transcribe.py --input $TEMP_AUDIO_FILE --output $OUTPUT_FILE
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python $SKILL_PATH/scripts/split_audio.py --input $TEMP_AUDIO_FILE --output-dir $CHUNK_DIR --chunk-duration 300
+```
+
+**Step 3: Transcribe audio chunks and merge results**
+```bash:execute
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python $SKILL_PATH/scripts/transcribe.py --input-dir $CHUNK_DIR --output $OUTPUT_FILE
 ```
 
 ### Variable Substitution
 
 - `$INPUT_FILE` - Path to the input video/audio file (provided as argument)
-- `$TEMP_AUDIO_FILE` - Temporary path for extracted audio (default: /tmp/extracted_audio.wav)
+- `$TEMP_AUDIO_FILE` - Temporary path for extracted audio (derived from `$INPUT_FILE` with `.wav` extension, e.g., `${INPUT_FILE%.*}.wav` or `${INPUT_FILE}_temp.wav`)
+- `$CHUNK_DIR` - Directory for audio chunks (derived from `$INPUT_FILE` with `_chunks` suffix, e.g., `${INPUT_FILE%.*}_chunks`)
 - `$OUTPUT_FILE` - Path for the output transcription file (default: $INPUT_FILE_transcription.txt)
 - `$SKILL_PATH` - Path to the skill directory
 
+### Chunking Configuration
+
+The audio splitting uses the following parameters:
+- **Chunk duration**: 300 seconds (5 minutes) by default
+- **Sample rate**: 16000 Hz (optimized for FunASR)
+- **Channels**: 1 (mono)
+
+You can adjust the chunk duration in Step 2 by changing `--chunk-duration` (in seconds). Smaller chunks reduce memory usage but increase processing time.
+
 ### Examples
 
-**Basic usage:**
+**Basic usage (small files, no chunking):**
 ```bash
 # For video file (tested with MP4)
-ffmpeg -y -i /Users/nicole/Downloads/handbrake/video.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 /Users/nicole/Downloads/workspace/extracted_audio.wav
-source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python /path/to/skill/scripts/transcribe.py --input /Users/nicole/Downloads/workspace/extracted_audio.wav --output /Users/nicole/Downloads/workspace/video_transcription.txt
+ffmpeg -y -i "$INPUT_FILE" -vn -acodec pcm_s16le -ar 16000 -ac 1 "$TEMP_AUDIO_FILE"
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python "$SKILL_PATH/scripts/transcribe.py" --input "$TEMP_AUDIO_FILE" --output "$OUTPUT_FILE"
 
 # For audio file (skip extraction)
-source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python /path/to/skill/scripts/transcribe.py --input audio.wav --output audio_transcription.txt
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python "$SKILL_PATH/scripts/transcribe.py" --input "$INPUT_FILE" --output "$OUTPUT_FILE"
+```
+
+**Advanced usage (large files with chunking):**
+```bash
+# Extract audio
+ffmpeg -y -i "$INPUT_FILE" -vn -acodec pcm_s16le -ar 16000 -ac 1 "$TEMP_AUDIO_FILE"
+
+# Split into 5-minute chunks
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python "$SKILL_PATH/scripts/split_audio.py" --input "$TEMP_AUDIO_FILE" --output-dir "$CHUNK_DIR" --chunk-duration 300
+
+# Transcribe all chunks and merge
+source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw && python "$SKILL_PATH/scripts/transcribe.py" --input-dir "$CHUNK_DIR" --output "$OUTPUT_FILE"
 ```
 
 ## Model Information

@@ -135,7 +135,7 @@ def initialize_session_state():
     
     # Initialize selected model if not set
     if 'selected_model' not in st.session_state:
-        st.session_state.selected_model = "Qwen3.5-9B-VLM"
+        st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
     
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")

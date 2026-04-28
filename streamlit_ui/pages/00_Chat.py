@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from streamlit_ui.safe_claw.core.deepagents.official_integration import DeepAgentFactory
+from streamlit_ui.safe_claw.core.deepagents.official_integration import DeepAgentFactory, get_shell_output, clear_shell_output
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -206,6 +206,54 @@ def render():
                                             st.divider()
                             continue
                         
+                        # Check if this is thinking content (shell output)
+                        if chunk.get("thinking"):
+                            thinking_output = chunk.get("thinking", "")
+                            if not has_started_thinking:
+                                has_started_thinking = True
+                                thinking_content.append({"tool_name": "Shell Output", "tool_content": thinking_output})
+                                with thinking_placeholder.container():
+                                    st.markdown("""
+                                    <div style="padding: 1rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                                        <div style="display: flex; align-items: center; color: white;">
+                                            <div style="margin-right: 0.5rem;">🔧</div>
+                                            <div>
+                                                <div style="font-weight: bold;">Using tools to help...</div>
+                                                <div style="font-size: 0.8rem; opacity: 0.8;">Processing with specialized capabilities</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    with st.expander("🤔 Agent Thinking Process", expanded=True):
+                                        for item in thinking_content:
+                                            st.markdown(f"🔧 **{item['tool_name']}**")
+                                            with st.container():
+                                                st.code(item['tool_content'], language=None)
+                                            st.divider()
+                            else:
+                                thinking_content.append({"tool_name": "Shell Output", "tool_content": thinking_output})
+                                with thinking_placeholder.container():
+                                    st.markdown("""
+                                    <div style="padding: 1rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 0.5rem; margin-bottom: 1rem;">
+                                        <div style="display: flex; align-items: center; color: white;">
+                                            <div style="margin-right: 0.5rem;">🔧</div>
+                                            <div>
+                                                <div style="font-weight: bold;">Using tools to help...</div>
+                                                <div style="font-size: 0.8rem; opacity: 0.8;">Processing with specialized capabilities</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    with st.expander("🤔 Agent Thinking Process", expanded=True):
+                                        for item in thinking_content:
+                                            st.markdown(f"🔧 **{item['tool_name']}**")
+                                            with st.container():
+                                                st.code(item['tool_content'], language=None)
+                                            st.divider()
+                            continue
+                        
                         # Handle regular content chunks - clear thinking indicator when response starts
                         chunk_content = chunk.get("content", "")
                         if chunk_content:
@@ -223,14 +271,14 @@ def render():
                         thinking_placeholder.empty()
                     
                     # Get and display shell output as thinking content
-                    shell_output = deep_agent.get_thinking_content()
+                    shell_output = get_shell_output()
                     if shell_output:
                         with st.expander("🤔 Agent Thinking Process (Shell Output)", expanded=True):
                             st.markdown("### 🔧 Shell Command Output")
                             for line in shell_output:
                                 st.code(line, language=None)
-                        # Clear thinking content after displaying
-                        deep_agent.clear_thinking_content()
+                        # Clear shell output after displaying
+                        clear_shell_output()
                     
                     response = full_response
             else:

@@ -6,11 +6,14 @@ Integrates with the new 3-level progressive disclosure skills system:
 - Level 3: Supporting files (loaded on demand)
 """
 
+import sys
+import os
 from typing import Dict, Any, Optional, List
 import logging
 import json
 from datetime import datetime
 from pathlib import Path
+import threading
 from deepagents import create_deep_agent
 from deepagents.graph import AgentMiddleware
 from langchain.chat_models import init_chat_model
@@ -28,6 +31,25 @@ from streamlit_ui.safe_claw.core.deepagents.backend import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe storage for shell output
+_shell_output_lock = threading.Lock()
+_shell_output_buffer = []
+
+def get_shell_output() -> List[str]:
+    """Get shell output from thread-safe buffer"""
+    with _shell_output_lock:
+        return _shell_output_buffer.copy()
+
+def clear_shell_output():
+    """Clear shell output buffer"""
+    with _shell_output_lock:
+        _shell_output_buffer.clear()
+
+def append_shell_output(line: str):
+    """Append shell output to thread-safe buffer"""
+    with _shell_output_lock:
+        _shell_output_buffer.append(line)
 
 
 class PromptLoggerMiddleware(AgentMiddleware):
@@ -176,12 +198,15 @@ class SafeClawDeepAgent:
 
         # Set output callback to log shell command execution in real-time
         self._thinking_content = []  # Store thinking content for display
+        self._thinking_content_index = 0  # Track index for yielding new lines
         
         def log_shell_output(line: str):
             """Callback to log shell command output in real-time"""
             logger.info(f"🔧 SHELL OUTPUT: {line}")
             # Store in thinking content for UI display
             self._thinking_content.append(line)
+            # Store in thread-safe buffer for UI display
+            append_shell_output(line)
         
         self.tool_manager.set_output_callback(log_shell_output)
         logger.info("Shell command output logging enabled")
@@ -432,6 +457,15 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
 
             # Stream using LangGraph's stream method
             for chunk in self.deep_agent.stream(state, config):
+                # First: Check and yield any shell output collected during this iteration
+                # This must be at the top to ensure it's not skipped by continue statements
+                shell_output = get_shell_output()
+                if shell_output and len(shell_output) > self._thinking_content_index:
+                    new_lines = shell_output[self._thinking_content_index:]
+                    if new_lines:
+                        self._thinking_content_index = len(shell_output)
+                        yield {"thinking": "\n".join(new_lines), "success": True}
+
                 # Extract content from chunk based on LangGraph's streaming format
                 if isinstance(chunk, dict):
                     # If the chunk contains tool messages, yield tool info directly
@@ -481,6 +515,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
     def clear_thinking_content(self):
         """Clear the thinking content buffer"""
         self._thinking_content = []
+        self._thinking_content_index = 0
 
     def get_agent_info(self) -> Dict[str, Any]:
         """Get DeepAgent information including skills statistics"""

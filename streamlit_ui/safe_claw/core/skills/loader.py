@@ -168,6 +168,15 @@ class SkillLoader:
         try:
             content = skill_md_path.read_text(encoding="utf-8")
             
+            # Log SKILL.md loading to thinking buffer
+            try:
+                from streamlit_ui.safe_claw.core.deepagents.official_integration import append_shell_output
+                append_shell_output(f"📖 Loading SKILL.md: {skill_path.name}")
+                append_shell_output(f"   Path: {skill_path}")
+                append_shell_output(f"   Content length: {len(content)} characters")
+            except:
+                pass
+            
             # Parse base structure
             level2 = parse_skill_md(content, skill_path)
             

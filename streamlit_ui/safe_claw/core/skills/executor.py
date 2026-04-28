@@ -146,6 +146,13 @@ class SkillExecutor:
                 stdout = '\n'.join(stdout_lines)
                 stderr = '\n'.join(stderr_lines)
                 
+                # Add final output to thinking content
+                if output_callback:
+                    if stdout:
+                        output_callback(f"[stdout complete]\n{stdout}")
+                    if stderr:
+                        output_callback(f"[stderr complete]\n{stderr}")
+                
                 results.append({
                     "command": command,
                     "success": process.returncode == 0,
@@ -218,14 +225,25 @@ class SkillExecutor:
                 input_path = Path(input_file)
                 output_file = str(input_path.parent / f"{input_path.stem}_transcription.txt")
                 substitutions["OUTPUT_FILE"] = output_file
+                
+                # Generate temp audio file name (same directory, same basename with .wav)
+                temp_audio_file = str(input_path.parent / f"{input_path.stem}.wav")
+                substitutions["TEMP_AUDIO_FILE"] = temp_audio_file
+                
+                # Generate chunk directory name (same directory, same basename with _chunks)
+                chunk_dir = str(input_path.parent / f"{input_path.stem}_chunks")
+                substitutions["CHUNK_DIR"] = chunk_dir
             else:
                 substitutions["OUTPUT_FILE"] = str(Path.home() / "Downloads/workspace/transcription.txt")
+                substitutions["TEMP_AUDIO_FILE"] = str(Path.home() / "Downloads/workspace/extracted_audio.wav")
+                substitutions["CHUNK_DIR"] = str(Path.home() / "Downloads/workspace/audio_chunks")
         else:
             substitutions["INPUT_FILE"] = ""
             substitutions["OUTPUT_FILE"] = str(Path.home() / "Downloads/workspace/transcription.txt")
+            substitutions["TEMP_AUDIO_FILE"] = str(Path.home() / "Downloads/workspace/extracted_audio.wav")
+            substitutions["CHUNK_DIR"] = str(Path.home() / "Downloads/workspace/audio_chunks")
         
         # Fixed substitutions
-        substitutions["TEMP_AUDIO_FILE"] = str(Path.home() / "Downloads/workspace/extracted_audio.wav")
         substitutions["SKILL_PATH"] = str(skill_path)
         
         return substitutions
