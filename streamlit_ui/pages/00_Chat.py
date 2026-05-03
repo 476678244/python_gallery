@@ -48,9 +48,51 @@ def render():
     st.title("💬 Chat with SafeClaw")
     st.caption("Your AI Safety Assistant")
     
-    # Sidebar: Skill Tree management
+    # Sidebar: Session Management & Skill Tree
     with st.sidebar:
         st.divider()
+
+        # Session Management Section
+        with st.expander("💬 Sessions", expanded=True):
+            from streamlit_ui.components.session_manager import (
+                create_new_session, save_session_to_file, load_session_from_file,
+                list_saved_sessions, delete_session
+            )
+
+            # Current session info
+            session_id = st.session_state.get('session_id', 'Unknown')[:8]
+            message_count = len(st.session_state.get('messages', []))
+            st.caption(f"Current: **{session_id}** | {message_count} messages")
+
+            # New Session button
+            if st.button("➕ New Session", key="new_session_btn", use_container_width=True):
+                create_new_session()
+                st.rerun()
+
+            # Session History
+            saved_sessions = list_saved_sessions()
+            if saved_sessions:
+                st.divider()
+                st.caption("📁 Session History")
+                for session in saved_sessions[:10]:  # Show top 10
+                    session_id_short = session['session_id'][:8]
+                    msg_count = session['message_count']
+                    is_current = session['session_id'] == st.session_state.get('session_id')
+
+                    # Session item row
+                    cols = st.columns([4, 1])
+                    with cols[0]:
+                        label = f"**{session_id_short}** ({msg_count} msgs)" if is_current else f"{session_id_short} ({msg_count} msgs)"
+                        if st.button(label, key=f"load_{session['session_id']}", use_container_width=True):
+                            if load_session_from_file(session['session_id']):
+                                st.rerun()
+                    with cols[1]:
+                        if not is_current:
+                            if st.button("🗑️", key=f"del_{session['session_id']}", help="Delete session"):
+                                if delete_session(session['session_id']):
+                                    st.rerun()
+
+        # Skill Tree Section
         with st.expander("🌳 Skill Tree", expanded=False):
             from streamlit_ui.components.skill_tree import render_skill_tree_component
             render_skill_tree_component(
@@ -117,7 +159,14 @@ def render():
             } if attachments else {}
         }
         st.session_state.messages.append(user_message)
-        
+
+        # Auto-save session after user message
+        try:
+            from streamlit_ui.components.session_manager import save_session_to_file
+            save_session_to_file()
+        except Exception as save_error:
+            logger.warning(f"Auto-save failed: {save_error}")
+
         # Process with workflow
         try:
             if st.session_state.get('current_graph') and llm_service:
@@ -371,10 +420,17 @@ def render():
                 }
             }
             st.session_state.messages.append(assistant_message)
-            
+
+            # Auto-save session after each message exchange
+            try:
+                from streamlit_ui.components.session_manager import save_session_to_file
+                save_session_to_file()
+            except Exception as save_error:
+                logger.warning(f"Auto-save failed: {save_error}")
+
             # Rerun to display the new message
             st.rerun()
-                
+
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             error_message = {
@@ -384,5 +440,13 @@ def render():
                 "id": len(st.session_state.messages)
             }
             st.session_state.messages.append(error_message)
+
+            # Auto-save even on error
+            try:
+                from streamlit_ui.components.session_manager import save_session_to_file
+                save_session_to_file()
+            except:
+                pass
+
             st.rerun()
     

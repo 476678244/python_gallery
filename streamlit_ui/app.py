@@ -120,13 +120,40 @@ def load_custom_css():
 def initialize_session_state():
     """Initialize session state variables"""
     logger.info("🔄 Starting session state initialization...")
-    
+
+    # Initialize workspace_path first (needed for session restore)
+    if 'workspace_path' not in st.session_state:
+        st.session_state.workspace_path = Path.cwd() / "workspace"
+        st.session_state.workspace_path.mkdir(exist_ok=True)
+        logger.info(f"✅ Created workspace_path: {st.session_state.workspace_path}")
+    else:
+        logger.info(f"ℹ️ workspace_path already exists: {st.session_state.workspace_path}")
+
+    # Try to auto-restore last session on first load
     if 'session_id' not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-        logger.info(f"✅ Created session_id: {st.session_state.session_id[:8]}...")
+        from streamlit_ui.components.session_manager import list_saved_sessions, load_session_from_file
+        saved_sessions = list_saved_sessions()
+        if saved_sessions:
+            # Load the most recent session
+            last_session = saved_sessions[0]
+            logger.info(f"📂 Auto-loading last session: {last_session['session_id'][:8]}...")
+            try:
+                if load_session_from_file(last_session['session_id']):
+                    logger.info(f"✅ Restored session with {len(st.session_state.get('messages', []))} messages")
+                else:
+                    st.session_state.session_id = str(uuid.uuid4())
+                    st.session_state.messages = []
+            except Exception as e:
+                logger.error(f"❌ Failed to restore session: {e}")
+                st.session_state.session_id = str(uuid.uuid4())
+                st.session_state.messages = []
+        else:
+            st.session_state.session_id = str(uuid.uuid4())
+            st.session_state.messages = []
+            logger.info(f"✅ Created new session_id: {st.session_state.session_id[:8]}...")
     else:
         logger.info(f"ℹ️ session_id already exists: {st.session_state.session_id[:8]}...")
-    
+
     if 'messages' not in st.session_state:
         st.session_state.messages = []
         logger.info("✅ Created messages list")
@@ -157,14 +184,7 @@ def initialize_session_state():
             st.error("⚠️ Could not initialize LLM service. Please check your LLM configuration.")
     else:
         logger.info("ℹ️ safe_claw_config already exists")
-    
-    if 'workspace_path' not in st.session_state:
-        st.session_state.workspace_path = Path.cwd() / "workspace"
-        st.session_state.workspace_path.mkdir(exist_ok=True)
-        logger.info(f"✅ Created workspace_path: {st.session_state.workspace_path}")
-    else:
-        logger.info(f"ℹ️ workspace_path already exists: {st.session_state.workspace_path}")
-    
+
     # Initialize memory manager (doesn't depend on LLM)
     if 'memory_manager' not in st.session_state:
         logger.info("🧠 Initializing memory manager...")
