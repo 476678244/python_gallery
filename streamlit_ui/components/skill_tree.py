@@ -19,7 +19,7 @@ class SkillTreeNode:
     skill_entry: Optional[SkillIndexEntry] = None
     children: List["SkillTreeNode"] = field(default_factory=lambda: [])
     enabled: bool = True
-    expanded: bool = True
+    expanded: bool = False
     
     def __post_init__(self):
         """Ensure children is always a list"""
@@ -85,7 +85,7 @@ def build_skill_tree(
                     path=str(current_path.relative_to(base_path)),
                     is_folder=True,
                     enabled=not is_disabled,
-                    expanded=True
+                    expanded=False
                 )
                 path_to_node[path_key] = node
                 
@@ -248,7 +248,7 @@ def build_complete_skill_tree(
         path="",
         is_folder=True,
         enabled=True,
-        expanded=True
+        expanded=False
     )
     
     # Map: collection_name -> SkillTreeNode
@@ -280,7 +280,7 @@ def build_complete_skill_tree(
                 path=collection_name,
                 is_folder=True,
                 enabled=True,
-                expanded=True
+                expanded=False
             )
             collections[collection_name] = collection_node
             root.children.append(collection_node)
@@ -309,7 +309,7 @@ def build_complete_skill_tree(
                     path=path_key,
                     is_folder=True,
                     enabled=not is_disabled,
-                    expanded=True
+                    expanded=False
                 )
                 path_to_node[path_key] = node
                 parent_node.children.append(node)
@@ -495,27 +495,27 @@ def render_skill_tree(
             toggle_col = cols[2]
         
         if node.is_folder:
-            # Folder node with expand/collapse and toggle
+            # Folder node with expand/collapse and toggle - compact display
             total_skills = count_skills_in_node(node)
             enabled_count = count_enabled_skills(node)
-            
+
             with icon_col:
                 # Expand/collapse button
                 icon = "📂" if node.expanded else "📁"
                 if st.button(
                     icon,
                     key=f"toggle_{unique_key}_{level}",
-                    help="Expand/collapse folder",
+                    help=f"Expand/collapse ({enabled_count}/{total_skills} enabled)",
                     use_container_width=True
                 ):
                     node.expanded = not node.expanded
                     st.rerun()
-            
+
             with name_col:
-                folder_name = f"**{node.name}**"
+                # Compact: name and count on same line
+                folder_name = f"**{node.name}** <span style='color: #888; font-size: 0.75em;'>({enabled_count}/{total_skills})</span>"
                 st.markdown(folder_name, unsafe_allow_html=True)
-                st.caption(f"{enabled_count}/{total_skills} skills enabled")
-            
+
             with toggle_col:
                 # Folder-level toggle (enables/disables all children)
                 new_enabled = st.toggle(
@@ -540,20 +540,23 @@ def render_skill_tree(
                     parent_path=full_path
                 )
         else:
-            # Skill node (leaf)
+            # Skill node (leaf) - compact single row
             with icon_col:
                 st.markdown("🔧", unsafe_allow_html=True)
-            
+
             with name_col:
                 skill_name = node.name
                 description = ""
                 if node.skill_entry:
-                    description = node.skill_entry.description[:60] + "..." if len(node.skill_entry.description) > 60 else node.skill_entry.description
-                
-                st.markdown(f"**{skill_name}**")
+                    description = node.skill_entry.description[:40] + "..." if len(node.skill_entry.description) > 40 else node.skill_entry.description
+
+                # Compact display: name and description on same line
                 if description:
-                    st.caption(description)
-            
+                    display_text = f"**{skill_name}** <span style='color: #888; font-size: 0.75em;'>| {description}</span>"
+                else:
+                    display_text = f"**{skill_name}**"
+                st.markdown(display_text, unsafe_allow_html=True)
+
             with toggle_col:
                 new_enabled = st.toggle(
                     "Enable",
@@ -562,7 +565,7 @@ def render_skill_tree(
                     disabled=not parent_enabled,
                     label_visibility="collapsed"
                 )
-                
+
                 if new_enabled != node.enabled:
                     node.enabled = new_enabled
                     st.rerun()
@@ -622,52 +625,6 @@ def render_skill_tree_component(
                 enabled_skills=state["enabled_skills"] if state["enabled_skills"] else None,
                 disabled_folders=state["disabled_folders"]
             )
-    
-    # Control buttons
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
-    
-    with col1:
-        if st.button("✅ Enable All", use_container_width=True):
-            if isinstance(state["tree"], list):
-                for node in state["tree"]:
-                    set_node_enabled(node, True, recursive=True)
-            else:
-                set_node_enabled(state["tree"], True, recursive=True)
-            state["enabled_skills"] = set()
-            state["disabled_folders"] = set()
-            st.rerun()
-    
-    with col2:
-        if st.button("❌ Disable All", use_container_width=True):
-            if isinstance(state["tree"], list):
-                for node in state["tree"]:
-                    set_node_enabled(node, False, recursive=True)
-            else:
-                set_node_enabled(state["tree"], False, recursive=True)
-            # Collect all skills as disabled
-            state["enabled_skills"] = set()  # Empty means none enabled
-            state["disabled_folders"] = collect_disabled_folders_from_root(state["tree"])
-            st.rerun()
-    
-    with col3:
-        if st.button("🔄 Refresh", use_container_width=True):
-            state["tree"] = None
-            st.rerun()
-    
-    with col4:
-        # Save/Load config
-        config_col1, config_col2 = st.columns(2)
-        with config_col1:
-            if st.button("💾 Save", use_container_width=True):
-                state["enabled_skills"] = collect_enabled_skills(state["tree"])
-                state["disabled_folders"] = collect_disabled_folders(state["tree"])
-                st.success("Configuration saved!")
-        with config_col2:
-            if st.button("📂 Load", use_container_width=True):
-                state["tree"] = None
-                st.rerun()
-    
-    st.divider()
     
     # Summary stats
     if isinstance(state["tree"], list):
