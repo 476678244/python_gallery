@@ -10,12 +10,14 @@ sys.path.insert(0, str(project_root))
 
 import streamlit as st
 import logging
-from typing import Dict, Any, Iterator
+from typing import Dict, Any
 from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessage
-
-from components.session_manager import get_session_state
-from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.components.skill_tree import get_enabled_skills_from_tree
+from streamlit_ui.components.file_dropzone import (
+    render_file_dropzone_in_chat,
+    get_pending_attachments,
+    has_pending_attachments
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,58 @@ def render():
     st.title("💬 Chat with SafeClaw")
     st.caption("Your AI Safety Assistant")
     
+    # Sidebar: Session Management & Skill Tree
+    with st.sidebar:
+        st.divider()
+
+        # Session Management Section
+        with st.expander("💬 Sessions", expanded=True):
+            from streamlit_ui.components.session_manager import (
+                create_new_session, save_session_to_file, load_session_from_file,
+                list_saved_sessions, delete_session
+            )
+
+            # Current session info
+            session_id = st.session_state.get('session_id', 'Unknown')[:8]
+            message_count = len(st.session_state.get('messages', []))
+            st.caption(f"Current: **{session_id}** | {message_count} messages")
+
+            # New Session button
+            if st.button("➕ New Session", key="new_session_btn", use_container_width=True):
+                create_new_session()
+                st.rerun()
+
+            # Session History
+            saved_sessions = list_saved_sessions()
+            if saved_sessions:
+                st.divider()
+                st.caption("📁 Session History")
+                for session in saved_sessions[:10]:  # Show top 10
+                    session_id_short = session['session_id'][:8]
+                    msg_count = session['message_count']
+                    is_current = session['session_id'] == st.session_state.get('session_id')
+
+                    # Session item row
+                    cols = st.columns([4, 1])
+                    with cols[0]:
+                        label = f"**{session_id_short}** ({msg_count} msgs)" if is_current else f"{session_id_short} ({msg_count} msgs)"
+                        if st.button(label, key=f"load_{session['session_id']}", use_container_width=True):
+                            if load_session_from_file(session['session_id']):
+                                st.rerun()
+                    with cols[1]:
+                        if not is_current:
+                            if st.button("🗑️", key=f"del_{session['session_id']}", help="Delete session"):
+                                if delete_session(session['session_id']):
+                                    st.rerun()
+
+        # Skill Tree Section
+        with st.expander("🌳 Skill Tree", expanded=False):
+            from streamlit_ui.components.skill_tree import render_skill_tree_component
+            render_skill_tree_component(
+                session_state_key="skill_tree_state",
+                use_complete_tree=True
+            )
+    
     # Check if services are available
     llm_service = st.session_state.get('llm_service')
     memory_manager = st.session_state.get('memory_manager')
@@ -70,28 +124,49 @@ def render():
         for message in st.session_state.messages:
             render_message(message)
     
+    # File dropzone (collapsible)
+    render_file_dropzone_in_chat(
+        chat_input_key="chat_file_drop",
+        on_file_confirmed=lambda file_data: st.toast(f"📎 File ready: {file_data['name']}")
+    )
+    
+    # Show pending attachments indicator
+    if has_pending_attachments():
+        attachments = get_pending_attachments()
+        st.caption(f"📎 {len(attachments)} file(s) ready to send: " + ", ".join([f['name'] for f in attachments]))
+    
     # Chat input
     user_input = st.chat_input("Type your message here...")
     
     if user_input:
+        # Get any pending file attachments
+        attachments = get_pending_attachments()
+        
+        # Build message content
+        content = user_input
+        if attachments:
+            file_info = attachments[0]  # Use first attachment for context
+            content = f"{user_input}\n\n[Attached file: {file_info['name']} ({file_info['path']})]\n```\n{file_info['content'][:2000]}\n```"
+        
         # Add user message to chat
         user_message = {
             "role": "user",
-            "content": user_input,
+            "content": content,
             "timestamp": datetime.now(),
-            "id": len(st.session_state.messages)
+            "id": len(st.session_state.messages),
+            "metadata": {
+                "attachments": [{"name": f['name'], "path": f['path'], "size": f['size']} for f in attachments]
+            } if attachments else {}
         }
         st.session_state.messages.append(user_message)
-        
-        # Create state for LangGraph
-        state = SafeClawState(
-            user_input=user_input,
-            session_id=st.session_state.session_id,
-            messages=[HumanMessage(content=msg["content"]) if msg["role"] == "user" 
-                     else AIMessage(content=msg["content"]) for msg in st.session_state.messages[:-1]],
-            start_time=datetime.now()
-        )
-        
+
+        # Auto-save session after user message
+        try:
+            from streamlit_ui.components.session_manager import save_session_to_file
+            save_session_to_file()
+        except Exception as save_error:
+            logger.warning(f"Auto-save failed: {save_error}")
+
         # Process with workflow
         try:
             if st.session_state.get('current_graph') and llm_service:
@@ -108,8 +183,16 @@ def render():
                         "streamlit_ui/skills/private_skills"
                     ]
                 
+                # Get enabled skills from Skill Tree (if configured)
+                enabled_skills = get_enabled_skills_from_tree("skill_tree_state")
+                if enabled_skills:
+                    logger.info(f"Using {len(enabled_skills)} enabled skills from Skill Tree")
+                else:
+                    logger.info("No Skill Tree configuration found, using all available skills")
+                
                 config = {
-                    "external_skills_paths": external_skills
+                    "external_skills_paths": external_skills,
+                    "enabled_skills": enabled_skills  # Filter by Skill Tree selection
                 }
                 deep_agent = DeepAgentFactory.create_agent(llm_service, config)
                 
@@ -337,10 +420,17 @@ def render():
                 }
             }
             st.session_state.messages.append(assistant_message)
-            
+
+            # Auto-save session after each message exchange
+            try:
+                from streamlit_ui.components.session_manager import save_session_to_file
+                save_session_to_file()
+            except Exception as save_error:
+                logger.warning(f"Auto-save failed: {save_error}")
+
             # Rerun to display the new message
             st.rerun()
-                
+
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             error_message = {
@@ -350,50 +440,13 @@ def render():
                 "id": len(st.session_state.messages)
             }
             st.session_state.messages.append(error_message)
+
+            # Auto-save even on error
+            try:
+                from streamlit_ui.components.session_manager import save_session_to_file
+                save_session_to_file()
+            except:
+                pass
+
             st.rerun()
     
-    # Add some helpful tips at the bottom
-    with st.expander("💡 Tips for using SafeClaw"):
-        st.markdown("""
-        **Memory Commands:**
-        - "Remember that [information]" - Store important information
-        - "Search for [topic]" - Find relevant memories
-        - "What do you remember about [topic]?" - Recall memories
-        
-        **General Chat:**
-        - Ask questions about any topic
-        - Request help with tasks
-        - Have natural conversations
-        
-        **Safety Features:**
-        - All operations are subject to safety checks
-        - File operations require confirmation
-        - Your data is stored locally
-        """)
-    
-    # Display execution info if debug mode is on
-    if st.session_state.safe_claw_config.debug and st.session_state.messages:
-        last_message = st.session_state.messages[-1]
-        if last_message["role"] == "assistant" and "metadata" in last_message:
-            metadata = last_message["metadata"]
-            with st.expander("🔍 Debug Info"):
-                st.json({
-                    "Agent": metadata.get("agent"),
-                    "Execution Path": metadata.get("execution_path"),
-                    "Processing Time": f"{metadata.get('processing_time', 0):.2f}s"
-                })
-
-def stream_response(state: SafeClawState) -> Iterator[str]:
-    """Stream response from the workflow (future enhancement)"""
-    # This would be used for streaming responses
-    # For now, we'll use the synchronous approach
-    config = {"configurable": {"thread_id": st.session_state.session_id}}
-    
-    try:
-        # Stream the response (when LangGraph streaming is properly set up)
-        for chunk in st.session_state.current_graph.stream(state, config):
-            if "response" in chunk:
-                yield chunk["response"]
-    except Exception as e:
-        logger.error(f"Error in streaming: {e}")
-        yield f"Error: {str(e)}"

@@ -162,3 +162,75 @@ class SkillsManager:
             categories[cat] = categories.get(cat, 0) + 1
         
         return categories
+
+    def get_enabled_skills(self, enabled_skill_names: Optional[List[str]] = None) -> List[str]:
+        """Get list of enabled skills, optionally filtered by user selection
+        
+        This method can be used with the Skill Tree component to get only
+        the skills that the user has enabled through the tree interface.
+        
+        Args:
+            enabled_skill_names: Optional list of skill names to filter by.
+                If None, returns all user-invocable skills.
+                If empty list, returns no skills.
+                
+        Returns:
+            List of enabled skill names
+        """
+        if not self.skill_scanner.loaded:
+            self.skill_scanner.scan_all_skills()
+        
+        # If no filter provided, return all user-invocable skills
+        if enabled_skill_names is None:
+            return self.get_available_skills()
+        
+        # If empty list provided, user disabled all skills
+        if not enabled_skill_names:
+            return []
+        
+        # Filter to only include valid, user-invocable skills
+        enabled_set = set(enabled_skill_names)
+        filtered = []
+        
+        for name in enabled_skill_names:
+            entry = self.skill_scanner.index.get(name)
+            if entry and entry.user_invocable:
+                filtered.append(name)
+            else:
+                logger.warning(f"Skill '{name}' not found or not user-invocable, skipping")
+        
+        logger.info(f"Returning {len(filtered)} enabled skills out of {len(enabled_set)} requested")
+        return filtered
+
+    def get_filtered_skills_paths(self, enabled_skill_names: Optional[List[str]] = None) -> List[str]:
+        """Get skills paths filtered by enabled skills
+        
+        Args:
+            enabled_skill_names: Optional list of skill names to filter by.
+                Only paths for these skills will be returned.
+                
+        Returns:
+            List of skill directory paths as strings
+        """
+        all_paths = self.get_skills_paths()
+        
+        # If no filter, return all paths
+        if enabled_skill_names is None:
+            return all_paths
+        
+        # If empty list, return no paths
+        if not enabled_skill_names:
+            return []
+        
+        # Filter paths to only include enabled skills
+        enabled_set = set(enabled_skill_names)
+        filtered_paths = []
+        
+        for path in all_paths:
+            # Extract skill name from path (last folder name before trailing slash)
+            skill_name = Path(path).name
+            if skill_name in enabled_set:
+                filtered_paths.append(path)
+        
+        logger.info(f"Filtered to {len(filtered_paths)} skill paths from {len(all_paths)} total")
+        return filtered_paths

@@ -1,5 +1,13 @@
 """Skill Scanner - Level 1 Discovery with Full Frontmatter Support
 
+Entry points for skill discovery:
+1. linked_skills/ - each subdirectory is a skill collection (may be symlink)
+2. streamlit_ui/skills/ - each subdirectory is a skill collection
+3. built_in/ - core skills
+
+A skill is any directory containing SKILL.md (with valid frontmatter).
+
+
 Stage 1: Directory-level shallow scan
 - Only reads SKILL.md frontmatter or skill.yaml
 - No Level 2/3 content loading (progressive disclosure)
@@ -19,6 +27,25 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass, asdict
+
+# Patterns to ignore during skill scanning
+IGNORE_PATTERNS = {
+    "__pycache__", ".git", ".idea", ".DS_Store", ".pytest_cache", ".venv",
+    "node_modules", ".vscode", ".env", ".gitignore", ".mypy_cache", ".tox",
+    "dist", "build", "*.pyc", "*.pyo", "*.egg-info"
+}
+
+
+def _should_ignore_path(path: Path) -> bool:
+    """Check if a path should be ignored during scanning"""
+    name = path.name
+    if name in IGNORE_PATTERNS:
+        return True
+    if name.startswith(".") or name.startswith("__"):
+        return True
+    if name.endswith(".pyc") or name.endswith(".pyo"):
+        return True
+    return False
 
 from streamlit_ui.safe_claw.core.skills.manifest import SkillLevel1, SkillManifest
 from streamlit_ui.safe_claw.core.skills.loader import SkillLoader
@@ -111,11 +138,18 @@ class SkillScanner:
 
         logger.info(f"SkillScanner initialized with base path: {self.skills_base_path}")
 
-    def scan_directory(self, directory: Path, recursive: bool = True) -> List[SkillIndexEntry]:
+    def scan_directory(self, directory: Path, recursive: bool = True,
+                        path_prefix: Path = None) -> List[SkillIndexEntry]:
         """Scan a directory for skills (Stage 1: Level 1 only)
-        
+
         Only extracts minimal metadata (~100 tokens per skill).
         No SKILL.md body content is loaded at this stage.
+
+        Args:
+            directory: Directory to scan
+            recursive: Whether to scan recursively
+            path_prefix: Optional path prefix to use instead of directory.
+                        Used for symlinks to preserve the symlink path structure.
         """
         skills = []
         scan_path = directory if directory.is_absolute() else self.skills_base_path / directory
@@ -124,56 +158,93 @@ class SkillScanner:
             logger.warning(f"Directory not found: {scan_path}")
             return skills
 
+        # Use path_prefix for building display paths (for symlinks)
+        display_base = path_prefix if path_prefix else scan_path
+
         # Look for skill directories (each dir with SKILL.md is a skill)
         if recursive:
             # Find all SKILL.md files recursively
             for skill_md in scan_path.rglob("SKILL.md"):
-                skill_path = skill_md.parent
-                manifest = self._loader.load_level1(skill_path)
+                real_skill_path = skill_md.parent
+                
+                # Skip if this is in an ignored directory
+                if _should_ignore_path(real_skill_path):
+                    logger.debug(f"Ignoring skill in excluded path: {real_skill_path}")
+                    continue
+                # Build display path: replace scan_path prefix with display_base
+                try:
+                    rel_path = real_skill_path.relative_to(scan_path)
+                    display_path = display_base / rel_path
+                except ValueError:
+                    display_path = real_skill_path
+
+                manifest = self._loader.load_level1(real_skill_path)
                 if manifest:
+                    # Override the path with display path
+                    manifest.path = display_path
                     entry = SkillIndexEntry.from_level1(manifest)
                     skills.append(entry)
                     self.index[entry.name] = entry
-                    
-                    # Index by path
-                    path_key = str(skill_path)
+
+                    # Index by display path
+                    path_key = str(display_path)
                     if path_key not in self.path_index:
                         self.path_index[path_key] = []
                     if entry.name not in self.path_index[path_key]:
                         self.path_index[path_key].append(entry.name)
-            
+
             # Also look for skill.yaml files (alternative format)
             for yaml_file in scan_path.rglob("skill.yaml"):
-                skill_path = yaml_file.parent
-                # Skip if already indexed via SKILL.md
-                if any(str(skill_path) == str(e.path) for e in skills):
+                real_skill_path = yaml_file.parent
+                
+                # Skip if this is in an ignored directory
+                if _should_ignore_path(real_skill_path):
                     continue
-                    
-                manifest = self._loader.load_level1(skill_path)
+                
+                # Build display path
+                try:
+                    rel_path = real_skill_path.relative_to(scan_path)
+                    display_path = display_base / rel_path
+                except ValueError:
+                    display_path = real_skill_path
+
+                # Skip if already indexed
+                if any(str(display_path) == str(e.path) for e in skills):
+                    continue
+
+                manifest = self._loader.load_level1(real_skill_path)
                 if manifest:
+                    manifest.path = display_path
                     entry = SkillIndexEntry.from_level1(manifest)
                     skills.append(entry)
                     self.index[entry.name] = entry
         else:
             # Non-recursive: only immediate subdirectories
             for subdir in scan_path.iterdir():
-                if subdir.is_dir():
+                if subdir.is_dir() and not _should_ignore_path(subdir):
                     manifest = self._loader.load_level1(subdir)
                     if manifest:
                         entry = SkillIndexEntry.from_level1(manifest)
                         skills.append(entry)
                         self.index[entry.name] = entry
-                        
+
                         path_key = str(subdir)
                         if path_key not in self.path_index:
                             self.path_index[path_key] = []
                         self.path_index[path_key].append(entry.name)
 
-        logger.info(f"Scanned {scan_path}: found {len(skills)} skills (Level 1 only)")
+        logger.info(f"Scanned {scan_path} (display as {display_base}): found {len(skills)} skills (Level 1 only)")
         return skills
 
     def scan_all_skills(self) -> List[SkillIndexEntry]:
-        """Full scan of all skills directories - Level 1 only"""
+        """Full scan of all skills directories - Level 1 only
+
+        Skills are discovered from two entry points:
+        1. linked_skills/ - each subdirectory is a skill collection
+        2. streamlit_ui/skills/ - each subdirectory is a skill collection
+
+        Each skill collection folder is scanned recursively for SKILL.md files.
+        """
         all_skills = []
 
         # Scan built-in skills
@@ -181,21 +252,42 @@ class SkillScanner:
         if builtin_path.exists():
             all_skills.extend(self.scan_directory(builtin_path, recursive=False))
 
-        # Scan public skills
-        public_path = self.skills_base_path / "public_skills"
-        if public_path.exists():
-            for subdir in public_path.iterdir():
-                if subdir.is_dir():
-                    # Each public_skill package has its own structure
-                    skills_subdir = subdir / "skills" if (subdir / "skills").exists() else subdir
-                    all_skills.extend(self.scan_directory(skills_subdir, recursive=True))
+        # Entry point 1: linked_skills/ - each subdir is a skill collection
+        linked_skills_root = Path(__file__).parent.parent.parent.parent.parent / "linked_skills"
+        if linked_skills_root.exists():
+            logger.info(f"Scanning linked_skills entry point: {linked_skills_root}")
+            for collection_dir in linked_skills_root.iterdir():
+                if collection_dir.is_dir() or collection_dir.is_symlink():
+                    # If it's a symlink, resolve it for scanning but preserve symlink path
+                    if collection_dir.is_symlink():
+                        real_dir = collection_dir.resolve()
+                        logger.info(f"  Scanning skill collection: {collection_dir.name} -> {real_dir}")
+                        # Pass symlink path as prefix to preserve path structure
+                        all_skills.extend(self.scan_directory(real_dir, recursive=True, path_prefix=collection_dir))
+                    else:
+                        logger.info(f"  Scanning skill collection: {collection_dir.name}")
+                        all_skills.extend(self.scan_directory(collection_dir, recursive=True))
+        else:
+            logger.warning(f"linked_skills entry point not found: {linked_skills_root}")
 
-        # Scan private skills
-        private_path = self.skills_base_path / "private_skills"
-        if private_path.exists():
-            all_skills.extend(self.scan_directory(private_path, recursive=True))
+        # Entry point 2: streamlit_ui/skills/ - each subdir is a skill collection
+        streamlit_skills_root = Path(__file__).parent.parent.parent.parent / "skills"
+        if streamlit_skills_root.exists():
+            logger.info(f"Scanning streamlit_ui/skills entry point: {streamlit_skills_root}")
+            for collection_dir in streamlit_skills_root.iterdir():
+                if collection_dir.is_dir() or collection_dir.is_symlink():
+                    # Handle symlinks same as above
+                    if collection_dir.is_symlink():
+                        real_dir = collection_dir.resolve()
+                        logger.info(f"  Scanning skill collection: {collection_dir.name} -> {real_dir}")
+                        all_skills.extend(self.scan_directory(real_dir, recursive=True, path_prefix=collection_dir))
+                    else:
+                        logger.info(f"  Scanning skill collection: {collection_dir.name}")
+                        all_skills.extend(self.scan_directory(collection_dir, recursive=True))
+        else:
+            logger.warning(f"streamlit_ui/skills entry point not found: {streamlit_skills_root}")
 
-        # Scan external skills paths
+        # Scan external skills paths (legacy support)
         for external_path in self.external_skills_paths:
             if external_path.exists():
                 logger.info(f"Scanning external skills path: {external_path}")
