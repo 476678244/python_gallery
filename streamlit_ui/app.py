@@ -13,6 +13,7 @@ from typing import Dict, Any
 import uuid
 from datetime import datetime
 import os
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +50,35 @@ from streamlit_ui.safe_claw.core.skills.registry import SkillRegistry
 from streamlit_ui.safe_claw.core.safety.checker import SafetyChecker
 from streamlit_ui.safe_claw.core.safety.audit import AuditLogger
 
+# User preferences file path
+def get_user_prefs_path() -> Path:
+    """Get path to user preferences JSON file"""
+    prefs_dir = Path.home() / ".safe_claw"
+    prefs_dir.mkdir(exist_ok=True)
+    return prefs_dir / "user_preferences.json"
+
+def load_user_preferences() -> Dict[str, Any]:
+    """Load user preferences from JSON file"""
+    prefs_path = get_user_prefs_path()
+    if prefs_path.exists():
+        try:
+            with open(prefs_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load user preferences: {e}")
+    return {}
+
+def save_user_preferences(prefs: Dict[str, Any]) -> bool:
+    """Save user preferences to JSON file"""
+    try:
+        prefs_path = get_user_prefs_path()
+        with open(prefs_path, 'w') as f:
+            json.dump(prefs, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save user preferences: {e}")
+        return False
+
 # Page imports - import directly to avoid emoji filename issues
 import importlib
 
@@ -84,7 +114,16 @@ AVAILABLE_MODELS = {
         "context_length": 30000,
         "show_thinking": False
     },
-
+    "google/gemma-4-31b": {
+        "provider": "openai",
+        "model": "google/gemma-4-31b",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 128000,
+        "show_thinking": False
+    },
 }
 
 # Import pages dynamically
@@ -162,7 +201,22 @@ def initialize_session_state():
     
     # Initialize selected model if not set
     if 'selected_model' not in st.session_state:
-        st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
+        # Try to load from user preferences JSON file
+        prefs = load_user_preferences()
+        saved_model = prefs.get('selected_model')
+        if saved_model and saved_model in AVAILABLE_MODELS:
+            st.session_state.selected_model = saved_model
+            logger.info(f"✅ Loaded model from preferences: {st.session_state.selected_model}")
+        else:
+            st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
+            logger.info(f"✅ Set default model: {st.session_state.selected_model}")
+    else:
+        # Validate restored model is in available models
+        if st.session_state.selected_model not in AVAILABLE_MODELS:
+            logger.warning(f"⚠️ Restored model '{st.session_state.selected_model}' not in AVAILABLE_MODELS, resetting to default")
+            st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
+        else:
+            logger.info(f"✅ Using restored model: {st.session_state.selected_model}")
     
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")
@@ -325,6 +379,21 @@ def sidebar():
                     st.success(f"✅ Switched to {selected_model}")
                 except Exception as e:
                     st.error(f"❌ Failed to switch to {selected_model}: {e}")
+            # Save session immediately to persist model selection
+            try:
+                from streamlit_ui.components.session_manager import save_session_to_file
+                save_session_to_file()
+            except Exception as e:
+                logger.warning(f"Failed to save session after model change: {e}")
+            # Save to user preferences JSON file for cross-session persistence
+            try:
+                prefs = load_user_preferences()
+                prefs['selected_model'] = selected_model
+                prefs['last_updated'] = datetime.now().isoformat()
+                save_user_preferences(prefs)
+                logger.info(f"✅ Saved model preference: {selected_model}")
+            except Exception as e:
+                logger.warning(f"Failed to save user preferences: {e}")
             st.rerun()
         
         # Display current model info

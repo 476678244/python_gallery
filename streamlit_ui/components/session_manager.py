@@ -35,6 +35,7 @@ def save_session_to_file():
             'messages': st.session_state.messages,
             'session_start': st.session_state.session_start.isoformat(),
             'last_activity': st.session_state.last_activity.isoformat(),
+            'selected_model': st.session_state.get('selected_model'),
             'config': st.session_state.safe_claw_config.dict() if st.session_state.get('safe_claw_config') else None
         }
         
@@ -67,6 +68,9 @@ def load_session_from_file(session_id: str):
         st.session_state.messages = session_data['messages']
         st.session_state.session_start = datetime.fromisoformat(session_data['session_start'])
         st.session_state.last_activity = datetime.fromisoformat(session_data['last_activity'])
+        
+        if session_data.get('selected_model'):
+            st.session_state.selected_model = session_data['selected_model']
         
         if session_data.get('config'):
             from models.config import SafeClawConfig
