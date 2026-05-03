@@ -13,6 +13,11 @@ import logging
 from typing import Dict, Any
 from datetime import datetime
 from streamlit_ui.components.skill_tree import get_enabled_skills_from_tree
+from streamlit_ui.components.file_dropzone import (
+    render_file_dropzone_in_chat,
+    get_pending_attachments,
+    has_pending_attachments
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +82,39 @@ def render():
         for message in st.session_state.messages:
             render_message(message)
     
+    # File dropzone (collapsible)
+    render_file_dropzone_in_chat(
+        chat_input_key="chat_file_drop",
+        on_file_confirmed=lambda file_data: st.toast(f"📎 File ready: {file_data['name']}")
+    )
+    
+    # Show pending attachments indicator
+    if has_pending_attachments():
+        attachments = get_pending_attachments()
+        st.caption(f"📎 {len(attachments)} file(s) ready to send: " + ", ".join([f['name'] for f in attachments]))
+    
     # Chat input
     user_input = st.chat_input("Type your message here...")
     
     if user_input:
+        # Get any pending file attachments
+        attachments = get_pending_attachments()
+        
+        # Build message content
+        content = user_input
+        if attachments:
+            file_info = attachments[0]  # Use first attachment for context
+            content = f"{user_input}\n\n[Attached file: {file_info['name']} ({file_info['path']})]\n```\n{file_info['content'][:2000]}\n```"
+        
         # Add user message to chat
         user_message = {
             "role": "user",
-            "content": user_input,
+            "content": content,
             "timestamp": datetime.now(),
-            "id": len(st.session_state.messages)
+            "id": len(st.session_state.messages),
+            "metadata": {
+                "attachments": [{"name": f['name'], "path": f['path'], "size": f['size']} for f in attachments]
+            } if attachments else {}
         }
         st.session_state.messages.append(user_message)
         
