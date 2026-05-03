@@ -10,12 +10,9 @@ sys.path.insert(0, str(project_root))
 
 import streamlit as st
 import logging
-from typing import Dict, Any, Iterator
+from typing import Dict, Any
 from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessage
-
-from components.session_manager import get_session_state
-from streamlit_ui.safe_claw.core.graph.state import SafeClawState
+from streamlit_ui.components.skill_tree import get_enabled_skills_from_tree
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +42,16 @@ def render():
     """Render the chat page"""
     st.title("💬 Chat with SafeClaw")
     st.caption("Your AI Safety Assistant")
+    
+    # Sidebar: Skill Tree management
+    with st.sidebar:
+        st.divider()
+        with st.expander("🌳 Skill Tree", expanded=False):
+            from streamlit_ui.components.skill_tree import render_skill_tree_component
+            render_skill_tree_component(
+                session_state_key="skill_tree_state",
+                use_complete_tree=True
+            )
     
     # Check if services are available
     llm_service = st.session_state.get('llm_service')
@@ -83,15 +90,6 @@ def render():
         }
         st.session_state.messages.append(user_message)
         
-        # Create state for LangGraph
-        state = SafeClawState(
-            user_input=user_input,
-            session_id=st.session_state.session_id,
-            messages=[HumanMessage(content=msg["content"]) if msg["role"] == "user" 
-                     else AIMessage(content=msg["content"]) for msg in st.session_state.messages[:-1]],
-            start_time=datetime.now()
-        )
-        
         # Process with workflow
         try:
             if st.session_state.get('current_graph') and llm_service:
@@ -108,8 +106,16 @@ def render():
                         "streamlit_ui/skills/private_skills"
                     ]
                 
+                # Get enabled skills from Skill Tree (if configured)
+                enabled_skills = get_enabled_skills_from_tree("skill_tree_state")
+                if enabled_skills:
+                    logger.info(f"Using {len(enabled_skills)} enabled skills from Skill Tree")
+                else:
+                    logger.info("No Skill Tree configuration found, using all available skills")
+                
                 config = {
-                    "external_skills_paths": external_skills
+                    "external_skills_paths": external_skills,
+                    "enabled_skills": enabled_skills  # Filter by Skill Tree selection
                 }
                 deep_agent = DeepAgentFactory.create_agent(llm_service, config)
                 
@@ -352,48 +358,3 @@ def render():
             st.session_state.messages.append(error_message)
             st.rerun()
     
-    # Add some helpful tips at the bottom
-    with st.expander("💡 Tips for using SafeClaw"):
-        st.markdown("""
-        **Memory Commands:**
-        - "Remember that [information]" - Store important information
-        - "Search for [topic]" - Find relevant memories
-        - "What do you remember about [topic]?" - Recall memories
-        
-        **General Chat:**
-        - Ask questions about any topic
-        - Request help with tasks
-        - Have natural conversations
-        
-        **Safety Features:**
-        - All operations are subject to safety checks
-        - File operations require confirmation
-        - Your data is stored locally
-        """)
-    
-    # Display execution info if debug mode is on
-    if st.session_state.safe_claw_config.debug and st.session_state.messages:
-        last_message = st.session_state.messages[-1]
-        if last_message["role"] == "assistant" and "metadata" in last_message:
-            metadata = last_message["metadata"]
-            with st.expander("🔍 Debug Info"):
-                st.json({
-                    "Agent": metadata.get("agent"),
-                    "Execution Path": metadata.get("execution_path"),
-                    "Processing Time": f"{metadata.get('processing_time', 0):.2f}s"
-                })
-
-def stream_response(state: SafeClawState) -> Iterator[str]:
-    """Stream response from the workflow (future enhancement)"""
-    # This would be used for streaming responses
-    # For now, we'll use the synchronous approach
-    config = {"configurable": {"thread_id": st.session_state.session_id}}
-    
-    try:
-        # Stream the response (when LangGraph streaming is properly set up)
-        for chunk in st.session_state.current_graph.stream(state, config):
-            if "response" in chunk:
-                yield chunk["response"]
-    except Exception as e:
-        logger.error(f"Error in streaming: {e}")
-        yield f"Error: {str(e)}"

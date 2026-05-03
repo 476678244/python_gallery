@@ -221,15 +221,11 @@ def initialize_session_state():
             # Start with built-in skills
             registry = load_builtin_skills()
             
-            # Pre-load external skills from streamlit_ui.safe_claw.configured paths
-            skills_paths = [
-                Path(__file__).parent / "skills",
-            ]
-            
+            # Pre-load external skills from all sources (including linked_skills)
             scanner = get_skill_scanner()
-            preloaded_skills = scanner.scan_paths(skills_paths, recursive=True)
+            preloaded_skills = scanner.scan_all_skills()
             
-            logger.info(f"✅ Pre-loaded {len(preloaded_skills)} external skills from {len(skills_paths)} paths")
+            logger.info(f"✅ Pre-loaded {len(preloaded_skills)} external skills from all sources")
             
             st.session_state.skill_registry = registry
             st.session_state.skill_scanner = scanner
