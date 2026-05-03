@@ -79,6 +79,32 @@ def save_user_preferences(prefs: Dict[str, Any]) -> bool:
         logger.error(f"Failed to save user preferences: {e}")
         return False
 
+def save_skill_tree_preferences(enabled_skills: set, disabled_folders: set) -> bool:
+    """Save skill tree state to user preferences"""
+    try:
+        prefs = load_user_preferences()
+        prefs['skill_tree'] = {
+            'enabled_skills': list(enabled_skills),
+            'disabled_folders': list(disabled_folders),
+            'last_updated': datetime.now().isoformat()
+        }
+        return save_user_preferences(prefs)
+    except Exception as e:
+        logger.error(f"Failed to save skill tree preferences: {e}")
+        return False
+
+def load_skill_tree_preferences() -> tuple[set, set]:
+    """Load skill tree state from user preferences"""
+    try:
+        prefs = load_user_preferences()
+        skill_tree_prefs = prefs.get('skill_tree', {})
+        enabled_skills = set(skill_tree_prefs.get('enabled_skills', []))
+        disabled_folders = set(skill_tree_prefs.get('disabled_folders', []))
+        return enabled_skills, disabled_folders
+    except Exception as e:
+        logger.warning(f"Failed to load skill tree preferences: {e}")
+        return set(), set()
+
 # Page imports - import directly to avoid emoji filename issues
 import importlib
 
@@ -102,6 +128,16 @@ AVAILABLE_MODELS = {
         "temperature": 0.7,
         "max_tokens": 2000,
         "context_length": 30000,
+        "show_thinking": False
+    },
+    "qwen/qwen3.6-27b": {
+        "provider": "openai",
+        "model": "qwen/qwen3.6-27b",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 128000,
         "show_thinking": False
     },
     "gpt_oss": {
@@ -217,6 +253,17 @@ def initialize_session_state():
             st.session_state.selected_model = "qwen/qwen3.5-35b-a3b"
         else:
             logger.info(f"✅ Using restored model: {st.session_state.selected_model}")
+    
+    # Initialize skill tree state from user preferences
+    if 'skill_tree_state' not in st.session_state:
+        enabled_skills, disabled_folders = load_skill_tree_preferences()
+        st.session_state.skill_tree_state = {
+            "enabled_skills": enabled_skills,
+            "disabled_folders": disabled_folders,
+            "tree": None,
+            "use_complete_tree": True
+        }
+        logger.info(f"✅ Loaded skill tree preferences: {len(enabled_skills)} enabled, {len(disabled_folders)} disabled folders")
     
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")

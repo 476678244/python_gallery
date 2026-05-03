@@ -275,11 +275,12 @@ def build_complete_skill_tree(
         
         # Create collection node if not exists
         if collection_name not in collections:
+            is_disabled = collection_name in disabled_folders
             collection_node = SkillTreeNode(
                 name=collection_name,
                 path=collection_name,
                 is_folder=True,
-                enabled=True,
+                enabled=not is_disabled,
                 expanded=False
             )
             collections[collection_name] = collection_node
@@ -666,6 +667,34 @@ def render_skill_tree_component(
                 state["tree"].children = render_skill_tree(state["tree"].children, level=0, parent_path=state["tree"].path or "root")
     else:
         st.info("No skills found in the configured directory.")
+    
+    # Auto-save skill tree state to user preferences
+    # Collect current state from tree
+    if state.get("tree"):
+        if isinstance(state["tree"], list):
+            current_enabled = set()
+            current_disabled = set()
+            for node in state["tree"]:
+                current_enabled.update(collect_enabled_skills(node))
+                current_disabled.update(collect_disabled_folders(node))
+        else:
+            current_enabled = collect_enabled_skills(state["tree"])
+            current_disabled = collect_disabled_folders(state["tree"])
+        
+        # Save to user preferences if changed
+        if current_enabled != state.get("enabled_skills") or current_disabled != state.get("disabled_folders"):
+            state["enabled_skills"] = current_enabled
+            state["disabled_folders"] = current_disabled
+            try:
+                # Import here to avoid circular dependency
+                import sys
+                project_root = Path(__file__).parent.parent
+                if str(project_root) not in sys.path:
+                    sys.path.insert(0, str(project_root))
+                from streamlit_ui.app import save_skill_tree_preferences
+                save_skill_tree_preferences(current_enabled, current_disabled)
+            except Exception as e:
+                logger.debug(f"Failed to auto-save skill tree preferences: {e}")
     
     # Export current configuration
     st.divider()

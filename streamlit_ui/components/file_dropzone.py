@@ -75,7 +75,7 @@ def file_dropzone(
         
         # Use native streamlit file uploader (drag & drop supported)
         uploaded_files = st.file_uploader(
-            "",
+            "Upload files",
             type=accepted_types,
             accept_multiple_files=True,
             key=f"{key}_uploader",
