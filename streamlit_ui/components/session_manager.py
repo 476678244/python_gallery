@@ -73,7 +73,7 @@ def load_session_from_file(session_id: str):
             st.session_state.selected_model = session_data['selected_model']
         
         if session_data.get('config'):
-            from models.config import SafeClawConfig
+            from streamlit_ui.safe_claw.models.config import SafeClawConfig
             st.session_state.safe_claw_config = SafeClawConfig(**session_data['config'])
         
         return True
@@ -171,6 +171,12 @@ def get_session_summary() -> Dict[str, Any]:
     
     # Calculate session duration
     start_time = st.session_state.get('session_start', datetime.now())
+    # Handle string timestamps from JSON
+    if isinstance(start_time, str):
+        try:
+            start_time = datetime.fromisoformat(start_time)
+        except (ValueError, TypeError):
+            start_time = datetime.now()
     duration = datetime.now() - start_time
     
     # Extract topics (simple keyword extraction)
@@ -185,6 +191,14 @@ def get_session_summary() -> Dict[str, Any]:
     
     top_topics = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
     
+    # Handle string timestamps for last_activity too
+    last_activity = st.session_state.get('last_activity', datetime.now())
+    if isinstance(last_activity, str):
+        try:
+            last_activity = datetime.fromisoformat(last_activity)
+        except (ValueError, TypeError):
+            last_activity = datetime.now()
+
     return {
         'session_id': st.session_state.get('session_id', 'Unknown'),
         'message_count': len(messages),
@@ -194,7 +208,7 @@ def get_session_summary() -> Dict[str, Any]:
         'duration_formatted': format_duration(duration),
         'top_topics': [{'word': word, 'count': count} for word, count in top_topics],
         'start_time': start_time,
-        'last_activity': st.session_state.get('last_activity', datetime.now())
+        'last_activity': last_activity
     }
 
 def format_duration(duration) -> str:

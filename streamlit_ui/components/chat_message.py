@@ -4,6 +4,17 @@ import streamlit as st
 from datetime import datetime
 from typing import Dict, Any
 
+def format_timestamp(timestamp, fmt='%H:%M') -> str:
+    """Format timestamp, handling both datetime objects and ISO format strings"""
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp)
+        except (ValueError, TypeError):
+            return timestamp  # Return as-is if parsing fails
+    if isinstance(timestamp, datetime):
+        return timestamp.strftime(fmt)
+    return str(timestamp)
+
 def render_message(message: Dict[str, Any]):
     """Render a chat message"""
     role = message.get("role", "user")
@@ -14,7 +25,7 @@ def render_message(message: Dict[str, Any]):
     if role == "user":
         with st.chat_message("user"):
             st.write(content)
-            st.caption(f"Sent {timestamp.strftime('%H:%M')}")
+            st.caption(f"Sent {format_timestamp(timestamp)}")
     
     elif role == "assistant":
         with st.chat_message("assistant"):
@@ -40,7 +51,7 @@ def render_message(message: Dict[str, Any]):
     elif role == "system":
         with st.chat_message("assistant", avatar="🤖"):
             st.info(content)
-            st.caption(f"System message at {timestamp.strftime('%H:%M')}")
+            st.caption(f"System message at {format_timestamp(timestamp)}")
 
 def render_streaming_message(content: str, agent: str = "assistant"):
     """Render a streaming message placeholder"""
@@ -62,7 +73,7 @@ def render_error_message(error: str, timestamp: datetime = None):
     with st.chat_message("assistant", avatar="❌"):
         st.error(error)
         if timestamp:
-            st.caption(f"Error at {timestamp.strftime('%H:%M')}")
+            st.caption(f"Error at {format_timestamp(timestamp)}")
 
 def render_confirmation_prompt(prompt: str, callback=None):
     """Render a confirmation prompt for dangerous operations"""

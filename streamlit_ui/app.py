@@ -218,13 +218,19 @@ def initialize_session_state():
                 else:
                     st.session_state.session_id = str(uuid.uuid4())
                     st.session_state.messages = []
+                    st.session_state.session_start = datetime.now()
+                    st.session_state.last_activity = datetime.now()
             except Exception as e:
                 logger.error(f"❌ Failed to restore session: {e}")
                 st.session_state.session_id = str(uuid.uuid4())
                 st.session_state.messages = []
+                st.session_state.session_start = datetime.now()
+                st.session_state.last_activity = datetime.now()
         else:
             st.session_state.session_id = str(uuid.uuid4())
             st.session_state.messages = []
+            st.session_state.session_start = datetime.now()
+            st.session_state.last_activity = datetime.now()
             logger.info(f"✅ Created new session_id: {st.session_state.session_id[:8]}...")
     else:
         logger.info(f"ℹ️ session_id already exists: {st.session_state.session_id[:8]}...")
@@ -279,12 +285,19 @@ def initialize_session_state():
             st.session_state.llm_service = test_service
             logger.info(f"✅ Successfully initialized with model: {model_key}")
         except Exception as e:
-            logger.warning(f"❌ LLM config failed: {e}")
-            st.session_state.safe_claw_config = SafeClawConfig(llm=LLMConfig(**model_config))
-            st.session_state.llm_service = None
-            st.error("⚠️ Could not initialize LLM service. Please check your LLM configuration.")
+            logger.error(f"❌ LLM config failed: {e}")
+            raise RuntimeError(f"LLM service is required but failed to initialize: {e}. Please check your API keys and configuration.") from e
     else:
         logger.info("ℹ️ safe_claw_config already exists")
+        # Check if llm_service needs to be restored (session restore case)
+        if 'llm_service' not in st.session_state or st.session_state.llm_service is None:
+            logger.info("🔧 Initializing llm_service from existing config...")
+            try:
+                st.session_state.llm_service = LLMService(st.session_state.safe_claw_config.llm)
+                logger.info("✅ llm_service initialized from existing config")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize llm_service from existing config: {e}")
+                raise RuntimeError(f"LLM service is required but failed to initialize from saved config: {e}") from e
 
     # Initialize memory manager (doesn't depend on LLM)
     if 'memory_manager' not in st.session_state:
@@ -300,38 +313,31 @@ def initialize_session_state():
             st.session_state.memory_manager = None
     else:
         logger.info("ℹ️ memory_manager already exists")
-    
-    # Initialize other services only if LLM service is available
-    if st.session_state.get('llm_service'):
-        logger.info("🤖 LLM service available, initializing graph services...")
-        if 'graph_builder' not in st.session_state:
-            try:
-                st.session_state.graph_builder = SafeClawGraphBuilder(
-                    st.session_state.llm_service,
-                    st.session_state.memory_manager,
-                    {"debug": st.session_state.safe_claw_config.debug}
-                )
-                logger.info("✅ Graph builder initialized successfully")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize graph builder: {e}")
-                st.session_state.graph_builder = None
-        
-        if 'current_graph' not in st.session_state:
-            try:
-                if st.session_state.graph_builder:
-                    st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
-                    logger.info("✅ Current graph created successfully")
-                else:
-                    st.session_state.current_graph = None
-                    logger.warning("⚠️ Graph builder not available, skipping graph creation")
-            except Exception as e:
-                logger.error(f"❌ Failed to create workflow graph: {e}")
-                st.session_state.current_graph = None
-    else:
-        logger.info("⚠️ LLM service not available, skipping graph services")
-        # Set graph services to None if LLM is not available
-        st.session_state.graph_builder = None
-        st.session_state.current_graph = None
+
+    # Initialize graph services (LLM service is guaranteed to exist)
+    logger.info("🤖 Initializing graph services...")
+    if 'graph_builder' not in st.session_state:
+        try:
+            st.session_state.graph_builder = SafeClawGraphBuilder(
+                st.session_state.llm_service,
+                st.session_state.memory_manager,
+                {"debug": st.session_state.safe_claw_config.debug}
+            )
+            logger.info("✅ Graph builder initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize graph builder: {e}")
+            raise RuntimeError(f"Graph builder is required but failed to initialize: {e}") from e
+
+    if 'current_graph' not in st.session_state:
+        try:
+            if st.session_state.graph_builder:
+                st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
+                logger.info("✅ Current graph created successfully")
+            else:
+                raise RuntimeError("Graph builder is required but not available")
+        except Exception as e:
+            logger.error(f"❌ Failed to create workflow graph: {e}")
+            raise RuntimeError(f"Workflow graph is required but failed to create: {e}") from e
     
     # Skill Registry - with pre-loading of external skills
     if 'skill_registry' not in st.session_state:
