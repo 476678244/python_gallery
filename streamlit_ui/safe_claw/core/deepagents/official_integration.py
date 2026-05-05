@@ -247,12 +247,19 @@ class SafeClawDeepAgent:
             # Get tools and skills paths list from managers
             tools = self.tool_manager.get_all_tools()
 
-            # Check for enabled_skills filter from Skill Tree configuration
+            # Get enabled_skills from SkillsManager (backend owns state)
+            # First check config (for direct API usage), then fall back to SkillsManager state
             enabled_skills = self.config.get("enabled_skills")
+            if enabled_skills is None:
+                # Try to get from SkillsManager's internal state
+                enabled_skills_state = self.skills_manager.get_enabled_skills_state()
+                if enabled_skills_state is not None:
+                    enabled_skills = list(enabled_skills_state)
+                    logger.info(f"🔧 Loaded {len(enabled_skills)} enabled skills from SkillsManager state")
+            
             if enabled_skills is not None:
-                # Sync enabled skills to SkillsManager (backend owns state)
+                # Sync to SkillsManager and use filtered skills
                 self.skills_manager.set_enabled_skills(enabled_skills)
-                # Use filtered skills based on Skill Tree on/off state
                 skills_paths = self.skills_manager.get_filtered_skills_paths()
                 logger.info(f"🔧 Using Skill Tree filter: {len(enabled_skills)} skills enabled, {len(skills_paths)} paths loaded")
             else:

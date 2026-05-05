@@ -166,7 +166,11 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
     bbox = font.getbbox("A")
     line_height = bbox[3] - bbox[1] + 35  # More spacing for dispersed layout
     top_margin = height // 10  # Adjusted top margin
-    max_lines_per_column = (height - top_margin * 2) // line_height
+    
+    # Reserve space for credits line at bottom (adaptive height)
+    bottom_reserve = 100 * scale if credits_line else 20 * scale
+    available_height = height - top_margin - bottom_reserve
+    max_lines_per_column = available_height // line_height
 
     # Set text colors
     text_color = (0, 0, 0)  # Black
@@ -187,7 +191,12 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
     # Function to draw a single column
     def draw_column(x_pos, lines):
         y = top_margin
+        max_y = height - bottom_reserve - line_height  # Don't draw in credits area
         for line in lines:
+            # Stop if we've reached the bottom reserve area
+            if y > max_y:
+                break
+                
             if not line.strip():
                 y += line_height // 4  # Very small space for empty lines
                 continue
@@ -239,88 +248,74 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
 
 
 def draw_sunny_theme(draw, width, height, scale):
-    """Draw sunny day theme with sun, mountains, river, and flowers."""
-    # Draw gradient background (sunny sky - light blue to warm yellow)
+    """Draw soft, light pastel theme that complements lyrics elegantly."""
+    # Draw soft gradient background (very light cream to pale blue)
     for y in range(0, height, 2):
         progress = y / height
-        r = int(135 + 100 * progress)
-        g = int(206 + 30 * progress)
-        b = int(235 - 80 * progress)
+        # Soft cream to pale blue gradient
+        r = int(250 - 20 * progress)
+        g = int(248 - 15 * progress)
+        b = int(245 + 10 * progress)
         draw.line([(0, y), (width, y)], fill=(r, g, b))
         if y + 1 < height:
             draw.line([(0, y+1), (width, y+1)], fill=(r, g, b))
 
-    # Draw bright sun (positioned higher to avoid overlapping lyrics)
-    sun_center = (width - 200 * scale, 120 * scale)
-    sun_radius = 60 * scale
-    draw.ellipse([sun_center[0]-sun_radius, sun_center[1]-sun_radius,
-                  sun_center[0]+sun_radius, sun_center[1]+sun_radius],
-                 fill=(255, 255, 200), outline=(255, 220, 100), width=3*scale)
+    # Draw soft sun glow (very subtle, positioned in corner)
+    sun_center = (width - 150 * scale, 100 * scale)
+    sun_radius = 80 * scale
+    # Soft sun with gradient effect
+    for r in range(sun_radius, 0, -5):
+        alpha = int(255 * (1 - r / sun_radius) * 0.3)
+        color = (255, 250, 230)
+        draw.ellipse([sun_center[0]-r, sun_center[1]-r,
+                      sun_center[0]+r, sun_center[1]+r],
+                     fill=color)
 
-    # Draw sun rays
-    for i in range(12):
-        angle = i * 30
-        rad = math.radians(angle)
-        ray_length = 30 * scale
-        start_x = sun_center[0] + math.cos(rad) * (sun_radius + 10)
-        start_y = sun_center[1] + math.sin(rad) * (sun_radius + 10)
-        end_x = sun_center[0] + math.cos(rad) * (sun_radius + ray_length)
-        end_y = sun_center[1] + math.sin(rad) * (sun_radius + ray_length)
-        draw.line([(start_x, start_y), (end_x, end_y)], fill=(255, 220, 100), width=4*scale)
-
-    # Draw mountains in the background
-    mountain_colors = [(100, 120, 150), (80, 100, 130), (60, 80, 110)]
+    # Draw very soft, light mountain silhouettes
+    mountain_colors = [(200, 210, 220), (220, 225, 230), (235, 238, 240)]
     for i, color in enumerate(mountain_colors):
-        base_y = height - 150 * scale + i * 30 * scale
+        base_y = height - 100 * scale + i * 25 * scale
         points = [
             (0, height),
-            (width * 0.2, base_y - 200 * scale),
-            (width * 0.4, base_y - 150 * scale),
-            (width * 0.6, base_y - 220 * scale),
-            (width * 0.8, base_y - 180 * scale),
-            (width, base_y - 160 * scale),
+            (width * 0.15, base_y - 150 * scale),
+            (width * 0.35, base_y - 100 * scale),
+            (width * 0.55, base_y - 180 * scale),
+            (width * 0.75, base_y - 120 * scale),
+            (width, base_y - 140 * scale),
             (width, height)
         ]
         draw.polygon(points, fill=color)
 
-    # Draw river flowing through the landscape
-    river_path = []
-    for x in range(0, width + 1, 20 * scale):
-        y = height - 100 * scale + math.sin(x / (200 * scale)) * 30 * scale
-        river_path.append((x, y))
-    river_path.append((width, height))
-    river_path.append((0, height))
-    draw.polygon(river_path, fill=(100, 180, 220))
-
-    # Draw colorful flowers on the ground
+    # Draw soft, light flowers scattered gently
     flower_colors = [
-        (255, 100, 100),  # Red
-        (255, 200, 100),  # Orange
-        (255, 255, 100),  # Yellow
-        (255, 150, 200),  # Pink
-        (200, 100, 255),  # Purple
-        (100, 200, 255),  # Light blue
+        (255, 230, 235),  # Soft pink
+        (255, 245, 230),  # Soft peach
+        (250, 250, 240),  # Soft cream
+        (245, 235, 255),  # Soft lavender
+        (230, 245, 250),  # Soft blue
+        (255, 255, 255),  # White
     ]
-    for _ in range(80):
+    # Fewer, softer flowers
+    for _ in range(40):
         x = random.randint(50 * scale, width - 50 * scale)
-        y = random.randint(height - 200 * scale, height - 50 * scale)
-        flower_size = random.randint(8, 20) * scale // 2
+        y = random.randint(height - 150 * scale, height - 30 * scale)
+        flower_size = random.randint(6, 14) * scale // 2
         color = random.choice(flower_colors)
 
-        # Draw flower petals
+        # Draw soft flower petals
         for i in range(5):
             angle = i * 72
             rad = math.radians(angle)
-            petal_x = x + math.cos(rad) * flower_size
-            petal_y = y + math.sin(rad) * flower_size
+            petal_x = x + math.cos(rad) * flower_size * 0.7
+            petal_y = y + math.sin(rad) * flower_size * 0.7
             draw.ellipse([petal_x - flower_size//2, petal_y - flower_size//2,
                          petal_x + flower_size//2, petal_y + flower_size//2],
                         fill=color)
 
-        # Draw flower center
-        draw.ellipse([x - flower_size//3, y - flower_size//3,
-                     x + flower_size//3, y + flower_size//3],
-                    fill=(255, 255, 200))
+        # Soft center
+        draw.ellipse([x - flower_size//4, y - flower_size//4,
+                     x + flower_size//4, y + flower_size//4],
+                    fill=(255, 255, 250))
 
 
 def draw_night_theme(draw, width, height, scale):
@@ -431,8 +426,8 @@ def create_lyric_image(lyrics_file, output_path, artist_credit=""):
     else:
         draw_sunny_theme(draw, width, height, scale)
 
-    # Add stronger blur for background虚化 effect
-    image = image.filter(ImageFilter.GaussianBlur(radius=scale * 3))
+    # Add stronger blur for soft, elegant background effect
+    image = image.filter(ImageFilter.GaussianBlur(radius=scale * 4))
 
     # Recreate the draw object after filtering
     draw = ImageDraw.Draw(image)

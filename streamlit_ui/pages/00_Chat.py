@@ -93,7 +93,7 @@ def render():
                                     st.rerun()
 
         # Skill Tree Section
-        with st.expander("🌳 Skill Tree", expanded=False):
+        with st.expander("🌳 Skill Tree", expanded=True):
             # Initialize SkillsManager early if not exists (backend owns state)
             if "skills_manager" not in st.session_state:
                 from streamlit_ui.safe_claw.core.skills import SkillsManager
@@ -108,10 +108,7 @@ def render():
                 logger.info("Initialized SkillsManager for skill tree")
             
             from streamlit_ui.components.skill_tree import render_skill_tree_component
-            render_skill_tree_component(
-                session_state_key="skill_tree_state",
-                use_complete_tree=True
-            )
+            render_skill_tree_component(session_state_key="skill_tree_state")
     
     # Check if services are available
     llm_service = st.session_state.get('llm_service')
