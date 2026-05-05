@@ -186,8 +186,21 @@ class SafeClawDeepAgent:
         external_paths_config = self.config.get("external_skills_paths", [])
         external_skills_paths = [Path(p) for p in external_paths_config] if external_paths_config else []
         
-        # Initialize skills manager
-        self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+        # Initialize or reuse skills manager from session state
+        import streamlit as st
+        if "skills_manager" in st.session_state:
+            self.skills_manager = st.session_state["skills_manager"]
+            logger.info("Reusing existing SkillsManager from session state")
+        else:
+            self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+            st.session_state["skills_manager"] = self.skills_manager
+            logger.info("Created new SkillsManager and stored in session state")
+        
+        # Sync enabled skills from config if provided
+        enabled_skills = self.config.get("enabled_skills", [])
+        if enabled_skills:
+            self.skills_manager.set_enabled_skills(enabled_skills)
+            logger.info(f"Synced {len(enabled_skills)} enabled skills to SkillsManager")
         
         # Initialize tool manager
         self.tool_manager = ToolManager(
@@ -237,8 +250,10 @@ class SafeClawDeepAgent:
             # Check for enabled_skills filter from Skill Tree configuration
             enabled_skills = self.config.get("enabled_skills")
             if enabled_skills is not None:
+                # Sync enabled skills to SkillsManager (backend owns state)
+                self.skills_manager.set_enabled_skills(enabled_skills)
                 # Use filtered skills based on Skill Tree on/off state
-                skills_paths = self.skills_manager.get_filtered_skills_paths(enabled_skills)
+                skills_paths = self.skills_manager.get_filtered_skills_paths()
                 logger.info(f"🔧 Using Skill Tree filter: {len(enabled_skills)} skills enabled, {len(skills_paths)} paths loaded")
             else:
                 # No filter - load all skills

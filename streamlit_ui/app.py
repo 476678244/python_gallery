@@ -79,13 +79,12 @@ def save_user_preferences(prefs: Dict[str, Any]) -> bool:
         logger.error(f"Failed to save user preferences: {e}")
         return False
 
-def save_skill_tree_preferences(enabled_skills: set, disabled_folders: set) -> bool:
+def save_skill_tree_preferences(enabled_skills: set) -> bool:
     """Save skill tree state to user preferences"""
     try:
         prefs = load_user_preferences()
         prefs['skill_tree'] = {
             'enabled_skills': list(enabled_skills),
-            'disabled_folders': list(disabled_folders),
             'last_updated': datetime.now().isoformat()
         }
         return save_user_preferences(prefs)
@@ -93,17 +92,16 @@ def save_skill_tree_preferences(enabled_skills: set, disabled_folders: set) -> b
         logger.error(f"Failed to save skill tree preferences: {e}")
         return False
 
-def load_skill_tree_preferences() -> tuple[set, set]:
+def load_skill_tree_preferences() -> set:
     """Load skill tree state from user preferences"""
     try:
         prefs = load_user_preferences()
         skill_tree_prefs = prefs.get('skill_tree', {})
         enabled_skills = set(skill_tree_prefs.get('enabled_skills', []))
-        disabled_folders = set(skill_tree_prefs.get('disabled_folders', []))
-        return enabled_skills, disabled_folders
+        return enabled_skills
     except Exception as e:
         logger.warning(f"Failed to load skill tree preferences: {e}")
-        return set(), set()
+        return set()
 
 # Page imports - import directly to avoid emoji filename issues
 import importlib
@@ -270,16 +268,25 @@ def initialize_session_state():
         else:
             logger.info(f"✅ Using restored model: {st.session_state.selected_model}")
     
-    # Initialize skill tree state from user preferences
+    # Initialize SkillsManager (backend owns skill state)
+    if 'skills_manager' not in st.session_state:
+        from streamlit_ui.safe_claw.core.skills import SkillsManager
+        st.session_state.skills_manager = SkillsManager()
+        logger.info("✅ Initialized SkillsManager")
+    
+    # Load skill tree preferences and sync to SkillsManager
+    enabled_skills = load_skill_tree_preferences()
+    if enabled_skills:
+        st.session_state.skills_manager.set_enabled_skills(list(enabled_skills))
+        logger.info(f"✅ Loaded {len(enabled_skills)} enabled skills into SkillsManager")
+    
+    # Initialize skill tree UI state (synced from backend)
     if 'skill_tree_state' not in st.session_state:
-        enabled_skills, disabled_folders = load_skill_tree_preferences()
         st.session_state.skill_tree_state = {
-            "enabled_skills": enabled_skills,
-            "disabled_folders": disabled_folders,
+            "enabled_skills": set(),  # Will be synced from SkillsManager
             "tree": None,
             "use_complete_tree": True
         }
-        logger.info(f"✅ Loaded skill tree preferences: {len(enabled_skills)} enabled, {len(disabled_folders)} disabled folders")
     
     if 'safe_claw_config' not in st.session_state:
         logger.info("🔧 Initializing safe_claw_config...")
@@ -328,27 +335,17 @@ def initialize_session_state():
     logger.info("🤖 Initializing graph services...")
     if 'graph_builder' not in st.session_state:
         try:
+            graph_config = {"debug": st.session_state.safe_claw_config.debug}
             st.session_state.graph_builder = SafeClawGraphBuilder(
                 st.session_state.llm_service,
                 st.session_state.memory_manager,
-                {"debug": st.session_state.safe_claw_config.debug}
+                graph_config
             )
             logger.info("✅ Graph builder initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize graph builder: {e}")
             raise RuntimeError(f"Graph builder is required but failed to initialize: {e}") from e
 
-    # if 'current_graph' not in st.session_state:
-    #     try:
-    #         if st.session_state.graph_builder:
-    #             st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
-    #             logger.info("✅ Current graph created successfully")
-    #         else:
-    #             raise RuntimeError("Graph builder is required but not available")
-    #     except Exception as e:
-    #         logger.error(f"❌ Failed to create workflow graph: {e}")
-    #         raise RuntimeError(f"Workflow graph is required but failed to create: {e}") from e
-    
     # Skill Registry - with pre-loading of external skills
     if 'skill_registry' not in st.session_state:
         try:
@@ -403,7 +400,6 @@ def initialize_session_state():
         'llm_service': st.session_state.get('llm_service'),
         'memory_manager': st.session_state.get('memory_manager'),
         'graph_builder': st.session_state.get('graph_builder'),
-        'current_graph': st.session_state.get('current_graph'),
         'skill_registry': st.session_state.get('skill_registry'),
         'safety_checker': st.session_state.get('safety_checker'),
         'audit_logger': st.session_state.get('audit_logger')

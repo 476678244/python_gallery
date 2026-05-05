@@ -78,7 +78,6 @@ def debug_session_state():
             ('llm_service', 'LLM Service'),
             ('memory_manager', 'Memory Manager'),
             ('graph_builder', 'Graph Builder'),
-            ('current_graph', 'Current Graph'),
             ('workspace_path', 'Workspace Path'),
             ('session_id', 'Session ID'),
             ('messages', 'Messages')

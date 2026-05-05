@@ -7,34 +7,34 @@ from typing import Dict, List, Any, Optional
 from streamlit_ui.safe_claw.core.agents.base_agent import BaseAgent
 from streamlit_ui.safe_claw.core.graph.state import SafeClawState
 
-def render_agent_monitor(graph_builder, current_graph=None):
+def render_agent_monitor(graph_builder):
     """Render agent monitoring interface"""
-    
+
     st.subheader("🤖 Agent Monitor")
-    
+
     # Get available agents
     agents = get_available_agents(graph_builder)
-    
+
     if not agents:
         st.info("No agents available for monitoring.")
         return
-    
+
     # Agent overview
     render_agent_overview(agents)
-    
+
     # Tab interface
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Agent Status", 
-        "🔄 Execution Flow", 
-        "📈 Performance Metrics", 
+        "📊 Agent Status",
+        "🔄 Execution Flow",
+        "📈 Performance Metrics",
         "🧪 Agent Testing"
     ])
-    
+
     with tab1:
         render_agent_status(agents, graph_builder)
-    
+
     with tab2:
-        render_execution_flow(graph_builder, current_graph)
+        render_execution_flow(graph_builder)
     
     with tab3:
         render_performance_metrics(agents)
@@ -186,7 +186,7 @@ def render_agent_status(agents: Dict[str, BaseAgent], graph_builder):
             if st.button("🗑️ Clear History", key=f"clear_history_{selected_agent}"):
                 clear_agent_history(agent)
 
-def render_execution_flow(graph_builder, current_graph):
+def render_execution_flow(graph_builder):
     """Render execution flow visualization"""
     
     st.subheader("🔄 Execution Flow")

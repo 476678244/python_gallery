@@ -436,8 +436,7 @@ def process_user_input(user_input: str, llm_service, memory_manager, graph_build
         with st.spinner("🤔 Thinking..."):
             try:
                 config = {"configurable": {"thread_id": st.session_state.get('session_id', 'default')}}
-                raise AssertionError('current_graph should not be used in chat interface')
-                # result = graph_builder.current_graph.invoke(state, config)
+                # Graph execution disabled - using direct LLM instead
                 #
                 # # Add assistant response
                 # assistant_message = {

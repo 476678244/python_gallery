@@ -12,7 +12,7 @@ import os
 
 
 def read_lyrics_from_md(filepath):
-    """Read lyrics from markdown file and extract title and verses."""
+    """Read lyrics from markdown file and extract title, verses, and credits."""
     with open(filepath, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
@@ -22,11 +22,23 @@ def read_lyrics_from_md(filepath):
     # Extract song title (first line)
     title = lines[0] if lines else ""
 
-    # Group lyrics into verses (group lines until an empty line is found)
+    # Identify metadata/credits lines (contain: 作词, 作曲, 编曲, 制作, etc.)
+    credit_keywords = ['作词', '作曲', '编曲', '制作', '监制', '录音', '混音', '母带', '出品', '发行']
+    credits = []
+    lyrics_lines = []
+
+    for line in lines[1:]:  # Skip the title
+        is_credit = any(kw in line for kw in credit_keywords)
+        if is_credit:
+            credits.append(line)
+        else:
+            lyrics_lines.append(line)
+
+    # Group lyrics into verses
     verses = []
     current_verse = []
 
-    for line in lines[1:]:  # Skip the title
+    for line in lyrics_lines:
         if line.strip() == "":
             if current_verse:
                 verses.append(current_verse)
@@ -37,7 +49,7 @@ def read_lyrics_from_md(filepath):
     if current_verse:  # Add the last verse if not empty
         verses.append(current_verse)
 
-    return title, verses
+    return title, verses, credits
 
 
 def detect_theme(lyrics):
@@ -62,21 +74,29 @@ def detect_theme(lyrics):
 
 
 def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
-    """Add lyrics to the image with three-column layout."""
+    """Add lyrics to the image with three-column layout and credits at bottom."""
     # Calculate scale factor (assuming 2x scale for high DPI)
     scale = 2 if width > 2000 else 1
     
     # Read lyrics from the markdown file
     try:
-        title, verses = read_lyrics_from_md(lyrics_file)
+        title, verses, file_credits = read_lyrics_from_md(lyrics_file)
 
         # Prepare lyrics for display (flatten verses and add some spacing)
-        lyrics = [title, "", artist_credit, ""] if artist_credit else [title, ""]
+        lyrics = [title, ""]
+        if artist_credit:
+            lyrics.extend([artist_credit, ""])
 
         # Add verses with spacing in between
         for verse in verses:
             lyrics.extend(verse)
             lyrics.append("")  # Add empty line after each verse
+        
+        # Combine all credits for bottom line
+        all_credits = file_credits if file_credits else []
+        if artist_credit and artist_credit not in all_credits:
+            all_credits.insert(0, artist_credit)
+        credits_line = " | ".join(all_credits[:5]) if all_credits else ""  # Limit to first 5 credits
     except Exception as e:
         print(f"Error reading lyrics file: {e}")
         # Fallback to default lyrics if file can't be read
@@ -88,8 +108,10 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
             "Please check the file path",
             "and try again"
         ]
+        credits_line = ""
 
     print(f"Lyrics to display: {lyrics}")
+    print(f"Credits line: {credits_line}")
 
     # Try to use a nice Chinese font if available
     font = None
@@ -106,8 +128,8 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
     ]
 
     # Set font sizes (scale up for high DPI)
-    font_size = 32 * scale  # Larger font
-    title_font_size = 40 * scale  # Larger for title/artist
+    font_size = 24 * scale  # Smaller font for dispersed layout
+    title_font_size = 32 * scale  # Smaller for title/artist
     for font_name in try_fonts:
         try:
             print(f"Trying font: {font_name}")
@@ -142,8 +164,8 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
 
     # Calculate line height and margins
     bbox = font.getbbox("A")
-    line_height = bbox[3] - bbox[1] + 20  # Increased spacing
-    top_margin = height // 8  # Start even higher up
+    line_height = bbox[3] - bbox[1] + 35  # More spacing for dispersed layout
+    top_margin = height // 10  # Adjusted top margin
     max_lines_per_column = (height - top_margin * 2) // line_height
 
     # Set text colors
@@ -190,6 +212,30 @@ def add_lyrics(draw, width, height, lyrics_file, artist_credit=""):
     draw_column(left_x, column1)
     draw_column(middle_x, column2)
     draw_column(right_x, column3)
+
+    # Draw credits line at bottom if exists
+    if credits_line:
+        credit_font_size = 18 * scale
+        try:
+            credit_font = ImageFont.truetype(font.font.family if hasattr(font, 'font') else "/System/Library/Fonts/STHeiti Medium.ttc", credit_font_size)
+        except:
+            credit_font = font
+        
+        credit_width = credit_font.getlength(credits_line)
+        credit_x = (width - credit_width) // 2
+        credit_y = height - 60 * scale
+        
+        # Draw outline for credits
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx == 0 and dy == 0:
+                    continue
+                draw.text((credit_x + dx, credit_y + dy), credits_line, font=credit_font, fill=outline_color)
+        
+        # Draw credits text
+        draw.text((credit_x, credit_y), credits_line, font=credit_font, fill=text_color)
+    
+    return credits_line  # Return for potential use
 
 
 def draw_sunny_theme(draw, width, height, scale):
@@ -360,7 +406,7 @@ def draw_night_theme(draw, width, height, scale):
 def create_lyric_image(lyrics_file, output_path, artist_credit=""):
     """Create a lyric image with appropriate theme based on lyrics content."""
     # Read lyrics to detect theme
-    title, verses = read_lyrics_from_md(lyrics_file)
+    title, verses, credits = read_lyrics_from_md(lyrics_file)
     lyrics_flat = [title] + [line for verse in verses for line in verse]
     theme = detect_theme(lyrics_flat)
     
@@ -385,8 +431,8 @@ def create_lyric_image(lyrics_file, output_path, artist_credit=""):
     else:
         draw_sunny_theme(draw, width, height, scale)
 
-    # Add some blur to create depth
-    image = image.filter(ImageFilter.GaussianBlur(radius=scale * 0.7))
+    # Add stronger blur for background虚化 effect
+    image = image.filter(ImageFilter.GaussianBlur(radius=scale * 3))
 
     # Recreate the draw object after filtering
     draw = ImageDraw.Draw(image)

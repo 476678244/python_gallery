@@ -76,10 +76,9 @@ class TestChatPage:
             'workspace_path': temp_workspace,
             'llm_service': Mock(),
             'memory_manager': Mock(),
-            'graph_builder': Mock(),
-            'current_graph': Mock()
+            'graph_builder': Mock()
         })
-        
+
         # Import and render chat page
         from streamlit_ui.pages.chat_page import render
         
@@ -130,33 +129,20 @@ class TestChatPage:
             'workspace_path': temp_workspace,
             'llm_service': Mock(),
             'memory_manager': Mock(),
-            'graph_builder': Mock(),
-            'current_graph': Mock()
+            'graph_builder': Mock()
         })
-        
+
         # Mock chat input
         mock_st.chat_input.return_value = "Hello, SafeClaw!"
-        
-        # Mock graph execution
-        mock_graph = Mock()
-        mock_graph.invoke.return_value = {
-            "response": "Hello! How can I help you?",
-            "current_agent": "chat_agent",
-            "execution_path": ["chat_agent"]
-        }
-        st.session_state.current_graph = mock_graph
-        
+
         from streamlit_ui.pages.chat_page import render
-        
+
         render()
-        
-        # Verify graph was called
-        mock_graph.invoke.assert_called()
     
     @patch('streamlit_ui.pages.chat_page.st')
     def test_error_handling_in_chat(self, mock_st, mock_streamlit, temp_workspace, sample_config):
         """Test error handling in chat"""
-        # Setup session state with failing graph
+        # Setup session state
         st.session_state.update({
             'session_id': 'test_session',
             'messages': [],
@@ -164,13 +150,11 @@ class TestChatPage:
             'workspace_path': temp_workspace,
             'llm_service': Mock(),
             'memory_manager': Mock(),
-            'graph_builder': Mock(),
-            'current_graph': Mock()
+            'graph_builder': Mock()
         })
-        
-        # Mock chat input and graph error
+
+        # Mock chat input
         mock_st.chat_input.return_value = "Test message"
-        st.session_state.current_graph.invoke.side_effect = Exception("Graph error")
         
         from streamlit_ui.pages.chat_page import render
         

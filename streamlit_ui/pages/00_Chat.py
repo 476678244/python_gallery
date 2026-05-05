@@ -94,6 +94,19 @@ def render():
 
         # Skill Tree Section
         with st.expander("🌳 Skill Tree", expanded=False):
+            # Initialize SkillsManager early if not exists (backend owns state)
+            if "skills_manager" not in st.session_state:
+                from streamlit_ui.safe_claw.core.skills import SkillsManager
+                import os
+                external_skills = os.environ.get("SAFECLAW_EXTERNAL_SKILLS", "").split(",")
+                if not external_skills or external_skills == [""]:
+                    external_skills = [
+                        str(Path.home() / "workspace/github/ljg-skills/skills"),
+                        "streamlit_ui/skills/private_skills"
+                    ]
+                st.session_state["skills_manager"] = SkillsManager(external_skills_paths=external_skills)
+                logger.info("Initialized SkillsManager for skill tree")
+            
             from streamlit_ui.components.skill_tree import render_skill_tree_component
             render_skill_tree_component(
                 session_state_key="skill_tree_state",
@@ -169,7 +182,7 @@ def render():
 
         # Process with workflow
         try:
-            if st.session_state.get('current_graph') and llm_service:
+            if llm_service:
                 # Use streaming response
                 messages = [{"role": msg["role"], "content": msg["content"]} for msg in st.session_state.messages]
                 
@@ -414,7 +427,7 @@ def render():
                 "timestamp": datetime.now(),
                 "id": len(st.session_state.messages),
                 "metadata": {
-                    "agent": "chat_agent" if st.session_state.get('current_graph') else "mock_agent",
+                    "agent": "chat_agent",
                     "execution_path": ["direct_llm"],
                     "processing_time": 0.1
                 }

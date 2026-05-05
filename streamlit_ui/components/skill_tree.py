@@ -6,6 +6,7 @@ from typing import Dict, List, Set, Optional, Any
 from dataclasses import dataclass, field
 from streamlit_ui.safe_claw.core.skills.scanner import get_skill_scanner, SkillIndexEntry
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class SkillTreeNode:
     children: List["SkillTreeNode"] = field(default_factory=lambda: [])
     enabled: bool = True
     expanded: bool = False
+    node_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])  # Unique identifier for widget keys
     
     def __post_init__(self):
         """Ensure children is always a list"""
@@ -30,22 +32,18 @@ class SkillTreeNode:
 def build_skill_tree(
     base_path: Path,
     enabled_skills: Optional[Set[str]] = None,
-    disabled_folders: Optional[Set[str]] = None
 ) -> List[SkillTreeNode]:
     """Build skill tree from filesystem structure for a single base path
     
     Args:
         base_path: Root skills directory
         enabled_skills: Set of skill names that are enabled (None = all enabled)
-        disabled_folders: Set of folder paths that are disabled
         
     Returns:
         List of root nodes (usually category folders)
     """
     if enabled_skills is None:
         enabled_skills = set()
-    if disabled_folders is None:
-        disabled_folders = set()
     
     # Ensure base_path is absolute
     base_path = base_path.resolve()
@@ -78,13 +76,12 @@ def build_skill_tree(
             path_key = str(current_path)
             
             if path_key not in path_to_node:
-                # Create folder node
-                is_disabled = path_key in disabled_folders
+                # Create folder node - folders start enabled
                 node = SkillTreeNode(
                     name=part,
                     path=str(current_path.relative_to(base_path)),
                     is_folder=True,
-                    enabled=not is_disabled,
+                    enabled=True,
                     expanded=False
                 )
                 path_to_node[path_key] = node
@@ -96,11 +93,8 @@ def build_skill_tree(
                     
             parent_node = path_to_node[path_key]
         
-        # Create skill node (leaf)
+        # Create skill node (leaf) - only enabled if in enabled_skills set
         is_enabled = skill_name in enabled_skills if enabled_skills else True
-        # If parent folder is disabled, skill is also disabled
-        if parent_node and not parent_node.enabled:
-            is_enabled = False
             
         skill_node = SkillTreeNode(
             name=skill_name,
@@ -215,7 +209,6 @@ def _resolve_skill_collection(skill_name: str, skill_path: Path, parts: tuple) -
 def build_complete_skill_tree(
     root_name: str = "All Skills",
     enabled_skills: Optional[Set[str]] = None,
-    disabled_folders: Optional[Set[str]] = None
 ) -> SkillTreeNode:
     """Build complete skill tree from scanner
     
@@ -228,15 +221,12 @@ def build_complete_skill_tree(
     Args:
         root_name: Name for the virtual root node
         enabled_skills: Set of skill names that are enabled (None = all enabled)
-        disabled_folders: Set of folder paths that are disabled
         
     Returns:
         Root node containing all skill collections
     """
     if enabled_skills is None:
         enabled_skills = set()
-    if disabled_folders is None:
-        disabled_folders = set()
         
     scanner = get_skill_scanner()
     if not scanner.loaded:
@@ -275,12 +265,11 @@ def build_complete_skill_tree(
         
         # Create collection node if not exists
         if collection_name not in collections:
-            is_disabled = collection_name in disabled_folders
             collection_node = SkillTreeNode(
                 name=collection_name,
                 path=collection_name,
                 is_folder=True,
-                enabled=not is_disabled,
+                enabled=True,
                 expanded=False
             )
             collections[collection_name] = collection_node
@@ -304,12 +293,11 @@ def build_complete_skill_tree(
             path_key = f"{collection_name}:{part}"
             
             if path_key not in path_to_node:
-                is_disabled = path_key in disabled_folders
                 node = SkillTreeNode(
                     name=part,
                     path=path_key,
                     is_folder=True,
-                    enabled=not is_disabled,
+                    enabled=True,
                     expanded=False
                 )
                 path_to_node[path_key] = node
@@ -317,10 +305,8 @@ def build_complete_skill_tree(
                     
             parent_node = path_to_node[path_key]
         
-        # Create skill node (leaf)
+        # Create skill node (leaf) - only enabled if in enabled_skills set
         is_enabled = skill_name in enabled_skills if enabled_skills else True
-        if parent_node and not parent_node.enabled:
-            is_enabled = False
             
         skill_node = SkillTreeNode(
             name=skill_name,
@@ -478,9 +464,10 @@ def render_skill_tree(
         base_col2_width = 3
         base_col3_width = 1
         
-        # Generate unique key using full hierarchical path
-        full_path = f"{parent_path}/{node.path}" if parent_path else node.path
-        unique_key = full_path.replace("/", "_").replace("\\", "_").replace(".", "_")
+        # Generate unique key using node.path with node_id for guaranteed uniqueness
+        # node_id is generated once when node is created and persists with the node
+        path_key = node.path.replace('/', '_').replace('\\', '_').replace('.', '_').replace(':', '_')
+        unique_key = f"{path_key}_{node.node_id}"
         
         # Create columns with indentation - level 0 has no indent columns
         if level > 0:
@@ -534,11 +521,13 @@ def render_skill_tree(
             
             # Render children if expanded
             if node.expanded:
+                # Pass node.path as parent_path for children (not full_path) to avoid duplication
+                # since children already have collection:path format in their node.path
                 node.children = render_skill_tree(
                     node.children,
                     level + 1,
                     parent_enabled=node.enabled and parent_enabled,
-                    parent_path=full_path
+                    parent_path=node.path
                 )
         else:
             # Skill node (leaf) - compact single row
@@ -594,16 +583,28 @@ def render_skill_tree_component(
     if base_path is None:
         base_path = Path(__file__).parent.parent.parent / "skills" / "private_skills"
     
+    # Get enabled skills from SkillsManager if available (backend owns state)
+    skills_manager_enabled = None
+    if "skills_manager" in st.session_state:
+        skills_manager = st.session_state["skills_manager"]
+        skills_manager_enabled = skills_manager.get_enabled_skills_state()
+        if skills_manager_enabled is not None:
+            logger.info(f"Loaded {len(skills_manager_enabled)} enabled skills from SkillsManager")
+    
     # Initialize session state
     if session_state_key not in st.session_state:
         st.session_state[session_state_key] = {
-            "enabled_skills": set(),
-            "disabled_folders": set(),
+            "enabled_skills": skills_manager_enabled if skills_manager_enabled else set(),
             "tree": None,
             "use_complete_tree": use_complete_tree
         }
     
     state = st.session_state[session_state_key]
+    
+    # Sync with SkillsManager state if changed
+    if skills_manager_enabled is not None and skills_manager_enabled != state.get("enabled_skills"):
+        state["enabled_skills"] = skills_manager_enabled
+        state["tree"] = None  # Force rebuild with new state
     
     # Check if we need to rebuild tree (format changed or first run)
     previous_format = state.get("use_complete_tree", None)
@@ -616,15 +617,13 @@ def render_skill_tree_component(
         if use_complete_tree:
             # Build complete tree with all skill sources
             state["tree"] = build_complete_skill_tree(
-                enabled_skills=state["enabled_skills"] if state["enabled_skills"] else None,
-                disabled_folders=state["disabled_folders"]
+                enabled_skills=state["enabled_skills"] if state["enabled_skills"] else None
             )
         else:
             # Legacy: build tree for single base path
             state["tree"] = build_skill_tree(
                 base_path,
-                enabled_skills=state["enabled_skills"] if state["enabled_skills"] else None,
-                disabled_folders=state["disabled_folders"]
+                enabled_skills=state["enabled_skills"] if state["enabled_skills"] else None
             )
     
     # Summary stats
@@ -668,31 +667,32 @@ def render_skill_tree_component(
     else:
         st.info("No skills found in the configured directory.")
     
-    # Auto-save skill tree state to user preferences
-    # Collect current state from tree
+    # Sync enabled skills to SkillsManager (backend owns state)
     if state.get("tree"):
         if isinstance(state["tree"], list):
             current_enabled = set()
-            current_disabled = set()
             for node in state["tree"]:
                 current_enabled.update(collect_enabled_skills(node))
-                current_disabled.update(collect_disabled_folders(node))
         else:
             current_enabled = collect_enabled_skills(state["tree"])
-            current_disabled = collect_disabled_folders(state["tree"])
         
-        # Save to user preferences if changed
-        if current_enabled != state.get("enabled_skills") or current_disabled != state.get("disabled_folders"):
+        # Sync to SkillsManager and save preferences if changed
+        if current_enabled != state.get("enabled_skills"):
             state["enabled_skills"] = current_enabled
-            state["disabled_folders"] = current_disabled
+            
+            # Update SkillsManager (backend state)
+            if "skills_manager" in st.session_state:
+                st.session_state["skills_manager"].set_enabled_skills(list(current_enabled))
+                logger.info(f"Synced {len(current_enabled)} enabled skills to SkillsManager")
+            
+            # Save to user preferences for persistence
             try:
-                # Import here to avoid circular dependency
                 import sys
                 project_root = Path(__file__).parent.parent
                 if str(project_root) not in sys.path:
                     sys.path.insert(0, str(project_root))
                 from streamlit_ui.app import save_skill_tree_preferences
-                save_skill_tree_preferences(current_enabled, current_disabled)
+                save_skill_tree_preferences(current_enabled)
             except Exception as e:
                 logger.debug(f"Failed to auto-save skill tree preferences: {e}")
     
@@ -701,18 +701,14 @@ def render_skill_tree_component(
     with st.expander("📤 Export Configuration"):
         if isinstance(state["tree"], list):
             current_enabled = set()
-            current_disabled = set()
             for node in state["tree"]:
                 current_enabled.update(collect_enabled_skills(node))
-                current_disabled.update(collect_disabled_folders(node))
         else:
             # Single root node
             current_enabled = collect_enabled_skills(state["tree"])
-            current_disabled = collect_disabled_folders(state["tree"])
         
         config = {
             "enabled_skills": sorted(list(current_enabled)),
-            "disabled_folders": sorted(list(current_disabled)),
             "base_path": str(base_path) if base_path else ""
         }
         
@@ -729,31 +725,34 @@ def render_skill_tree_component(
 
 
 def get_enabled_skills_from_tree(session_state_key: str = "skill_tree_state") -> List[str]:
-    """Get list of enabled skill names from tree state
+    """Get list of enabled skill names from SkillsManager (backend owns state)
     
     Args:
-        session_state_key: Key used in session state
+        session_state_key: Key used in session state (kept for API compatibility)
         
     Returns:
         List of enabled skill names
     """
-    if session_state_key not in st.session_state:
-        return []
+    # Get from SkillsManager (backend owns state)
+    if "skills_manager" in st.session_state:
+        skills_manager = st.session_state["skills_manager"]
+        return skills_manager.get_enabled_skills()
     
-    state = st.session_state[session_state_key]
-    if state.get("tree"):
-        tree = state["tree"]
-        # Handle both single root node and list of nodes
-        if isinstance(tree, list):
-            enabled = set()
-            for node in tree:
-                enabled.update(collect_enabled_skills(node))
-            return list(enabled)
-        else:
-            # Single root node
-            return list(collect_enabled_skills(tree))
+    # Fallback: try session state (for when SkillsManager not yet initialized)
+    if session_state_key in st.session_state:
+        state = st.session_state[session_state_key]
+        if state.get("tree"):
+            tree = state["tree"]
+            if isinstance(tree, list):
+                enabled = set()
+                for node in tree:
+                    enabled.update(collect_enabled_skills(node))
+                return list(enabled)
+            else:
+                return list(collect_enabled_skills(tree))
+        return list(state.get("enabled_skills", []))
     
-    return list(state.get("enabled_skills", []))
+    return []
 
 
 def is_skill_enabled(skill_name: str, session_state_key: str = "skill_tree_state") -> bool:
