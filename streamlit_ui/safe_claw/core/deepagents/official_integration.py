@@ -233,7 +233,17 @@ class SafeClawDeepAgent:
 
             # Get tools and skills paths list from managers
             tools = self.tool_manager.get_all_tools()
-            skills_paths = self.skills_manager.get_skills_paths()
+
+            # Check for enabled_skills filter from Skill Tree configuration
+            enabled_skills = self.config.get("enabled_skills")
+            if enabled_skills is not None:
+                # Use filtered skills based on Skill Tree on/off state
+                skills_paths = self.skills_manager.get_filtered_skills_paths(enabled_skills)
+                logger.info(f"🔧 Using Skill Tree filter: {len(enabled_skills)} skills enabled, {len(skills_paths)} paths loaded")
+            else:
+                # No filter - load all skills
+                skills_paths = self.skills_manager.get_skills_paths()
+                logger.info(f"🔧 No Skill Tree filter - loading all {len(skills_paths)} skills")
 
             # DEBUG: 详细记录skills准备过程
             logger.info(f"🔍 DEBUG: 准备传递给create_deep_agent的数据:")

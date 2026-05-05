@@ -82,12 +82,7 @@ class OpenAIGateway(BaseLLMGateway):
             "streaming": True
         }
         
-        # Disable thinking mode for Qwen models
-        if "qwen" in config.model.lower():
-            model_kwargs["model_kwargs"] = {
-                "reasoning_mode": "disabled",
-                "thinking_mode": "disabled"
-            }
+        # Note: Qwen models don't require special mode handling in current OpenAI API
         
         self.llm = ChatOpenAI(**model_kwargs)
     
@@ -248,6 +243,105 @@ class AnthropicGateway(BaseLLMGateway):
         }
 
 
+class GoogleGateway(BaseLLMGateway):
+    """Google Gemma LLM gateway"""
+    
+    def __init__(self, config: LLMConfig):
+        self.config = config
+        
+        # Google Gemma models typically use OpenAI-compatible APIs
+        # Configure for OpenAI-compatible endpoint (e.g., LM Studio, Google AI Studio)
+        model_kwargs = {
+            "model": config.model,
+            "api_key": config.api_key,
+            "base_url": config.base_url,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "streaming": True
+        }
+        
+        self.llm = ChatOpenAI(**model_kwargs)
+    
+    def _convert_messages(self, messages: List[Dict[str, str]]) -> List:
+        """Convert message dicts to LangChain messages"""
+        lc_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                lc_messages.append(SystemMessage(content=msg["content"]))
+            elif msg["role"] == "user":
+                lc_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                lc_messages.append(AIMessage(content=msg["content"]))
+        return lc_messages
+    
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream Google Gemma response"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            
+            # DEBUG: 记录完整的prompt内容
+            _debug_prompt(lc_messages, "Stream")
+            
+            for chunk in self.llm.stream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+                    
+            logger.info("🔍 DEBUG: === LLM Stream 完成 ===")
+                    
+        except Exception as e:
+            logger.error(f"Google streaming error: {e}")
+            yield f"Error: {str(e)}"
+    
+    def invoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke Google Gemma synchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            
+            # DEBUG: 记录完整的prompt内容
+            _debug_prompt(lc_messages, "Invoke")
+            
+            response = self.llm.invoke(lc_messages)
+            
+            logger.info("🔍 DEBUG: === LLM调用完成 ===")
+            logger.info(f"🔍 DEBUG: 响应长度: {len(response.content)} 字符")
+            
+            return response.content
+        except Exception as e:
+            logger.error(f"Google invoke error: {e}")
+            return f"Error: {str(e)}"
+    
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream Google Gemma response asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            async for chunk in self.llm.astream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"Google async streaming error: {e}")
+            yield f"Error: {str(e)}"
+    
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke Google Gemma asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            response = await self.llm.ainvoke(lc_messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"Google async invoke error: {e}")
+            return f"Error: {str(e)}"
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get Google model info"""
+        return {
+            "provider": "google",
+            "model": self.config.model,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "base_url": self.config.base_url
+        }
+
+
 class OllamaGateway(BaseLLMGateway):
     """Ollama local LLM gateway"""
     
@@ -320,6 +414,8 @@ class LLMGatewayFactory:
                 return AnthropicGateway(config)
             elif config.provider == "ollama":
                 return OllamaGateway(config)
+            elif config.provider == "google":
+                return GoogleGateway(config)
             else:
                 raise ValueError(f"Unsupported LLM provider: {config.provider}")
         except Exception as e:

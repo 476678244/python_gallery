@@ -160,6 +160,16 @@ AVAILABLE_MODELS = {
         "context_length": 128000,
         "show_thinking": False
     },
+    "google/gemma-4-e4b": {
+        "provider": "openai",
+        "model": "google/gemma-4-e4b",
+        "api_key": "lm-studio",
+        "base_url": "http://192.168.50.30:1234/v1",
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "context_length": 128000,
+        "show_thinking": False
+    },
 }
 
 # Import pages dynamically
@@ -328,16 +338,16 @@ def initialize_session_state():
             logger.error(f"❌ Failed to initialize graph builder: {e}")
             raise RuntimeError(f"Graph builder is required but failed to initialize: {e}") from e
 
-    if 'current_graph' not in st.session_state:
-        try:
-            if st.session_state.graph_builder:
-                st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
-                logger.info("✅ Current graph created successfully")
-            else:
-                raise RuntimeError("Graph builder is required but not available")
-        except Exception as e:
-            logger.error(f"❌ Failed to create workflow graph: {e}")
-            raise RuntimeError(f"Workflow graph is required but failed to create: {e}") from e
+    # if 'current_graph' not in st.session_state:
+    #     try:
+    #         if st.session_state.graph_builder:
+    #             st.session_state.current_graph = st.session_state.graph_builder.create_graph("deep_agent")
+    #             logger.info("✅ Current graph created successfully")
+    #         else:
+    #             raise RuntimeError("Graph builder is required but not available")
+    #     except Exception as e:
+    #         logger.error(f"❌ Failed to create workflow graph: {e}")
+    #         raise RuntimeError(f"Workflow graph is required but failed to create: {e}") from e
     
     # Skill Registry - with pre-loading of external skills
     if 'skill_registry' not in st.session_state:

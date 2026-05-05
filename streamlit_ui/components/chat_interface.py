@@ -5,20 +5,6 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 import time
 
-def render_enhanced_chat_interface(llm_service, memory_manager, graph_builder, safety_checker):
-    """Render enhanced chat interface with advanced features"""
-    
-    # Chat header
-    render_chat_header()
-    
-    # Chat messages container
-    render_chat_messages()
-    
-    # Chat input with enhanced features
-    render_enhanced_chat_input(llm_service, memory_manager, graph_builder, safety_checker)
-    
-    # Chat sidebar
-    render_chat_sidebar()
 
 def render_chat_header():
     """Render chat header with status and controls"""
@@ -79,17 +65,13 @@ def render_user_message(message: Dict[str, Any], index: int):
             render_message_metadata(message)
         
         # Message actions
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📝 Edit", key=f"edit_user_{index}"):
-                edit_user_message(index)
-        
-        with col2:
             if st.button("🗑️ Delete", key=f"delete_user_{index}"):
                 delete_message(index)
         
-        with col3:
+        with col2:
             if st.button("📤 Export", key=f"export_user_{index}"):
                 export_message(message, f"user_message_{index}")
 
@@ -148,21 +130,13 @@ def render_assistant_message(message: Dict[str, Any], index: int):
             render_message_metadata(message)
         
         # Message actions
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔄 Regenerate", key=f"regenerate_{index}"):
-                regenerate_response(index)
-        
-        with col2:
-            if st.button("📝 Edit", key=f"edit_assistant_{index}"):
-                edit_assistant_message(index)
-        
-        with col3:
             if st.button("🗑️ Delete", key=f"delete_assistant_{index}"):
                 delete_message(index)
         
-        with col4:
+        with col2:
             if st.button("📤 Export", key=f"export_assistant_{index}"):
                 export_message(message, f"assistant_message_{index}")
 
@@ -211,29 +185,6 @@ def render_welcome_message():
         Let's start chatting! 🚀
         """)
 
-def render_enhanced_chat_input(llm_service, memory_manager, graph_builder, safety_checker):
-    """Render enhanced chat input with advanced features"""
-    
-    # Input container
-    with st.container():
-        # Input mode selection
-        col1, col2 = st.columns([4, 1])
-        
-        with col2:
-            input_mode = st.selectbox(
-                "Mode:",
-                ["Chat", "Command", "Code"],
-                key="input_mode",
-                help="Choose input mode"
-            )
-        
-        # Chat input based on mode
-        if input_mode == "Chat":
-            render_chat_input_mode(llm_service, memory_manager, graph_builder, safety_checker)
-        elif input_mode == "Command":
-            render_command_input_mode()
-        elif input_mode == "Code":
-            render_code_input_mode()
 
 def render_chat_input_mode(llm_service, memory_manager, graph_builder, safety_checker):
     """Render standard chat input mode"""
@@ -269,65 +220,7 @@ def render_chat_input_mode(llm_service, memory_manager, graph_builder, safety_ch
     if uploaded_file:
         process_uploaded_file(uploaded_file)
 
-def render_command_input_mode():
-    """Render command input mode"""
-    
-    st.subheader("🔧 Command Mode")
-    
-    # Command templates
-    commands = {
-        "Read File": "read_file",
-        "Write File": "write_file", 
-        "List Files": "list_files",
-        "Analyze Code": "analyze_code",
-        "Memory Search": "search_memory",
-        "System Info": "system_info"
-    }
-    
-    selected_command = st.selectbox(
-        "Select Command:",
-        options=list(commands.keys()),
-        key="command_selection"
-    )
-    
-    # Command parameters
-    if selected_command:
-        render_command_parameters(commands[selected_command])
 
-def render_code_input_mode():
-    """Render code input mode"""
-    
-    st.subheader("💻 Code Mode")
-    
-    # Language selection
-    language = st.selectbox(
-        "Language:",
-        ["python", "javascript", "java", "cpp", "sql", "html", "css"],
-        key="code_language"
-    )
-    
-    # Code input
-    code_input = st.text_area(
-        "Enter your code:",
-        height=200,
-        key="code_input",
-        help="Enter code to analyze or execute"
-    )
-    
-    # Code actions
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🔍 Analyze", key="analyze_code"):
-            analyze_code(code_input, language)
-    
-    with col2:
-        if st.button("🎨 Format", key="format_code"):
-            format_code(code_input, language)
-    
-    with col3:
-        if st.button("🔧 Execute", key="execute_code"):
-            execute_code(code_input, language)
 
 def render_chat_sidebar():
     """Render chat sidebar with additional features"""
@@ -543,23 +436,24 @@ def process_user_input(user_input: str, llm_service, memory_manager, graph_build
         with st.spinner("🤔 Thinking..."):
             try:
                 config = {"configurable": {"thread_id": st.session_state.get('session_id', 'default')}}
-                result = graph_builder.current_graph.invoke(state, config)
-                
-                # Add assistant response
-                assistant_message = {
-                    "role": "assistant",
-                    "content": result.get('response', 'I apologize, but I could not generate a response.'),
-                    "timestamp": datetime.now(),
-                    "id": f"assistant_{len(st.session_state['messages'])}",
-                    "metadata": {
-                        "agent": result.get('current_agent', 'unknown'),
-                        "execution_path": result.get('execution_path', []),
-                        "active_memories": result.get('active_memories', []),
-                        "processing_time": result.get('processing_time', 0)
-                    }
-                }
-                
-                st.session_state['messages'].append(assistant_message)
+                raise AssertionError('current_graph should not be used in chat interface')
+                # result = graph_builder.current_graph.invoke(state, config)
+                #
+                # # Add assistant response
+                # assistant_message = {
+                #     "role": "assistant",
+                #     "content": result.get('response', 'I apologize, but I could not generate a response.'),
+                #     "timestamp": datetime.now(),
+                #     "id": f"assistant_{len(st.session_state['messages'])}",
+                #     "metadata": {
+                #         "agent": result.get('current_agent', 'unknown'),
+                #         "execution_path": result.get('execution_path', []),
+                #         "active_memories": result.get('active_memories', []),
+                #         "processing_time": result.get('processing_time', 0)
+                #     }
+                # }
+                #
+                # st.session_state['messages'].append(assistant_message)
                 
             except Exception as e:
                 # Add error message
@@ -663,75 +557,6 @@ def export_chat():
     else:
         st.info("No messages to export")
 
-# Additional helper functions for command and code modes
-def render_command_parameters(command_name: str):
-    """Render parameters for selected command"""
-    
-    parameter_templates = {
-        "read_file": {"file_path": "Enter file path"},
-        "write_file": {"file_path": "Enter file path", "content": "Enter content"},
-        "list_files": {"directory": "Enter directory path"},
-        "analyze_code": {"code": "Enter code to analyze"},
-        "search_memory": {"query": "Enter search query"},
-        "system_info": {}
-    }
-    
-    params = parameter_templates.get(command_name, {})
-    
-    if params:
-        st.write("**Parameters:**")
-        param_values = {}
-        
-        for param_name, param_label in params.items():
-            param_values[param_name] = st.text_input(param_label, key=f"param_{param_name}")
-        
-        if st.button("🚀 Execute Command", key="execute_command"):
-            execute_command(command_name, param_values)
-    else:
-        st.info("No parameters required")
-        if st.button("🚀 Execute Command", key="execute_command_no_params"):
-            execute_command(command_name, {})
-
-def execute_command(command_name: str, params: Dict[str, str]):
-    """Execute command with parameters"""
-    
-    # This would integrate with the skill system
-    st.info(f"Executing {command_name} with parameters: {params}")
-    # Implementation would go here
-
-def analyze_code(code: str, language: str):
-    """Analyze code"""
-    
-    st.info(f"Analyzing {language} code...")
-    # Implementation would go here
-
-def format_code(code: str, language: str):
-    """Format code"""
-    
-    st.info(f"Formatting {language} code...")
-    # Implementation would go here
-
-def execute_code(code: str, language: str):
-    """Execute code"""
-    
-    st.warning(f"Executing {language} code (safety checks apply)...")
-    # Implementation would go here
-
-# Additional helper functions for message actions
-def edit_user_message(index: int):
-    """Edit user message"""
-    st.info(f"Edit user message {index}")
-    # Implementation would go here
-
-def edit_assistant_message(index: int):
-    """Edit assistant message"""
-    st.info(f"Edit assistant message {index}")
-    # Implementation would go here
-
-def regenerate_response(index: int):
-    """Regenerate assistant response"""
-    st.info(f"Regenerating response for message {index}")
-    # Implementation would go here
 
 def delete_message(index: int):
     """Delete message"""
