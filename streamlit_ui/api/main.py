@@ -34,33 +34,35 @@ memory_manager = None
 def load_safe_claw():
     """Lazy load SafeClaw components"""
     global safe_claw_loaded, chat_agent, llm_service, skills_manager, memory_manager
-    
+
     if safe_claw_loaded:
         return
-    
+
+    # Ensure python_gallery root is on sys.path
+    pkg_root = str(Path(__file__).parent.parent.parent)
+    if pkg_root not in sys.path:
+        sys.path.insert(0, pkg_root)
+
     try:
-        from safe_claw.services.llm_gateway import LLMService
-        from safe_claw.core.agents.chat_agent import ChatAgent
-        from safe_claw.core.skills.manager import SkillsManager
-        from safe_claw.core.memory.manager import MemoryManager
-        
-        # Initialize services
+        from streamlit_ui.safe_claw.services.llm_gateway import LLMService
+        from streamlit_ui.safe_claw.core.agents.chat_agent import ChatAgent
+        from streamlit_ui.safe_claw.core.skills.manager import SkillsManager
+        from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+
         llm_service = LLMService()
-        skills_manager = SkillsManager()
+        if not skills_manager:
+            skills_manager = SkillsManager()
+            if not skills_manager.skill_scanner.loaded:
+                skills_manager.skill_scanner.scan_all_skills()
         memory_manager = MemoryManager()
-        
-        # Initialize chat agent
         chat_agent = ChatAgent(
             llm_service=llm_service,
-            config={
-                "personality": "helpful_assistant",
-                "max_response_length": 4000,
-            }
+            config={"personality": "helpful_assistant", "max_response_length": 4000},
         )
-        
+
         safe_claw_loaded = True
         print("✅ SafeClaw loaded successfully")
-        
+
     except Exception as e:
         print(f"⚠️ SafeClaw load failed (using mock mode): {e}")
         safe_claw_loaded = False
@@ -282,6 +284,10 @@ async def chat_stream(request: ChatRequest):
                 yield f"data: {json.dumps({'type': 'error', 'error': 'No user message found'})}\n\n"
                 return
             
+            # Resolve enabled skills from SkillsManager
+            sm = _get_skills_manager()
+            active_skills = sm.get_enabled_skills() if sm else (request.enabled_skills or [])
+
             # Try real LM Studio first, fall back to mock
             lm_studio_url = "http://192.168.50.30:1234"
             model_id = request.model if request.model not in ("gemma-4b", "") else "qwen3.5-9b-vlm"
@@ -322,7 +328,7 @@ async def chat_stream(request: ChatRequest):
                                 continue
                 msg_id = f"msg-{datetime.now().timestamp()}"
                 words = len(full_response.split())
-                yield f"data: {json.dumps({'type': 'done', 'session_id': request.session_id, 'message_id': msg_id, 'usage': {'prompt_tokens': 50, 'completion_tokens': words, 'total_tokens': 50 + words}})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': request.session_id, 'message_id': msg_id, 'skills_used': active_skills, 'usage': {'prompt_tokens': 50, 'completion_tokens': words, 'total_tokens': 50 + words}})}\n\n"
             except Exception as e:
                 print(f"LM Studio error: {e}")
                 if not lm_ok:
@@ -589,17 +595,6 @@ async def get_memories(layer: str = "active", limit: int = 20, search: Optional[
         return {"memories": [], "stats": {}, "total": 0}
 
 
-@app.post("/memory/cleanup")
-async def cleanup_memories():
-    """Run memory cleanup"""
-    try:
-        if safe_claw_loaded and memory_manager:
-            memory_manager.cleanup_old_memories()
-        return {"success": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # System monitor endpoint
 @app.get("/system")
 async def get_system_info():
@@ -670,18 +665,36 @@ async def get_safety_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+FALLBACK_MODELS = [
+    {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen 3.5 35B", "provider": "lm-studio"},
+    {"id": "claude-opus-4-7", "name": "Claude Opus 4.7", "provider": "anthropic"},
+    {"id": "gemma-4b", "name": "Gemma 4B", "provider": "google"},
+    {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
+]
+
 # Settings / model info endpoint
 @app.get("/settings/models")
 async def get_available_models():
-    """Get available LLM models"""
-    return {
-        "models": [
-            {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen 3.5 35B", "provider": "qwen"},
-            {"id": "claude-opus-4-7", "name": "Claude Opus 4.7", "provider": "anthropic"},
-            {"id": "gemma-4b", "name": "Gemma 4B", "provider": "google"},
-            {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
-        ]
-    }
+    """Query LM Studio for loaded models; fall back to static list."""
+    try:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+            resp = await client.get("http://192.168.50.30:1234/v1/models")
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [
+                    {
+                        "id": m["id"],
+                        "name": m["id"].split("/")[-1],
+                        "provider": "lm-studio",
+                        "owned_by": m.get("owned_by", ""),
+                    }
+                    for m in data.get("data", [])
+                ]
+                if models:
+                    return {"models": models, "source": "lm-studio"}
+    except Exception:
+        pass
+    return {"models": FALLBACK_MODELS, "source": "fallback"}
 
 
 if __name__ == "__main__":
