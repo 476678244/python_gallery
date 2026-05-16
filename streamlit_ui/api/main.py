@@ -7,6 +7,7 @@ import asyncio
 import json
 import sys
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, List, Dict, Any, Optional
 from datetime import datetime
@@ -97,51 +98,131 @@ class SkillToggleRequest(BaseModel):
     enabled: bool = True
 
 
-# Mock data for fallback
-MOCK_SKILL_TREE = [
-    {
-        "id": "built_in",
-        "name": "Built-in",
-        "path": "built_in",
-        "is_folder": True,
-        "enabled": True,
-        "expanded": True,
-        "children": [
-            {
-                "id": "web-search",
-                "name": "web-search",
-                "path": "built_in/web-search",
-                "is_folder": False,
-                "enabled": True,
-                "expanded": False,
-                "children": [],
-                "skill_entry": {
-                    "name": "web-search",
-                    "description": "Search the web for real-time information",
-                    "version": "1.0.0",
-                    "author": "SafeClaw",
-                    "tags": ["search", "web", "information"]
-                }
-            },
-            {
-                "id": "data-analyzer",
-                "name": "data-analyzer",
-                "path": "built_in/data-analyzer",
-                "is_folder": False,
-                "enabled": True,
-                "expanded": False,
-                "children": [],
-                "skill_entry": {
-                    "name": "data-analyzer",
-                    "description": "Analyze structured data",
-                    "version": "1.0.0",
-                    "author": "SafeClaw",
-                    "tags": ["data", "analysis"]
-                }
+# ── Real skill scanner ────────────────────────────────────────────────────────
+
+BASE_DIR = Path(__file__).parent.parent  # python_gallery/streamlit_ui
+REPO_DIR = BASE_DIR.parent              # python_gallery
+
+SKILL_DIRS = {
+    "private":  BASE_DIR / "skills" / "private_skills",
+    "linked":   REPO_DIR / "linked_skills",
+}
+
+# In-memory toggle state: skill_id -> bool (True = enabled)
+_skill_enabled: Dict[str, bool] = {}
+_folder_enabled: Dict[str, bool] = {}
+
+
+def _parse_frontmatter(skill_md: Path) -> Dict[str, Any]:
+    """Extract YAML frontmatter from SKILL.md (no external deps)."""
+    try:
+        text = skill_md.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    fm_text = text[3:end].strip()
+    result: Dict[str, Any] = {}
+    current_key = None
+    current_list: Optional[list] = None
+    for line in fm_text.splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        list_item = re.match(r'^\s+-\s+(.*)', line)
+        if list_item and current_key and current_list is not None:
+            current_list.append(list_item.group(1).strip())
+            continue
+        kv = re.match(r'^([\w_-]+):\s*(.*)', line)
+        if kv:
+            current_key = kv.group(1)
+            val = kv.group(2).strip()
+            if val == "":
+                current_list = []
+                result[current_key] = current_list
+            else:
+                current_list = None
+                result[current_key] = val
+    return result
+
+
+def _scan_skill_dir(folder_path: Path, collection_id: str) -> Dict[str, Any]:
+    """Scan a single collection folder (e.g. private_skills/lyric-image-generation)."""
+    children = []
+    if not folder_path.exists():
+        return {}
+    for skill_dir in sorted(folder_path.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        meta = _parse_frontmatter(skill_md) if skill_md.exists() else {}
+        skill_id = f"{collection_id}/{skill_dir.name}"
+        enabled = _skill_enabled.get(skill_id, True)
+        children.append({
+            "id": skill_id,
+            "name": meta.get("name", skill_dir.name),
+            "path": skill_id,
+            "is_folder": False,
+            "enabled": enabled,
+            "expanded": False,
+            "children": [],
+            "skill_entry": {
+                "name": meta.get("name", skill_dir.name),
+                "description": meta.get("description", ""),
+                "version": meta.get("version", "1.0.0"),
+                "author": meta.get("author", ""),
+                "category": meta.get("category", ""),
+                "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
+                "aliases": meta.get("aliases") if isinstance(meta.get("aliases"), list) else [],
             }
-        ]
-    }
-]
+        })
+    return children
+
+
+def build_skill_tree() -> List[Dict[str, Any]]:
+    """Scan all skill directories and return tree."""
+    tree = []
+
+    # ── private_skills: flat folder → one collection node
+    private_path = SKILL_DIRS["private"]
+    if private_path.exists():
+        skills = _scan_skill_dir(private_path, "private")
+        if skills:
+            folder_id = "private"
+            tree.append({
+                "id": folder_id,
+                "name": "Private Skills",
+                "path": folder_id,
+                "is_folder": True,
+                "enabled": _folder_enabled.get(folder_id, True),
+                "expanded": True,
+                "children": skills,
+            })
+
+    # ── linked_skills: each subdir is a collection (symlink → real repo)
+    linked_path = SKILL_DIRS["linked"]
+    if linked_path.exists():
+        for collection_dir in sorted(linked_path.iterdir()):
+            # resolve symlink
+            real = collection_dir.resolve() if collection_dir.is_symlink() else collection_dir
+            if not real.is_dir():
+                continue
+            folder_id = f"linked/{collection_dir.name}"
+            skills = _scan_skill_dir(real, folder_id)
+            if skills:
+                tree.append({
+                    "id": folder_id,
+                    "name": collection_dir.name.replace("_", " ").replace("-", " ").title(),
+                    "path": folder_id,
+                    "is_folder": True,
+                    "enabled": _folder_enabled.get(folder_id, True),
+                    "expanded": False,
+                    "children": skills,
+                })
+
+    return tree
 
 MOCK_SESSIONS = [
     {
@@ -310,58 +391,42 @@ async def mock_stream_response(user_message: str):
 # Skills endpoints
 @app.get("/skills")
 async def get_skills(flat: bool = False):
-    """Get skill tree"""
+    """Scan real skill directories and return tree"""
     try:
-        if safe_claw_loaded and skills_manager:
-            # Use actual skills manager
-            skills = skills_manager.get_all_skills()
-            return {
-                "tree": skills if not flat else skills,  # Simplified
-                "total": len(skills),
-                "categories": 3,
-                "builtin": 5,
-                "private": 2,
-                "linked": 2
-            }
-        else:
-            # Mock
-            return {
-                "tree": MOCK_SKILL_TREE,
-                "total": 56,
-                "categories": 3,
-                "builtin": 5,
-                "private": 2,
-                "linked": 2
-            }
-    except Exception as e:
-        print(f"Skills error: {e}")
+        tree = build_skill_tree()
+        # Count stats
+        private_count = sum(
+            len(n["children"]) for n in tree if n["id"] == "private"
+        )
+        linked_count = sum(
+            len(n["children"]) for n in tree if n["id"].startswith("linked/")
+        )
+        total = sum(len(n["children"]) for n in tree)
         return {
-            "tree": MOCK_SKILL_TREE,
-            "total": 0,
-            "categories": 0,
-            "builtin": 0,
-            "private": 0,
-            "linked": 0
+            "tree": tree,
+            "total": total,
+            "categories": len(tree),
+            "private": private_count,
+            "linked": linked_count,
         }
+    except Exception as e:
+        print(f"Skills scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/skills")
 async def toggle_skill(request: SkillToggleRequest):
-    """Toggle skill or folder (POST /skills body={skill_id,enabled})"""
-    try:
-        if safe_claw_loaded and skills_manager:
-            if request.folder_id:
-                skills_manager.toggle_folder(request.folder_id, request.enabled)
-            else:
-                skills_manager.toggle_skill(request.skill_id, request.enabled)
-        return {
-            "success": True,
-            "skill_id": request.skill_id,
-            "folder_id": request.folder_id,
-            "enabled": request.enabled
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Toggle skill or folder enabled state"""
+    if request.folder_id:
+        _folder_enabled[request.folder_id] = request.enabled
+    elif request.skill_id:
+        _skill_enabled[request.skill_id] = request.enabled
+    return {
+        "success": True,
+        "skill_id": request.skill_id,
+        "folder_id": request.folder_id,
+        "enabled": request.enabled,
+    }
 
 
 @app.post("/skills/toggle")
@@ -370,10 +435,9 @@ async def toggle_skill_alias(request: SkillToggleRequest):
     return await toggle_skill(request)
 
 
-@app.post("/skills/{skill_id}/toggle")
+@app.post("/skills/{skill_id:path}/toggle")
 async def toggle_skill_by_id(skill_id: str, request: SkillToggleRequest):
     """Toggle a specific skill by path param: POST /skills/{id}/toggle"""
-    # Merge path param into request
     merged = SkillToggleRequest(
         skill_id=skill_id,
         folder_id=request.folder_id,
