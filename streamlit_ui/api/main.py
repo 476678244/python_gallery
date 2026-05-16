@@ -54,7 +54,11 @@ def load_safe_claw():
             skills_manager = SkillsManager()
             if not skills_manager.skill_scanner.loaded:
                 skills_manager.skill_scanner.scan_all_skills()
-        memory_manager = MemoryManager()
+        from streamlit_ui.safe_claw.models.config import MemoryConfig
+        memory_manager = MemoryManager(
+            config=MemoryConfig(),
+            workspace_path=str(DATA_DIR),
+        )
         chat_agent = ChatAgent(
             llm_service=llm_service,
             config={"personality": "helpful_assistant", "max_response_length": 4000},
@@ -213,18 +217,27 @@ def build_skill_tree() -> List[Dict[str, Any]]:
         })
     return tree
 
-MOCK_SESSIONS = [
-    {
-        "id": "sess-001",
-        "title": "Analyze Macan tire market",
-        "status": "active",
-        "message_count": 2,
-        "settings": {"model": "gemma-4b", "enabled_skills": []},
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
-        "last_activity_at": datetime.now().isoformat()
-    }
-]
+# ── File-backed session storage ──────────────────────────────────────────────
+
+DATA_DIR = Path(__file__).parent.parent / ".safeclaw_data"
+SESSIONS_FILE = DATA_DIR / "sessions.json"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_sessions() -> List[Dict[str, Any]]:
+    if SESSIONS_FILE.exists():
+        try:
+            return json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+
+def _save_sessions(sessions: List[Dict[str, Any]]) -> None:
+    SESSIONS_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+SESSIONS: List[Dict[str, Any]] = _load_sessions()
 
 
 # Lifespan context manager
@@ -465,13 +478,13 @@ async def toggle_skill_by_id(skill_id: str, request: SkillToggleRequest):
 async def list_sessions(limit: int = 20, offset: int = 0):
     """List sessions"""
     try:
-        # Mock for now - integrate with SafeClaw memory system
+        sliced = SESSIONS[offset: offset + limit]
         return {
-            "sessions": MOCK_SESSIONS,
-            "total": len(MOCK_SESSIONS),
+            "sessions": sliced,
+            "total": len(SESSIONS),
             "limit": limit,
             "offset": offset,
-            "has_more": False
+            "has_more": offset + limit < len(SESSIONS),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -492,12 +505,9 @@ async def create_session(request: SessionCreateRequest):
             "updated_at": datetime.now().isoformat(),
             "last_activity_at": datetime.now().isoformat()
         }
-        MOCK_SESSIONS.insert(0, new_session)
-        
-        return {
-            "session": new_session,
-            "success": True
-        }
+        SESSIONS.insert(0, new_session)
+        _save_sessions(SESSIONS)
+        return {"session": new_session, "success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -505,7 +515,7 @@ async def create_session(request: SessionCreateRequest):
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get single session by ID"""
-    session = next((s for s in MOCK_SESSIONS if s["id"] == session_id), None)
+    session = next((s for s in SESSIONS if s["id"] == session_id), None)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session}
@@ -514,7 +524,7 @@ async def get_session(session_id: str):
 @app.patch("/sessions/{session_id}")
 async def update_session(session_id: str, request: SessionUpdateRequest):
     """Update a session"""
-    session = next((s for s in MOCK_SESSIONS if s["id"] == session_id), None)
+    session = next((s for s in SESSIONS if s["id"] == session_id), None)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if request.title is not None:
@@ -524,6 +534,7 @@ async def update_session(session_id: str, request: SessionUpdateRequest):
     if request.settings is not None:
         session["settings"].update(request.settings)
     session["updated_at"] = datetime.now().isoformat()
+    _save_sessions(SESSIONS)
     return {"session": session, "success": True}
 
 
@@ -531,8 +542,9 @@ async def update_session(session_id: str, request: SessionUpdateRequest):
 async def delete_session(id: str):
     """Delete session by query param: DELETE /sessions?id=xxx"""
     try:
-        global MOCK_SESSIONS
-        MOCK_SESSIONS = [s for s in MOCK_SESSIONS if s["id"] != id]
+        global SESSIONS
+        SESSIONS = [s for s in SESSIONS if s["id"] != id]
+        _save_sessions(SESSIONS)
         return {"success": True, "deleted_id": id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -541,8 +553,9 @@ async def delete_session(id: str):
 @app.delete("/sessions/{session_id}")
 async def delete_session_by_path(session_id: str):
     """Delete session by path param: DELETE /sessions/{id}"""
-    global MOCK_SESSIONS
-    MOCK_SESSIONS = [s for s in MOCK_SESSIONS if s["id"] != session_id]
+    global SESSIONS
+    SESSIONS = [s for s in SESSIONS if s["id"] != session_id]
+    _save_sessions(SESSIONS)
     return {"success": True, "deleted_id": session_id}
 
 
