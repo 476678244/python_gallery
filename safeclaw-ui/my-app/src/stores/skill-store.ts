@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { enableMapSet } from "immer";
 import { Skill, SkillTreeNode, getEnabledSkills } from "@/entities/skill";
 import {
   apiGetSkillTree,
@@ -13,6 +14,8 @@ import {
   apiToggleFolder,
   apiRefreshSkills,
 } from "@/features/skills/services/skill-api";
+
+enableMapSet();
 
 interface SkillState {
   // Data

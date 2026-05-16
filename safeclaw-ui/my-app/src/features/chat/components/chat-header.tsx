@@ -22,7 +22,9 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ session, messageCount }: ChatHeaderProps) {
   const { updateSessionSettings } = useSessionStore();
-  const { rightPanelOpen, toggleRightPanel } = useUIStore();
+  const openPanelKeys = useUIStore((s) => s.openPanelKeys);
+  const railToggle    = useUIStore((s) => s.railToggle);
+  const rightPanelOpen = openPanelKeys.some((k) => !k.startsWith("!"));
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -90,7 +92,7 @@ export function ChatHeader({ session, messageCount }: ChatHeaderProps) {
 
         {/* Right Panel Toggle */}
         <button
-          onClick={toggleRightPanel}
+          onClick={() => railToggle("exec")}
           className={cn(
             "p-2 rounded-lg transition-colors",
             rightPanelOpen

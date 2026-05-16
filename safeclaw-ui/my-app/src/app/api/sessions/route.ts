@@ -30,7 +30,8 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-  const res = await fetch(`${BACKEND}/sessions/${id}`, {
+  // FastAPI exposes DELETE /sessions?id=xxx (query param), not /sessions/{id}
+  const res = await fetch(`${BACKEND}/sessions?id=${id}`, {
     method: "DELETE",
   });
   if (res.status === 204 || res.headers.get("content-length") === "0") {

@@ -10,13 +10,14 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, Wrench, FileText, X } from "lucide-react";
-import { useUIStore, RightPanelView } from "@/stores/ui-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useMessageStore } from "@/stores/message-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSkillStore } from "@/stores/skill-store";
 import { cn } from "@/shared/utils/cn";
 import { ExecutionGraph } from "./execution-graph";
+
+type RightPanelView = "execution" | "skills" | "context";
 
 const TABS: { id: RightPanelView; label: string; icon: typeof Activity }[] = [
   { id: "execution", label: "Execution", icon: Activity },
@@ -25,8 +26,8 @@ const TABS: { id: RightPanelView; label: string; icon: typeof Activity }[] = [
 ];
 
 export function RightPanel() {
-  const { rightPanelView, setRightPanelView, rightPanelOpen, toggleRightPanel } = useUIStore();
-  const { getActiveExecution, getExecutionPath } = useExecutionStore();
+  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("execution");
+  const { getExecutionPath } = useExecutionStore();
   const { getLastMessage, isStreaming } = useMessageStore();
 
   const lastMessage = getLastMessage();
@@ -53,13 +54,6 @@ export function RightPanel() {
         ))}
       </div>
 
-      {/* Close Button */}
-      <button
-        onClick={toggleRightPanel}
-        className="absolute top-2 right-2 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-      >
-        <X className="w-4 h-4" />
-      </button>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">

@@ -9,7 +9,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
-  const res = await fetch(`${BACKEND}/skills/toggle`, {
+  const res = await fetch(`${BACKEND}/skills`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

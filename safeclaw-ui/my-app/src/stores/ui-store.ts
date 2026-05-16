@@ -7,7 +7,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type SidebarView = "sessions" | "skills" | "memory" | "safety" | "system" | "settings";
-export type RightPanelView = "execution" | "skills" | "context" | "none";
+export type RightPanelKey = "exec" | "skills" | "budget" | "log" | "shell" | "context" | "memory";
 export type Theme = "light" | "dark" | "system";
 
 interface UIState {
@@ -16,9 +16,9 @@ interface UIState {
   sidebarView: SidebarView;
   sidebarWidth: number;
 
-  // Right panel state
-  rightPanelOpen: boolean;
-  rightPanelView: RightPanelView;
+  // Right panel accordion state
+  // Ordered list of open panel keys; collapsed keys have a "!" prefix
+  openPanelKeys: string[];
   rightPanelWidth: number;
 
   // Theme
@@ -40,10 +40,12 @@ interface UIActions {
   setSidebarView: (view: SidebarView) => void;
   setSidebarWidth: (width: number) => void;
 
-  // Right panel actions
-  toggleRightPanel: () => void;
-  setRightPanelOpen: (open: boolean) => void;
-  setRightPanelView: (view: RightPanelView) => void;
+  // Right panel accordion actions
+  railToggle: (key: RightPanelKey) => void;
+  collapseToggle: (key: RightPanelKey) => void;
+  closeAllPanels: () => void;
+  isPanelOpen: (key: RightPanelKey) => boolean;
+  isPanelExpanded: (key: RightPanelKey) => boolean;
   setRightPanelWidth: (width: number) => void;
 
   // Theme actions
@@ -66,8 +68,7 @@ const initialUIState: UIState = {
   sidebarView: "sessions",
   sidebarWidth: 256,
 
-  rightPanelOpen: true,
-  rightPanelView: "execution",
+  openPanelKeys: [],
   rightPanelWidth: 320,
 
   theme: "system",
@@ -90,10 +91,37 @@ export const useUIStore = create<UIState & UIActions>()(
       setSidebarView: (view) => set({ sidebarView: view }),
       setSidebarWidth: (width) => set({ sidebarWidth: width }),
 
-      // Right panel
-      toggleRightPanel: () => set({ rightPanelOpen: !get().rightPanelOpen }),
-      setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
-      setRightPanelView: (view) => set({ rightPanelView: view }),
+      // Right panel accordion
+      isPanelOpen: (key) => {
+        const keys = get().openPanelKeys;
+        return keys.includes(key) || keys.includes("!" + key);
+      },
+      isPanelExpanded: (key) => get().openPanelKeys.includes(key),
+
+      railToggle: (key) => {
+        const keys = get().openPanelKeys;
+        if (keys.includes(key)) {
+          // collapse it
+          set({ openPanelKeys: keys.map((k) => (k === key ? "!" + key : k)) });
+        } else if (keys.includes("!" + key)) {
+          // expand it
+          set({ openPanelKeys: keys.map((k) => (k === "!" + key ? key : k)) });
+        } else {
+          // add new (expanded)
+          set({ openPanelKeys: [...keys, key] });
+        }
+      },
+
+      collapseToggle: (key) => {
+        const keys = get().openPanelKeys;
+        if (keys.includes(key)) {
+          set({ openPanelKeys: keys.map((k) => (k === key ? "!" + key : k)) });
+        } else if (keys.includes("!" + key)) {
+          set({ openPanelKeys: keys.map((k) => (k === "!" + key ? key : k)) });
+        }
+      },
+
+      closeAllPanels: () => set({ openPanelKeys: [] }),
       setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
       // Theme
@@ -121,7 +149,7 @@ export const useUIStore = create<UIState & UIActions>()(
       partialize: (state) => ({
         sidebarOpen: state.sidebarOpen,
         sidebarWidth: state.sidebarWidth,
-        rightPanelOpen: state.rightPanelOpen,
+        openPanelKeys: state.openPanelKeys,
         rightPanelWidth: state.rightPanelWidth,
         theme: state.theme,
       }),

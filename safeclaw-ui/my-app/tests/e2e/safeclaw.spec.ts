@@ -24,10 +24,38 @@ async function waitForApp(page: Page) {
   await page.waitForTimeout(400);
 }
 
-/** Click a sidebar tab by its label text (avoids strict-mode multi-match with right panel) */
+/**
+ * Open a sidebar section by its title (new vertical collapsible sections).
+ * If already open, this is a no-op (does not toggle closed).
+ */
 async function clickSidebarTab(page: Page, label: string) {
-  // Sidebar tabs are inside a flex row at the top of the sidebar (aside element)
-  await page.locator("aside").getByRole("button", { name: label, exact: true }).first().click();
+  // Map old tab labels to new section titles
+  const mapping: Record<string, string> = {
+    Chat: "Chats",
+    Skills: "Skill Tree",
+    Memory: "Chats",   // no dedicated section; fall back to Chats
+    Safety: "Chats",
+    System: "Chats",
+    Settings: "Chats",
+  };
+  const sectionTitle = mapping[label] ?? label;
+  const headerBtn = page
+    .locator("div.border-b")
+    .filter({ hasText: new RegExp(sectionTitle, "i") })
+    .locator("button")
+    .filter({ hasText: new RegExp(sectionTitle, "i") })
+    .first();
+  // Only click if section body is NOT already visible (i.e. collapsed)
+  const body = page
+    .locator("div.border-b")
+    .filter({ hasText: new RegExp(sectionTitle, "i") })
+    .locator("> div")
+    .first();
+  const isOpen = await body.isVisible().catch(() => false);
+  if (!isOpen) {
+    await headerBtn.click();
+    await page.waitForTimeout(300);
+  }
 }
 
 /** Ensure there is an active session; creates one if the list is empty */
@@ -69,12 +97,22 @@ test.describe("UI Readiness", () => {
     expect(fatal).toHaveLength(0);
   });
 
-  test("sidebar tabs all render without crash", async ({ page }) => {
+  test("sidebar sections all render without crash", async ({ page }) => {
     await waitForApp(page);
-    for (const label of ["Chat", "Skills", "Memory", "Safety", "System", "Settings"]) {
-      await clickSidebarTab(page, label);
+    for (const section of ["Chats", "Skill Tree", "Tool Tree", "Model"]) {
+      const headerBtn = page
+        .locator("div.border-b")
+        .filter({ hasText: new RegExp(section, "i") })
+        .locator("button")
+        .filter({ hasText: new RegExp(section, "i") })
+        .first();
+      // Open it if not open
+      await headerBtn.click();
       await page.waitForTimeout(300);
       await expect(page.getByText(/Something went wrong|Unhandled error/i)).not.toBeVisible();
+      // Close it again
+      await headerBtn.click();
+      await page.waitForTimeout(200);
     }
   });
 
@@ -179,10 +217,8 @@ test.describe("Skill: lyric-image-generation", () => {
 
     await sendMessage(page, "lyric image generation test", 20_000);
 
-    // Switch to Chat tab and verify session list is visible
-    await clickSidebarTab(page, "Chat");
+    // Chats section is open by default — verify session list is visible
     await page.waitForTimeout(400);
-    // Either session list items OR "No sessions yet" is fine — just no crash
     await expect(
       page.getByText(/No sessions|New Chat|Untitled/i).first()
     ).toBeVisible({ timeout: 3000 });
@@ -309,8 +345,7 @@ test.describe("Session Management", () => {
 
     // Page should render without crash after reload
     await expect(page.locator("textarea").first()).toBeVisible();
-    // Chat tab should be accessible
-    await clickSidebarTab(page, "Chat");
+    // Chats section is open by default after reload
     await expect(
       page.getByText(/No sessions|New Chat|Untitled|session/i).first()
     ).toBeVisible({ timeout: 5000 });

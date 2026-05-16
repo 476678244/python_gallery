@@ -85,6 +85,12 @@ class SessionCreateRequest(BaseModel):
     model: str = "gemma-4b"
 
 
+class SessionUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
 class SkillToggleRequest(BaseModel):
     skill_id: Optional[str] = None
     folder_id: Optional[str] = None
@@ -341,14 +347,13 @@ async def get_skills(flat: bool = False):
 
 @app.post("/skills")
 async def toggle_skill(request: SkillToggleRequest):
-    """Toggle skill or folder enabled state"""
+    """Toggle skill or folder (POST /skills body={skill_id,enabled})"""
     try:
         if safe_claw_loaded and skills_manager:
             if request.folder_id:
                 skills_manager.toggle_folder(request.folder_id, request.enabled)
             else:
                 skills_manager.toggle_skill(request.skill_id, request.enabled)
-        
         return {
             "success": True,
             "skill_id": request.skill_id,
@@ -357,6 +362,24 @@ async def toggle_skill(request: SkillToggleRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/skills/toggle")
+async def toggle_skill_alias(request: SkillToggleRequest):
+    """Alias: POST /skills/toggle — same as POST /skills"""
+    return await toggle_skill(request)
+
+
+@app.post("/skills/{skill_id}/toggle")
+async def toggle_skill_by_id(skill_id: str, request: SkillToggleRequest):
+    """Toggle a specific skill by path param: POST /skills/{id}/toggle"""
+    # Merge path param into request
+    merged = SkillToggleRequest(
+        skill_id=skill_id,
+        folder_id=request.folder_id,
+        enabled=request.enabled,
+    )
+    return await toggle_skill(merged)
 
 
 # Session endpoints
@@ -401,9 +424,34 @@ async def create_session(request: SessionCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    """Get single session by ID"""
+    session = next((s for s in MOCK_SESSIONS if s["id"] == session_id), None)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session}
+
+
+@app.patch("/sessions/{session_id}")
+async def update_session(session_id: str, request: SessionUpdateRequest):
+    """Update a session"""
+    session = next((s for s in MOCK_SESSIONS if s["id"] == session_id), None)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if request.title is not None:
+        session["title"] = request.title
+    if request.status is not None:
+        session["status"] = request.status
+    if request.settings is not None:
+        session["settings"].update(request.settings)
+    session["updated_at"] = datetime.now().isoformat()
+    return {"session": session, "success": True}
+
+
 @app.delete("/sessions")
 async def delete_session(id: str):
-    """Delete session"""
+    """Delete session by query param: DELETE /sessions?id=xxx"""
     try:
         global MOCK_SESSIONS
         MOCK_SESSIONS = [s for s in MOCK_SESSIONS if s["id"] != id]
@@ -412,7 +460,26 @@ async def delete_session(id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/sessions/{session_id}")
+async def delete_session_by_path(session_id: str):
+    """Delete session by path param: DELETE /sessions/{id}"""
+    global MOCK_SESSIONS
+    MOCK_SESSIONS = [s for s in MOCK_SESSIONS if s["id"] != session_id]
+    return {"success": True, "deleted_id": session_id}
+
+
 # Memory endpoints
+@app.post("/memory/cleanup")
+async def cleanup_memories_post():
+    """Run memory cleanup"""
+    try:
+        if safe_claw_loaded and memory_manager:
+            memory_manager.cleanup_old_memories()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/memory")
 async def get_memories(layer: str = "active", limit: int = 20, search: Optional[str] = None):
     """Get memories from the memory manager"""
