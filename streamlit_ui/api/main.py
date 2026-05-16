@@ -98,130 +98,117 @@ class SkillToggleRequest(BaseModel):
     enabled: bool = True
 
 
-# ── Real skill scanner ────────────────────────────────────────────────────────
+# ── Skills tree builder using safe_claw SkillsManager ────────────────────────
 
-BASE_DIR = Path(__file__).parent.parent  # python_gallery/streamlit_ui
-REPO_DIR = BASE_DIR.parent              # python_gallery
+def _get_skills_manager() -> Optional[Any]:
+    """Get or lazily init the SkillsManager."""
+    global skills_manager
+    if skills_manager:
+        return skills_manager
+    # Ensure python_gallery root is on sys.path (same as load_safe_claw)
+    pkg_root = str(Path(__file__).parent.parent.parent)
+    if pkg_root not in sys.path:
+        sys.path.insert(0, pkg_root)
+    try:
+        from streamlit_ui.safe_claw.core.skills.manager import SkillsManager as SM
+        skills_manager = SM()
+        if not skills_manager.skill_scanner.loaded:
+            skills_manager.skill_scanner.scan_all_skills()
+        print(f"✅ SkillsManager loaded: {skills_manager.get_skill_count()} skills")
+    except Exception as e:
+        print(f"⚠️  SkillsManager init failed: {e}")
+        skills_manager = None
+    return skills_manager
 
-SKILL_DIRS = {
-    "private":  BASE_DIR / "skills" / "private_skills",
-    "linked":   REPO_DIR / "linked_skills",
-}
 
-# In-memory toggle state: skill_id -> bool (True = enabled)
-_skill_enabled: Dict[str, bool] = {}
+# In-memory folder toggle state (skills use SkillsManager.set_enabled_skills)
 _folder_enabled: Dict[str, bool] = {}
 
 
-def _parse_frontmatter(skill_md: Path) -> Dict[str, Any]:
-    """Extract YAML frontmatter from SKILL.md (no external deps)."""
-    try:
-        text = skill_md.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return {}
-    if not text.startswith("---"):
-        return {}
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}
-    fm_text = text[3:end].strip()
-    result: Dict[str, Any] = {}
-    current_key = None
-    current_list: Optional[list] = None
-    for line in fm_text.splitlines():
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-        list_item = re.match(r'^\s+-\s+(.*)', line)
-        if list_item and current_key and current_list is not None:
-            current_list.append(list_item.group(1).strip())
-            continue
-        kv = re.match(r'^([\w_-]+):\s*(.*)', line)
-        if kv:
-            current_key = kv.group(1)
-            val = kv.group(2).strip()
-            if val == "":
-                current_list = []
-                result[current_key] = current_list
+def build_skill_tree() -> List[Dict[str, Any]]:
+    """Build skill tree from SkillsManager.skill_scanner.index."""
+    sm = _get_skills_manager()
+    if not sm:
+        return []
+
+    # Get enabled skill names from manager state
+    enabled_skills = sm.get_enabled_skills()
+    enabled_set = set(enabled_skills)
+
+    # Group index entries by collection (derived from path)
+    project_root = Path(__file__).parent.parent.parent  # python_gallery
+    collections: Dict[str, List[Dict]] = {}
+
+    for entry in sm.skill_scanner.index.values():
+        skill_path = Path(entry.path)
+        # Determine collection label from path segments
+        try:
+            rel = skill_path.relative_to(project_root)
+            parts = rel.parts
+            # linked_skills/<collection>/<skill>  or  streamlit_ui/skills/<type>/<skill>
+            if parts[0] == "linked_skills" and len(parts) >= 3:
+                collection_id = f"linked/{parts[1]}"
+                collection_label = parts[1].replace("_", " ").replace("-", " ").title()
+            elif "private_skills" in parts:
+                collection_id = "private"
+                collection_label = "Private Skills"
+            elif len(parts) >= 2:
+                collection_id = parts[0]
+                collection_label = parts[0].replace("_", " ").title()
             else:
-                current_list = None
-                result[current_key] = val
-    return result
+                collection_id = "other"
+                collection_label = "Other"
+        except ValueError:
+            # Absolute path outside project root (resolved symlink)
+            raw = str(skill_path)
+            if "linked_skills" in raw:
+                idx = raw.find("linked_skills")
+                rest = raw[idx:].split("/")
+                collection_id = f"linked/{rest[1]}" if len(rest) > 1 else "linked"
+                collection_label = rest[1].replace("_", " ").replace("-", " ").title() if len(rest) > 1 else "Linked"
+            elif "private_skills" in raw:
+                collection_id = "private"
+                collection_label = "Private Skills"
+            else:
+                collection_id = "other"
+                collection_label = "Other"
 
-
-def _scan_skill_dir(folder_path: Path, collection_id: str) -> Dict[str, Any]:
-    """Scan a single collection folder (e.g. private_skills/lyric-image-generation)."""
-    children = []
-    if not folder_path.exists():
-        return {}
-    for skill_dir in sorted(folder_path.iterdir()):
-        if not skill_dir.is_dir():
-            continue
-        skill_md = skill_dir / "SKILL.md"
-        meta = _parse_frontmatter(skill_md) if skill_md.exists() else {}
-        skill_id = f"{collection_id}/{skill_dir.name}"
-        enabled = _skill_enabled.get(skill_id, True)
-        children.append({
+        skill_id = entry.name
+        node = {
             "id": skill_id,
-            "name": meta.get("name", skill_dir.name),
-            "path": skill_id,
+            "name": entry.name,
+            "path": entry.path,
             "is_folder": False,
-            "enabled": enabled,
+            "enabled": skill_id in enabled_set,
             "expanded": False,
             "children": [],
             "skill_entry": {
-                "name": meta.get("name", skill_dir.name),
-                "description": meta.get("description", ""),
-                "version": meta.get("version", "1.0.0"),
-                "author": meta.get("author", ""),
-                "category": meta.get("category", ""),
-                "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
-                "aliases": meta.get("aliases") if isinstance(meta.get("aliases"), list) else [],
-            }
-        })
-    return children
+                "name": entry.name,
+                "description": entry.description,
+                "category": entry.category or "",
+                "tags": entry.tags or [],
+                "aliases": entry.aliases or [],
+                "user_invocable": entry.user_invocable,
+                "auto_trigger": entry.auto_trigger,
+            },
+        }
+        if collection_id not in collections:
+            collections[collection_id] = {"label": collection_label, "skills": []}
+        collections[collection_id]["skills"].append(node)
 
-
-def build_skill_tree() -> List[Dict[str, Any]]:
-    """Scan all skill directories and return tree."""
+    # Sort skills within each collection
     tree = []
-
-    # ── private_skills: flat folder → one collection node
-    private_path = SKILL_DIRS["private"]
-    if private_path.exists():
-        skills = _scan_skill_dir(private_path, "private")
-        if skills:
-            folder_id = "private"
-            tree.append({
-                "id": folder_id,
-                "name": "Private Skills",
-                "path": folder_id,
-                "is_folder": True,
-                "enabled": _folder_enabled.get(folder_id, True),
-                "expanded": True,
-                "children": skills,
-            })
-
-    # ── linked_skills: each subdir is a collection (symlink → real repo)
-    linked_path = SKILL_DIRS["linked"]
-    if linked_path.exists():
-        for collection_dir in sorted(linked_path.iterdir()):
-            # resolve symlink
-            real = collection_dir.resolve() if collection_dir.is_symlink() else collection_dir
-            if not real.is_dir():
-                continue
-            folder_id = f"linked/{collection_dir.name}"
-            skills = _scan_skill_dir(real, folder_id)
-            if skills:
-                tree.append({
-                    "id": folder_id,
-                    "name": collection_dir.name.replace("_", " ").replace("-", " ").title(),
-                    "path": folder_id,
-                    "is_folder": True,
-                    "enabled": _folder_enabled.get(folder_id, True),
-                    "expanded": False,
-                    "children": skills,
-                })
-
+    for cid, data in sorted(collections.items()):
+        skills = sorted(data["skills"], key=lambda x: x["name"])
+        tree.append({
+            "id": cid,
+            "name": data["label"],
+            "path": cid,
+            "is_folder": True,
+            "enabled": _folder_enabled.get(cid, True),
+            "expanded": cid == "private",
+            "children": skills,
+        })
     return tree
 
 MOCK_SESSIONS = [
@@ -416,11 +403,32 @@ async def get_skills(flat: bool = False):
 
 @app.post("/skills")
 async def toggle_skill(request: SkillToggleRequest):
-    """Toggle skill or folder enabled state"""
+    """Toggle skill or folder enabled state via SkillsManager"""
+    sm = _get_skills_manager()
+
     if request.folder_id:
+        # Toggle entire folder: enable/disable all skills in that collection
         _folder_enabled[request.folder_id] = request.enabled
-    elif request.skill_id:
-        _skill_enabled[request.skill_id] = request.enabled
+        if sm:
+            current = set(sm.get_enabled_skills() or sm.get_available_skills())
+            for entry in sm.skill_scanner.index.values():
+                raw = str(entry.path)
+                # Match skills belonging to this folder by path
+                folder_key = request.folder_id.replace("linked/", "")
+                if folder_key in raw:
+                    if request.enabled:
+                        current.add(entry.name)
+                    else:
+                        current.discard(entry.name)
+            sm.set_enabled_skills(list(current))
+    elif request.skill_id and sm:
+        current = set(sm.get_enabled_skills() or sm.get_available_skills())
+        if request.enabled:
+            current.add(request.skill_id)
+        else:
+            current.discard(request.skill_id)
+        sm.set_enabled_skills(list(current))
+
     return {
         "success": True,
         "skill_id": request.skill_id,
