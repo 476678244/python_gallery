@@ -48,13 +48,22 @@ def load_safe_claw():
         from streamlit_ui.safe_claw.core.agents.chat_agent import ChatAgent
         from streamlit_ui.safe_claw.core.skills.manager import SkillsManager
         from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+        from streamlit_ui.safe_claw.models.config import LLMConfig, MemoryConfig
 
-        llm_service = LLMService()
+        # Create default LLM config for initialization
+        llm_config = LLMConfig(
+            provider="openai",
+            model="qwen3.5-9b-vlm",
+            api_key="mock-key",  # Will trigger MockLLMGateway fallback
+            base_url=None,
+            temperature=0.7,
+            max_tokens=2000,
+        )
+        llm_service = LLMService(config=llm_config)
         if not skills_manager:
             skills_manager = SkillsManager()
             if not skills_manager.skill_scanner.loaded:
                 skills_manager.skill_scanner.scan_all_skills()
-        from streamlit_ui.safe_claw.models.config import MemoryConfig
         memory_manager = MemoryManager(
             config=MemoryConfig(),
             workspace_path=str(DATA_DIR),

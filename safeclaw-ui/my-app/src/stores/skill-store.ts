@@ -99,8 +99,13 @@ export const useSkillStore = create<SkillState & SkillActions>()(
           set({ isLoading: true, error: null });
           try {
             const response = await apiGetSkillTree();
+            
+            // Convert SkillTreeNode to flat Skill array for autocomplete
+            const flatSkills = flattenSkillTreeNodes(response.tree);
+            
             set({
               skillTree: response.tree,
+              flatSkills,
               totalSkills: response.total,
               builtinCount: response.builtin,
               privateCount: response.private,
@@ -292,6 +297,42 @@ export const useSkillStore = create<SkillState & SkillActions>()(
 );
 
 // Helper functions
+
+/** Flatten SkillTreeNode array to Skill array for autocomplete */
+function flattenSkillTreeNodes(nodes: SkillTreeNode[]): Skill[] {
+  const skills: Skill[] = [];
+  
+  function traverse(nodeList: SkillTreeNode[]) {
+    for (const node of nodeList) {
+      if (!node.isFolder) {
+        // Convert SkillTreeNode to Skill
+        skills.push({
+          id: node.id,
+          path: node.path,
+          name: node.name,
+          category: node.category ?? "builtin",
+          status: "active",
+          enabled: node.enabled,
+          entry: node.skillEntry ?? {
+            name: node.name,
+            description: "",
+            version: "1.0.0",
+            author: "system",
+          },
+          isFolder: false,
+        });
+      }
+      // Recursively traverse children (even if this node is a folder)
+      if (node.children && node.children.length > 0) {
+        traverse(node.children);
+      }
+    }
+  }
+  
+  traverse(nodes);
+  return skills;
+}
+
 function extractEnabledSkills(nodes: SkillTreeNode[]): string[] {
   const enabled: string[] = [];
 

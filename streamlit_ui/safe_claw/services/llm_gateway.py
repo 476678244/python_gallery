@@ -443,6 +443,18 @@ class MockLLMGateway(BaseLLMGateway):
         self.call_count += 1
         return "This is a mock response from SafeClaw AI assistant. The LLM service is running in demo mode."
     
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Mock async streaming response"""
+        self.call_count += 1
+        response = "This is a mock response from SafeClaw AI assistant. The LLM service is running in demo mode."
+        for word in response.split():
+            yield word + " "
+    
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Mock async synchronous response"""
+        self.call_count += 1
+        return "This is a mock response from SafeClaw AI assistant. The LLM service is running in demo mode."
+    
     def get_model_info(self) -> Dict[str, Any]:
         """Get mock model information"""
         return {
