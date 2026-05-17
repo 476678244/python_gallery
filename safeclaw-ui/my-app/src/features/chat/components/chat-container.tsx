@@ -18,10 +18,36 @@ import { cn } from "@/shared/utils/cn";
 export function ChatContainer() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { currentSessionId, getCurrentSession } = useSessionStore();
-  const { messagesBySession, isStreaming } = useMessageStore();
+  const { messagesBySession, isStreaming, setCurrentSession, clearMessages, addMessage } = useMessageStore();
 
   const messages = (currentSessionId ? messagesBySession[currentSessionId] : undefined) ?? [];
   const currentSession = getCurrentSession();
+
+  // Load persisted messages when session changes
+  useEffect(() => {
+    if (!currentSessionId) return;
+    setCurrentSession(currentSessionId);
+
+    // Only fetch if we don't already have messages in memory
+    if (messagesBySession[currentSessionId]?.length) return;
+
+    fetch(`/api/sessions/${currentSessionId}/messages`)
+      .then((r) => r.ok ? r.json() : { messages: [] })
+      .then((data: { messages: Array<{ id: string; role: string; content: string; timestamp: string; sessionId?: string; metadata?: Record<string, unknown> }> }) => {
+        if (!data.messages?.length) return;
+        clearMessages(currentSessionId);
+        data.messages.forEach((m) => {
+          addMessage({
+            ...m,
+            role: m.role as import("@/entities/message").MessageRole,
+            timestamp: new Date(m.timestamp),
+            sessionId: currentSessionId,
+          });
+        });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId]);
 
   // Auto-scroll to bottom on new messages or streaming
   useEffect(() => {

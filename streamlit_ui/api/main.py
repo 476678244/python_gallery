@@ -217,11 +217,13 @@ def build_skill_tree() -> List[Dict[str, Any]]:
         })
     return tree
 
-# ── File-backed session storage ──────────────────────────────────────────────
+# ── File-backed session + message storage ────────────────────────────────────
 
 DATA_DIR = Path(__file__).parent.parent / ".safeclaw_data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
+MESSAGES_DIR = DATA_DIR / "messages"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _load_sessions() -> List[Dict[str, Any]]:
@@ -235,6 +237,26 @@ def _load_sessions() -> List[Dict[str, Any]]:
 
 def _save_sessions(sessions: List[Dict[str, Any]]) -> None:
     SESSIONS_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _messages_file(session_id: str) -> Path:
+    return MESSAGES_DIR / f"{session_id}.json"
+
+
+def _load_messages(session_id: str) -> List[Dict[str, Any]]:
+    f = _messages_file(session_id)
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+
+def _save_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
+    _messages_file(session_id).write_text(
+        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 SESSIONS: List[Dict[str, Any]] = _load_sessions()
@@ -557,6 +579,35 @@ async def delete_session_by_path(session_id: str):
     SESSIONS = [s for s in SESSIONS if s["id"] != session_id]
     _save_sessions(SESSIONS)
     return {"success": True, "deleted_id": session_id}
+
+
+# Session messages endpoints
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """Return persisted messages for a session"""
+    session = next((s for s in SESSIONS if s["id"] == session_id), None)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = _load_messages(session_id)
+    return {"messages": messages, "total": len(messages)}
+
+
+class MessagePayload(BaseModel):
+    messages: List[Dict[str, Any]]
+
+
+@app.post("/sessions/{session_id}/messages")
+async def save_session_messages(session_id: str, payload: MessagePayload):
+    """Persist messages for a session (full replace)"""
+    session = next((s for s in SESSIONS if s["id"] == session_id), None)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _save_messages(session_id, payload.messages)
+    # Update message_count on session
+    session["message_count"] = len(payload.messages)
+    session["updated_at"] = datetime.now().isoformat()
+    _save_sessions(SESSIONS)
+    return {"success": True, "count": len(payload.messages)}
 
 
 # Memory endpoints

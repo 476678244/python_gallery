@@ -84,11 +84,23 @@ export function ChatInput({ sessionId, disabled }: ChatInputProps) {
           // Content updates handled in store
         },
         onComplete: (data) => {
-          // Pass final content; completeStreaming uses the streamingMessageId session
-          // which was set to sessionId by startStreaming
           completeStreaming(data.message.content);
           completeExecution(streamingId);
           setThinking(false);
+          // Persist after state update is flushed
+          setTimeout(() => {
+            const allMessages = getMessagesForSession(sessionId!);
+            fetch(`/api/sessions/${sessionId}/messages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messages: allMessages.map((m) => ({
+                  ...m,
+                  timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+                })),
+              }),
+            }).catch(() => {});
+          }, 0);
         },
         onError: (error) => {
           console.error("Chat error:", error);
