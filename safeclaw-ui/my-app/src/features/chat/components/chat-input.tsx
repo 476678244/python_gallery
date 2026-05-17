@@ -193,8 +193,8 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     cancelStreaming,
   ]);
 
-  // File upload handlers
-  const handleFileSelect = useCallback((files: FileList | null) => {
+  // File upload handlers - Uploads files to /tmp/uploaded
+  const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
     
     const newFiles: UploadedFile[] = Array.from(files).map(file => ({
@@ -206,6 +206,30 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     }));
     
     setUploadedFiles(prev => [...prev, ...newFiles]);
+    
+    // Upload files to /tmp/uploaded
+    for (const uploadedFile of newFiles) {
+      try {
+        const formData = new FormData();
+        formData.append('file', uploadedFile.file);
+        formData.append('path', `/tmp/uploaded/${uploadedFile.name}`);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          console.error(`Failed to upload ${uploadedFile.name}: HTTP ${response.status} - ${errorText}`);
+        } else {
+          const result = await response.json().catch(() => ({ success: true }));
+          console.log(`Uploaded ${uploadedFile.name} to /tmp/uploaded/`, result);
+        }
+      } catch (error) {
+        console.error(`Error uploading ${uploadedFile.name}:`, error);
+      }
+    }
   }, []);
 
   const handleRemoveFile = useCallback((fileId: string) => {
@@ -234,13 +258,16 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
     
+    // Handle file drop - upload to /tmp/uploaded
     const files = e.dataTransfer.files;
-    handleFileSelect(files);
+    if (files.length > 0) {
+      await handleFileSelect(files);
+    }
   }, [handleFileSelect]);
 
   // Slash command handlers
@@ -362,7 +389,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
               <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
                 <File className="w-8 h-8 text-blue-500" />
               </div>
-              <p className="text-lg font-medium text-slate-900">Drop files to upload</p>
+              <p className="text-lg font-medium text-slate-900">Drop files to upload to /tmp/uploaded</p>
             </div>
           </div>
         </div>
@@ -417,6 +444,9 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
           isDragging && "border-blue-500 border-dashed bg-blue-50"
         )}
       >
+        {/* Drag & drop hint */}
+        <span className="text-xs text-slate-400">Drop files here to upload to /tmp/uploaded</span>
+
         {/* Hidden File Input */}
         <input
           ref={fileInputRef}
@@ -431,7 +461,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         <button
           onClick={handlePaperclipClick}
           className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          title="Attach files"
+          title="Upload files to /tmp/uploaded"
         >
           <Paperclip className="w-5 h-5" />
         </button>

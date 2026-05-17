@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -769,6 +769,29 @@ async def get_available_models():
     except Exception:
         pass
     return {"models": FALLBACK_MODELS, "source": "fallback"}
+
+
+# File upload endpoint
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
+    """Upload a file to the specified path (typically /tmp/uploaded/)"""
+    try:
+        # Ensure the directory exists
+        target_path = Path(path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Save the file
+        content = await file.read()
+        target_path.write_bytes(content)
+        
+        return {
+            "success": True,
+            "path": str(target_path),
+            "size": len(content),
+            "filename": file.filename,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,11 @@ const nextConfig: NextConfig = {
         source: '/api/health',
         destination: 'http://localhost:8000/health',
       },
+      // File upload
+      {
+        source: '/api/upload',
+        destination: 'http://localhost:8000/api/upload',
+      },
     ];
   },
 };
