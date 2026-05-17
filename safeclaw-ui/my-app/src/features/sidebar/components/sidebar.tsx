@@ -57,35 +57,45 @@ function SbSection({
 }
 
 // ── Model card ────────────────────────────────────────────────────
-const MODELS = [
-  { id: "qwen3.5", name: "Qwen 3.5", sub: "9B · Local · Fast", active: true },
-  { id: "gemma4b", name: "Gemma 4B",  sub: "4B · Local · Lite", active: false },
-  { id: "gpt4o",   name: "GPT-4o",    sub: "Cloud · OpenAI",    active: false },
+const SIDEBAR_MODELS = [
+  { id: "qwen/qwen3.5-35b-a3b", name: "Qwen 3.5",  sub: "9B · Local · Fast" },
+  { id: "gemma-4b",             name: "Gemma 4B",   sub: "4B · Local · Lite" },
+  { id: "gpt-4o",               name: "GPT-4o",     sub: "Cloud · OpenAI"   },
+  { id: "claude-opus-4-7",      name: "Claude Opus", sub: "Cloud · Anthropic" },
 ];
 
 function ModelSection() {
-  const [selected, setSelected] = useState("qwen3.5");
+  const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+  const selectedModel = currentSession?.settings?.model ?? "qwen/qwen3.5-35b-a3b";
+
+  const handleSelect = (modelId: string) => {
+    if (currentSessionId) {
+      updateSessionSettings(currentSessionId, { model: modelId });
+    }
+  };
+
   return (
     <div className="p-2 space-y-1">
-      {MODELS.map((m) => (
+      {SIDEBAR_MODELS.map((m) => (
         <button
           key={m.id}
-          onClick={() => setSelected(m.id)}
+          onClick={() => handleSelect(m.id)}
           className={cn(
             "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all",
-            selected === m.id
+            selectedModel === m.id
               ? "bg-blue-50 border border-blue-200"
               : "hover:bg-slate-50 border border-transparent"
           )}
         >
-          <Cpu className={cn("w-4 h-4 flex-shrink-0", selected === m.id ? "text-blue-500" : "text-slate-400")} />
+          <Cpu className={cn("w-4 h-4 flex-shrink-0", selectedModel === m.id ? "text-blue-500" : "text-slate-400")} />
           <div className="flex-1 min-w-0">
-            <p className={cn("text-xs font-semibold truncate", selected === m.id ? "text-blue-700" : "text-slate-700")}>
+            <p className={cn("text-xs font-semibold truncate", selectedModel === m.id ? "text-blue-700" : "text-slate-700")}>
               {m.name}
             </p>
             <p className="text-[10px] text-slate-400">{m.sub}</p>
           </div>
-          {selected === m.id && (
+          {selectedModel === m.id && (
             <span className="text-[10px] font-bold text-blue-500">✓</span>
           )}
         </button>

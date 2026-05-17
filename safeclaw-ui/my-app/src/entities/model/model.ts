@@ -38,28 +38,12 @@ export interface Model {
   };
 }
 
-// Predefined models
+// Predefined models — IDs must match backend /settings/models and sidebar SIDEBAR_MODELS
 export const AVAILABLE_MODELS: Model[] = [
   {
-    id: "gemma-4b",
-    name: "Gemma 4B",
-    provider: "google",
-    description: "Fast and efficient for most tasks",
-    icon: "gemma",
-    capabilities: {
-      maxTokens: 8192,
-      contextWindow: 128000,
-      supportedModes: ["chat", "code", "function_calling"],
-      supportsStreaming: true,
-      supportsSystemPrompt: true,
-    },
-    isEnabled: true,
-    isDefault: true,
-  },
-  {
-    id: "qwen-35b",
-    name: "Qwen 35B",
-    provider: "local",
+    id: "qwen/qwen3.5-35b-a3b",
+    name: "Qwen 3.5",
+    provider: "lm-studio",
     description: "Powerful local model for complex reasoning",
     icon: "qwen",
     capabilities: {
@@ -70,17 +54,48 @@ export const AVAILABLE_MODELS: Model[] = [
       supportsSystemPrompt: true,
     },
     isEnabled: true,
+    isDefault: true,
   },
   {
-    id: "gpt-oss",
-    name: "GPT-OSS",
+    id: "gemma-4b",
+    name: "Gemma 4B",
+    provider: "lm-studio",
+    description: "Fast and efficient for most tasks",
+    icon: "gemma",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 128000,
+      supportedModes: ["chat", "code", "function_calling"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+  },
+  {
+    id: "gpt-4o",
+    name: "GPT-4o",
     provider: "openai",
-    description: "Open source GPT variant",
+    description: "OpenAI cloud model",
     icon: "openai",
     capabilities: {
       maxTokens: 4096,
       contextWindow: 128000,
       supportedModes: ["chat", "code", "function_calling", "json_mode"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+  },
+  {
+    id: "claude-opus-4-7",
+    name: "Claude Opus",
+    provider: "anthropic",
+    description: "Anthropic cloud model",
+    icon: "anthropic",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 200000,
+      supportedModes: ["chat", "code", "reasoning", "function_calling"],
       supportsStreaming: true,
       supportsSystemPrompt: true,
     },
