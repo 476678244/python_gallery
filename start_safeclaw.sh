@@ -68,3 +68,5 @@ echo "════════════════════════�
 
 # Wait for processes
 wait
+
+# kill $(lsof -ti :8000) 2>/dev/null; sleep 1 && echo "port 8000 free"
