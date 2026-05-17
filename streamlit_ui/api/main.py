@@ -82,14 +82,14 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     session_id: Optional[str] = None
     enabled_skills: List[str] = Field(default_factory=list)
-    model: str = "gemma-4b"
+    model: str = "qwen3.5-9b-vlm"
     temperature: float = 0.7
     stream: bool = True
 
 
 class SessionCreateRequest(BaseModel):
     title: Optional[str] = "New Chat"
-    model: str = "gemma-4b"
+    model: str = "qwen3.5-9b-vlm"
 
 
 class SessionUpdateRequest(BaseModel):
@@ -303,7 +303,7 @@ async def chat_stream(request: ChatRequest):
 
             # Try real LM Studio first, fall back to mock
             lm_studio_url = "http://192.168.50.30:1234"
-            model_id = request.model if request.model not in ("gemma-4b", "") else "qwen3.5-9b-vlm"
+            model_id = request.model if request.model else "qwen3.5-9b-vlm"
             
             lm_ok = False
             try:
@@ -500,7 +500,7 @@ async def create_session(request: SessionCreateRequest):
             "title": request.title,
             "status": "active",
             "message_count": 0,
-            "settings": {"model": request.model, "enabled_skills": []},
+            "settings": {"model": request.model or "qwen3.5-9b-vlm", "enabled_skills": []},
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "last_activity_at": datetime.now().isoformat()
@@ -679,10 +679,11 @@ async def get_safety_stats():
 
 
 FALLBACK_MODELS = [
-    {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen 3.5 35B", "provider": "lm-studio"},
-    {"id": "claude-opus-4-7", "name": "Claude Opus 4.7", "provider": "anthropic"},
-    {"id": "gemma-4b", "name": "Gemma 4B", "provider": "google"},
-    {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
+    {"id": "qwen3.5-9b-vlm",       "name": "Qwen3.5 9B",      "provider": "lm-studio"},
+    {"id": "gemma-4-e4b",          "name": "Gemma 4 E4B",     "provider": "lm-studio"},
+    {"id": "gemma-4-31b",          "name": "Gemma 4 31B",     "provider": "lm-studio"},
+    {"id": "qwen3.6-27b",          "name": "Qwen3.6 27B",     "provider": "lm-studio"},
+    {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen3.5 35B A3B", "provider": "lm-studio"},
 ]
 
 # Settings / model info endpoint

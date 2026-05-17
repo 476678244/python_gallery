@@ -58,16 +58,17 @@ function SbSection({
 
 // ── Model card ────────────────────────────────────────────────────
 const SIDEBAR_MODELS = [
-  { id: "qwen/qwen3.5-35b-a3b", name: "Qwen 3.5",  sub: "9B · Local · Fast" },
-  { id: "gemma-4b",             name: "Gemma 4B",   sub: "4B · Local · Lite" },
-  { id: "gpt-4o",               name: "GPT-4o",     sub: "Cloud · OpenAI"   },
-  { id: "claude-opus-4-7",      name: "Claude Opus", sub: "Cloud · Anthropic" },
+  { id: "qwen3.5-9b-vlm",       name: "Qwen3.5 9B",      sub: "9B · Q4_K_M · Loaded" },
+  { id: "gemma-4-e4b",          name: "Gemma 4 E4B",     sub: "7.5B · Q6_K · 6.71 GB" },
+  { id: "gemma-4-31b",          name: "Gemma 4 31B",     sub: "31B · Q4_K_M · 18.52 GB" },
+  { id: "qwen3.6-27b",          name: "Qwen3.6 27B",     sub: "27B · Q4_K_M · 16.28 GB" },
+  { id: "qwen/qwen3.5-35b-a3b", name: "Qwen3.5 35B A3B", sub: "35B-A3B · Q4_K_M · 20.56 GB" },
 ];
 
 function ModelSection() {
   const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const selectedModel = currentSession?.settings?.model ?? "qwen/qwen3.5-35b-a3b";
+  const selectedModel = currentSession?.settings?.model ?? "qwen3.5-9b-vlm";
 
   const handleSelect = (modelId: string) => {
     if (currentSessionId) {
