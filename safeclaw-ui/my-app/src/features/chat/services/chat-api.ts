@@ -17,7 +17,14 @@ export interface ChatStreamRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "thinking" | "content" | "done" | "error";
+  type: "thinking" | "content" | "done" | "error" | "execution_step";
+  // execution_step fields
+  step_id?: string;
+  step_type?: string;
+  sub?: string;
+  chips?: string[];
+  skills_invoked?: string[];
+  // common fields
   step?: string;
   name?: string;
   status?: "running" | "completed";
@@ -43,6 +50,7 @@ export interface ChatStreamEvent {
 
 export interface ChatStreamCallbacks {
   onThinking?: (step: string, status: "running" | "completed", duration?: number) => void;
+  onExecutionStep?: (event: ChatStreamEvent) => void;
   onContent?: (content: string, delta: string) => void;
   onExecutionUpdate?: (graph: ExecutionGraph) => void;
   onComplete?: (data: {
@@ -109,7 +117,25 @@ export class ChatService {
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
-              const event: ChatStreamEvent = JSON.parse(line.slice(6));
+              const raw = JSON.parse(line.slice(6));
+              // Map snake_case backend fields to camelCase
+              const event: ChatStreamEvent = {
+                ...raw,
+                sessionId: raw.session_id ?? raw.sessionId,
+                messageId: raw.message_id ?? raw.messageId,
+                executionPath: raw.execution_path ?? raw.executionPath,
+                skillsUsed: raw.skills_used ?? raw.skillsUsed,
+                usage: raw.usage ? {
+                  promptTokens: raw.usage.prompt_tokens ?? raw.usage.promptTokens ?? 0,
+                  completionTokens: raw.usage.completion_tokens ?? raw.usage.completionTokens ?? 0,
+                  totalTokens: raw.usage.total_tokens ?? raw.usage.totalTokens ?? 0,
+                } : undefined,
+                timing: raw.timing ? {
+                  startTime: raw.timing.start_time ?? raw.timing.startTime ?? 0,
+                  endTime: raw.timing.end_time ?? raw.timing.endTime ?? 0,
+                  totalDuration: raw.timing.total_duration ?? raw.timing.totalDuration ?? 0,
+                } : undefined,
+              };
               this.handleEvent(event, callbacks, {
                 executionGraph,
                 accumulatedContent,
@@ -189,6 +215,15 @@ export class ChatService {
         break;
       }
 
+      case "execution_step": {
+        callbacks.onExecutionStep?.(event);
+        // Also emit as thinking step for the streaming indicator
+        if (event.status === "running") {
+          callbacks.onThinking?.(event.name || event.step_id || "", "running");
+        }
+        break;
+      }
+
       case "content": {
         if (event.content) {
           context.onUpdate({ content: event.content });
@@ -244,13 +279,27 @@ export class ChatService {
       event.messageId || crypto.randomUUID()
     );
 
-    // Add execution path steps
+    // Add execution path steps from the done event
     if (event.executionPath) {
       for (const path of event.executionPath) {
-        // This would create proper execution steps
-        // Simplified for now
+        const step: ExecutionStep = {
+          id: crypto.randomUUID(),
+          name: path.name,
+          type: "reasoning",
+          status: "completed",
+          duration: path.duration,
+        };
+        graph.steps.push(step);
       }
     }
+
+    graph.status = "completed";
+    graph.completedAt = new Date();
+    graph.totalDuration = event.timing?.totalDuration;
+    graph.metadata = {
+      totalTokens: event.usage?.totalTokens,
+      skillsUsed: event.skillsUsed?.map((s) => s.name),
+    };
 
     return graph;
   }

@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSkillStore } from "@/stores/skill-store";
@@ -22,12 +22,46 @@ import { RightPanel } from "@/components/right-panel";
 import { cn } from "@/shared/utils/cn";
 
 export function ChatWorkspace() {
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
+    setMounted(true);
     useSessionStore.getState().loadSessions();
     useSkillStore.getState().loadSkills();
   }, []);
 
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
+  // Safe access to store - use getState to avoid hook issues during initialization
+  const [sidebarOpen, setSidebarOpenState] = useState(true);
+
+  useEffect(() => {
+    // Subscribe to store changes after mount
+    const unsub = useUIStore.subscribe((state) => {
+      if (state && state.sidebarOpen !== undefined) {
+        setSidebarOpenState(state.sidebarOpen);
+      }
+    });
+    // Set initial value safely
+    const initialState = useUIStore.getState();
+    if (initialState && initialState.sidebarOpen !== undefined) {
+      setSidebarOpenState(initialState.sidebarOpen);
+    }
+    return unsub;
+  }, []);
+
+  // Prevent hydration mismatch - render neutral state until mounted
+  if (!mounted) {
+    return (
+      <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
+        <aside className="flex-shrink-0 w-64">
+          <div className="h-full bg-white border-r border-slate-200" />
+        </aside>
+        <main className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 bg-slate-50" />
+        </main>
+        <div className="w-11 bg-slate-50 border-l border-slate-200" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full bg-slate-50 overflow-hidden">

@@ -103,6 +103,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     completeThinkingStep,
     setThinking,
     completeExecution,
+    handleExecutionStepEvent,
   } = useExecutionStore();
 
   const handleSubmit = useCallback(async () => {
@@ -149,12 +150,19 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         onThinking: (step) => {
           addThinkingStep(step);
         },
+        onExecutionStep: (event) => {
+          handleExecutionStepEvent(streamingId, event);
+        },
         onContent: (content) => {
           // Content updates handled in store
         },
         onComplete: (data) => {
           completeStreaming(data.message.content);
-          completeExecution(streamingId);
+          completeExecution(streamingId, {
+            totalTokens: data.usage?.totalTokens,
+            skillsUsed: data.executionGraph?.metadata?.skillsUsed,
+            totalDuration: data.timing?.totalDuration,
+          });
           setThinking(false);
           // Persist after state update is flushed
           setTimeout(() => {
@@ -191,6 +199,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     completeStreaming,
     completeExecution,
     cancelStreaming,
+    handleExecutionStepEvent,
   ]);
 
   // File upload handlers - Uploads files to /tmp/uploaded

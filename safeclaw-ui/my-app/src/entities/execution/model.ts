@@ -19,6 +19,9 @@ export interface ExecutionStep {
   error?: string;
   parentId?: string;
   childrenIds?: string[];
+  sub?: string;
+  chips?: string[];
+  skillsInvoked?: string[];
   metadata?: {
     toolName?: string;
     modelName?: string;

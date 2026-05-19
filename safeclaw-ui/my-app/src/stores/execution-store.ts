@@ -8,6 +8,7 @@ import { immer } from "zustand/middleware/immer";
 import {
   ExecutionGraph,
   ExecutionStep,
+  ExecutionStepType,
   createExecutionGraph,
   startStep,
   completeStep,
@@ -28,7 +29,11 @@ interface ExecutionState {
 interface ExecutionActions {
   // Execution lifecycle
   startExecution: (sessionId: string, messageId: string) => ExecutionGraph;
-  completeExecution: (messageId: string) => void;
+  completeExecution: (messageId: string, metadata?: {
+    totalTokens?: number;
+    skillsUsed?: string[];
+    totalDuration?: number;
+  }) => void;
   failExecution: (messageId: string, error: string) => void;
 
   // Step management
@@ -48,9 +53,22 @@ interface ExecutionActions {
   completeThinkingStep: (stepName: string) => void;
   clearThinking: () => void;
 
+  // SSE event handler
+  handleExecutionStepEvent: (messageId: string, event: {
+    step_id?: string;
+    name?: string;
+    step_type?: string;
+    status?: string;
+    duration?: number;
+    sub?: string;
+    chips?: string[];
+    skills_invoked?: string[];
+  }) => void;
+
   // Queries
   getExecution: (messageId: string) => ExecutionGraph | undefined;
   getActiveExecution: () => ExecutionGraph | undefined;
+  getLatestExecution: () => ExecutionGraph | undefined;
   getExecutionPath: (messageId: string) => { name: string; duration: number }[];
   isExecutionComplete: (messageId: string) => boolean;
 
@@ -81,14 +99,19 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
       return graph;
     },
 
-    completeExecution: (messageId) => {
+    completeExecution: (messageId, metadata) => {
       set((state) => {
         const graph = state.activeExecutions[messageId];
         if (graph) {
           graph.status = "completed";
           graph.completedAt = new Date();
-          graph.totalDuration =
+          graph.totalDuration = metadata?.totalDuration ??
             (graph.completedAt.getTime() - graph.startedAt.getTime()) / 1000;
+          graph.metadata = {
+            ...graph.metadata,
+            totalTokens: metadata?.totalTokens,
+            skillsUsed: metadata?.skillsUsed,
+          };
           state.completedExecutions[messageId] = graph;
           delete state.activeExecutions[messageId];
         }
@@ -212,20 +235,89 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
       );
     },
 
+    handleExecutionStepEvent: (messageId, event) => {
+      set((state) => {
+        const graph = state.activeExecutions[messageId];
+        if (!graph) return;
+
+        const stepId = event.step_id || crypto.randomUUID();
+        const stepType = (event.step_type || "reasoning") as ExecutionStepType;
+
+        // Find existing step by step_id
+        let existing = graph.steps.find((s) => s.id === stepId);
+
+        if (event.status === "running") {
+          if (!existing) {
+            // Create new step
+            const newStep: ExecutionStep = {
+              id: stepId,
+              name: event.name || stepId,
+              type: stepType,
+              status: "running",
+              startedAt: new Date(),
+              sub: event.sub,
+              chips: event.chips,
+              skillsInvoked: event.skills_invoked,
+            };
+            graph.steps.push(newStep);
+          } else {
+            existing.status = "running";
+            existing.startedAt = new Date();
+            if (event.sub) existing.sub = event.sub;
+          }
+        } else if (event.status === "completed") {
+          if (existing) {
+            existing.status = "completed";
+            existing.completedAt = new Date();
+            existing.duration = event.duration;
+            if (event.sub) existing.sub = event.sub;
+            if (event.chips) existing.chips = event.chips;
+            if (event.skills_invoked) existing.skillsInvoked = event.skills_invoked;
+          } else {
+            // Create completed step directly (missed the running event)
+            graph.steps.push({
+              id: stepId,
+              name: event.name || stepId,
+              type: stepType,
+              status: "completed",
+              completedAt: new Date(),
+              duration: event.duration,
+              sub: event.sub,
+              chips: event.chips,
+              skillsInvoked: event.skills_invoked,
+            });
+          }
+        }
+      });
+    },
+
     getActiveExecution: () => {
       const state = get();
       const entries = Object.values(state.activeExecutions);
       return entries[0]; // Return first active execution
     },
 
+    getLatestExecution: () => {
+      const state = get();
+      // Prefer active, then most recent completed
+      const active = Object.values(state.activeExecutions);
+      if (active.length > 0) return active[0];
+      const completed = Object.values(state.completedExecutions);
+      if (completed.length === 0) return undefined;
+      return completed[completed.length - 1];
+    },
+
     getExecutionPath: (messageId) => {
       const graph = get().getExecution(messageId);
       if (!graph) return [];
 
-      return graph.steps.map((step) => ({
-        name: step.name,
-        duration: step.duration || 0,
-      }));
+      // Skip the auto-created root "Start" step
+      return graph.steps
+        .filter((s) => s.name !== "Start")
+        .map((step) => ({
+          name: step.name,
+          duration: step.duration || 0,
+        }));
     },
 
     isExecutionComplete: (messageId) => {

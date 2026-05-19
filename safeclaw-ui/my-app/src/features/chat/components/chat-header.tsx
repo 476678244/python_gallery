@@ -22,11 +22,13 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ session, messageCount }: ChatHeaderProps) {
   const { updateSessionSettings } = useSessionStore();
-  const openPanelKeys = useUIStore((s) => s.openPanelKeys);
-  const railToggle    = useUIStore((s) => s.railToggle);
-  const rightPanelOpen = openPanelKeys.some((k) => !k.startsWith("!"));
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Safe store access - use default values during SSR/hydration
+  const { openPanelKeys, railToggle } = useUIStore();
+  const safeOpenPanelKeys = mounted ? openPanelKeys : [];
+  const rightPanelOpen = safeOpenPanelKeys.some((k) => !k.startsWith("!"));
 
   const currentModel = AVAILABLE_MODELS.find(
     (m) => m.id === session?.settings?.model
