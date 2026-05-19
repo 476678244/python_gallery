@@ -94,7 +94,7 @@ export class SkillService {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ skillId, enabled }),
+      body: JSON.stringify({ skill_id: skillId, enabled }),
     });
 
     if (!response.ok) {
@@ -116,7 +116,7 @@ export class SkillService {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ folderId, enabled }),
+      body: JSON.stringify({ folder_id: folderId, enabled }),
     });
 
     if (!response.ok) {

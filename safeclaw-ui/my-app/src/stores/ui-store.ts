@@ -10,6 +10,11 @@ export type SidebarView = "sessions" | "skills" | "memory" | "safety" | "system"
 export type RightPanelKey = "exec" | "skills" | "budget" | "log" | "shell" | "context" | "memory";
 export type Theme = "light" | "dark" | "system";
 
+// Panel heights in pixels (min: 60, max: 600)
+const DEFAULT_PANEL_HEIGHT = 200;
+const MIN_PANEL_HEIGHT = 60;
+const MAX_PANEL_HEIGHT = 600;
+
 interface UIState {
   // Sidebar state
   sidebarOpen: boolean;
@@ -20,6 +25,8 @@ interface UIState {
   // Ordered list of open panel keys; collapsed keys have a "!" prefix
   openPanelKeys: string[];
   rightPanelWidth: number;
+  // Panel heights (key -> height in px)
+  panelHeights: Record<RightPanelKey, number>;
 
   // Theme
   theme: Theme;
@@ -47,6 +54,8 @@ interface UIActions {
   isPanelOpen: (key: RightPanelKey) => boolean;
   isPanelExpanded: (key: RightPanelKey) => boolean;
   setRightPanelWidth: (width: number) => void;
+  getPanelHeight: (key: RightPanelKey) => number;
+  setPanelHeight: (key: RightPanelKey, height: number) => void;
 
   // Theme actions
   setTheme: (theme: Theme) => void;
@@ -70,6 +79,15 @@ const initialUIState: UIState = {
 
   openPanelKeys: [],
   rightPanelWidth: 320,
+  panelHeights: {
+    exec: DEFAULT_PANEL_HEIGHT,
+    skills: DEFAULT_PANEL_HEIGHT,
+    budget: DEFAULT_PANEL_HEIGHT,
+    log: DEFAULT_PANEL_HEIGHT,
+    shell: DEFAULT_PANEL_HEIGHT,
+    context: DEFAULT_PANEL_HEIGHT,
+    memory: DEFAULT_PANEL_HEIGHT,
+  },
 
   theme: "system",
 
@@ -122,7 +140,20 @@ export const useUIStore = create<UIState & UIActions>()(
       },
 
       closeAllPanels: () => set({ openPanelKeys: [] }),
-      setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
+      setRightPanelWidth: (width) => set({ rightPanelWidth: Math.max(200, Math.min(600, width)) }),
+
+      getPanelHeight: (key) => {
+        const h = get().panelHeights[key];
+        return h ?? DEFAULT_PANEL_HEIGHT;
+      },
+      setPanelHeight: (key, height) => {
+        set({
+          panelHeights: {
+            ...get().panelHeights,
+            [key]: Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, height)),
+          },
+        });
+      },
 
       // Theme
       setTheme: (theme) => set({ theme }),
@@ -151,6 +182,7 @@ export const useUIStore = create<UIState & UIActions>()(
         sidebarWidth: state.sidebarWidth,
         openPanelKeys: state.openPanelKeys,
         rightPanelWidth: state.rightPanelWidth,
+        panelHeights: state.panelHeights,
         theme: state.theme,
       }),
     }
