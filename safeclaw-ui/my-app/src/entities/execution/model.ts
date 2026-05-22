@@ -21,6 +21,7 @@ export interface ExecutionStep {
   childrenIds?: string[];
   sub?: string;
   chips?: string[];
+  activeSkills?: string[];
   skillsInvoked?: string[];
   metadata?: {
     toolName?: string;

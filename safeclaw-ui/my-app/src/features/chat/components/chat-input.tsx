@@ -385,25 +385,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
   return (
     <div 
       className="border-t border-slate-200 bg-white p-4"
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
     >
-      {/* Drag Overlay */}
-      {isDragging && (
-        <div className="fixed inset-0 bg-blue-500/10 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-none">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 border-2 border-blue-500 border-dashed">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-                <File className="w-8 h-8 text-blue-500" />
-              </div>
-              <p className="text-lg font-medium text-slate-900">Drop files to upload to /tmp/uploaded</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Quick Actions */}
       <div className="flex gap-2 mb-3 overflow-x-auto">
         {QUICK_ACTIONS.map((action) => (
@@ -443,7 +425,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         </div>
       )}
 
-      {/* Input Area */}
+      {/* Input Area — entire box is the drop target */}
       <div
         className={cn(
           "relative flex items-end gap-2 rounded-xl border p-3 transition-all",
@@ -452,9 +434,20 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             : "border-slate-200 hover:border-slate-300",
           isDragging && "border-blue-500 border-dashed bg-blue-50"
         )}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
-        {/* Drag & drop hint */}
-        <span className="text-xs text-slate-400">Drop files here to upload to /tmp/uploaded</span>
+        {/* Drag overlay inside input area */}
+        {isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-blue-50/80 pointer-events-none">
+            <div className="flex items-center gap-2">
+              <File className="w-5 h-5 text-blue-500" />
+              <span className="text-sm font-medium text-blue-600">Drop files here</span>
+            </div>
+          </div>
+        )}
 
         {/* Hidden File Input */}
         <input

@@ -5,6 +5,7 @@ Bridges Next.js UI with SafeClaw Python Core
 
 import asyncio
 import json
+import logging
 import sys
 import os
 import re
@@ -12,6 +13,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -347,14 +350,36 @@ async def chat_stream(request: ChatRequest):
                         "sub": "Parsed intent & entities",
                         "chips": ["\u2713 done"]})
 
-            # ── Step 2: Skill router ──────────────────────────────
+            # ── Step 2: Skill router (semantic matching) ─────────
             t_router_start = datetime.now().timestamp()
             sm = _get_skills_manager()
             active_skills = sm.get_enabled_skills() if sm else (request.enabled_skills or [])
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
-                        "step_type": "tool_call", "status": "running"})
-            await asyncio.sleep(0.03)
-            skill_names = active_skills[:5] if active_skills else ["chat"]
+                        "step_type": "tool_call", "status": "running",
+                        "active_skills": active_skills})
+
+            # Semantic match: rank enabled skills by relevance to the query
+            skill_names: list[str] = []
+            if sm and active_skills and last_message:
+                try:
+                    from streamlit_ui.safe_claw.core.skills.matcher import get_semantic_matcher
+                    matcher = get_semantic_matcher()
+                    # Build entries for only the enabled skills
+                    enabled_set = set(active_skills)
+                    entries = [
+                        entry for entry in sm.skill_scanner.index.values()
+                        if entry.name in enabled_set
+                    ]
+                    if entries:
+                        matches = matcher.simple_match_l1(last_message, entries, top_k=5)
+                        skill_names = [m.skill.name for m in matches if m.score > 0]
+                except Exception as e:
+                    logger.warning(f"Skill router semantic match failed: {e}")
+
+            # Fallback: if no semantic match, take first 5 enabled skills
+            # if not skill_names:
+            #     skill_names = active_skills[:5] if active_skills else ["chat"]
+
             router_dur = round(datetime.now().timestamp() - t_router_start, 3)
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
                         "step_type": "tool_call", "status": "completed",
@@ -514,16 +539,19 @@ async def toggle_skill(request: SkillToggleRequest):
         _folder_enabled[request.folder_id] = request.enabled
         if sm:
             current = set(sm.get_enabled_skills() or sm.get_available_skills())
+            folder_key = request.folder_id.replace("linked/", "")
+            changed = []
             for entry in sm.skill_scanner.index.values():
                 raw = str(entry.path)
                 # Match skills belonging to this folder by path
-                folder_key = request.folder_id.replace("linked/", "")
                 if folder_key in raw:
                     if request.enabled:
                         current.add(entry.name)
                     else:
                         current.discard(entry.name)
+                    changed.append(entry.name)
             sm.set_enabled_skills(list(current))
+            print(f"🔧 Folder toggle '{request.folder_id}': {len(changed)} skills {'enabled' if request.enabled else 'disabled'}, {len(current)} total active")
     elif request.skill_id and sm:
         current = set(sm.get_enabled_skills() or sm.get_available_skills())
         if request.enabled:

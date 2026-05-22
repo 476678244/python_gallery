@@ -11,6 +11,25 @@ description: 实践 Flow Coding（心流编程）范式，通过5阶段算法实
 
 在 Vibe Coding（AI 辅助代码生成）基础上，通过浏览器自动化工具将验证环节也完全自动化，使开发者的注意力始终停留在「意图表达」与「判断」层面，持续处于心流状态。
 
+### 🔥 核心驱动力：反馈，反馈，反馈！
+
+**反馈是 AI 能力提升的唯一途径。** Flow Coding 相比 Vibe Coding 的根本区别不在于"多了一个自动化步骤"，而在于**反馈的质量和速度发生了质变**：
+
+| 维度 | Vibe Coding | Flow Coding |
+|------|-------------|-------------|
+| **反馈来源** | 单元测试断言（间接） | 真实浏览器截图（直接） |
+| **反馈内容** | "assertEqual failed: expected 42, got 41" | **一张真实的页面截图** |
+| **AI 看到什么** | 抽象的数字和字符串 | 用户真正看到的 UI |
+| **反馈速度** | 需要开发者手动打开浏览器验证 | 截图自动回传，秒级 |
+| **反馈循环** | 生成 → 等待人工验证 → 修复 | 生成 → 截图 → 对比 → 自动修复 |
+| **AI 学习效率** | 低（反馈稀疏且间接） | **高（反馈密集且直接）** |
+
+**关键洞察：**
+- Vibe Coding 的反馈是**符号化的**——AI 只知道"某个值不对"，但不知道"页面看起来不对"
+- Flow Coding 的反馈是**视觉化的**——AI 看到截图，能理解布局错位、颜色偏差、元素缺失等真实问题
+- **AI 看到截图 = AI 获得了和人类开发者一样的视觉反馈**，这是 AI 自主修复能力的基础
+- 反馈越直接，AI 的修复越精准；反馈越快，AI 的迭代越高效
+
 ---
 
 ## 适用场景
@@ -127,3 +146,105 @@ Vibe Coding 的核心风险是 AI 生成"看起来对但实际错"的代码。**
 - **分层信任**: 核心算法/安全路径采用"人判断模式"；CRUD/UI/样板代码可采用"自愈模式"
 - **测试先行**: 没有验证基线的代码变更是高风险的
 - **根因修复**: 在自愈闭环中，始终分析失败的根本原因，而不是表面修复
+
+---
+
+## 实际执行功能
+
+本 Skill 不仅提供 Flow Coding 的理论指南，还集成了实际的自动化测试执行能力。
+
+### Action 类型
+
+| Action | 功能 |
+|--------|------|
+| `get_guide` | 获取 5 阶段算法指南和核心原则 |
+| `check_phase` | 检查指定阶段的完成清单 |
+| `run_playwright` | **启动真实浏览器，执行可见测试并截图** |
+| `compare_screenshots` | **对比两张截图的差异（像素级）** |
+| `run_self_healing_loop` | 获取自愈闭环模式的说明 |
+| `report_completion` | 报告任务完成 |
+
+### run_playwright - 真实浏览器测试
+
+```python
+# 示例：打开可见浏览器，导航到页面并截图
+run(
+    action="run_playwright",
+    url="http://localhost:3000",
+    screenshot_path="/tmp/test_result.png",
+    viewport={"width": 1280, "height": 720},
+    steps=[
+        {"action": "click", "selector": "#login-btn"},
+        {"action": "fill", "selector": "#username", "value": "testuser"},
+        {"action": "wait", "selector": ".dashboard"}
+    ]
+)
+```
+
+**返回结果：**
+- `screenshot_path`: 截图保存路径
+- `screenshot_base64`: Base64 编码的截图（供 AI 直接查看）
+- `page_title`: 页面标题
+- `steps_executed`: 执行步骤的状态
+- `page_info`: 页面信息
+
+### compare_screenshots - 截图对比
+
+```python
+# 示例：对比当前截图与基线
+run(
+    action="compare_screenshots",
+    baseline_path="/tmp/baseline.png",
+    screenshot_path="/tmp/current.png",
+    threshold=0.1  # 10% 差异阈值
+)
+```
+
+**返回结果：**
+- `match`: 是否匹配（True/False）
+- `diff_percentage`: 差异百分比
+- `diff_image_path`: 差异可视化图路径（不匹配时生成）
+
+### 完整自愈闭环示例
+
+```python
+# 1. 建立基线（PHASE 1）
+baseline = run(
+    action="run_playwright",
+    url="http://localhost:3000",
+    screenshot_path="/tmp/baseline.png"
+)
+
+# 2. 修改代码（PHASE 2-3）...
+
+# 3. 运行测试并对比（PHASE 4）
+current = run(
+    action="run_playwright",
+    url="http://localhost:3000",
+    screenshot_path="/tmp/current.png"
+)
+
+# 4. 对比结果
+comparison = run(
+    action="compare_screenshots",
+    baseline_path="/tmp/baseline.png",
+    screenshot_path="/tmp/current.png",
+    threshold=0.05
+)
+
+# 5. 根据 comparison['match'] 判断是否需要修复
+# 如果不匹配，AI Agent 自动分析 diff_image 并修复代码
+```
+
+---
+
+## 依赖安装
+
+```bash
+# Playwright 浏览器自动化
+pip install playwright
+playwright install
+
+# 图像对比
+pip install Pillow numpy
+```

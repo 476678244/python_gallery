@@ -62,6 +62,7 @@ interface ExecutionActions {
     duration?: number;
     sub?: string;
     chips?: string[];
+    active_skills?: string[];
     skills_invoked?: string[];
   }) => void;
 
@@ -257,6 +258,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
               startedAt: new Date(),
               sub: event.sub,
               chips: event.chips,
+              activeSkills: event.active_skills,
               skillsInvoked: event.skills_invoked,
             };
             graph.steps.push(newStep);
@@ -264,6 +266,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
             existing.status = "running";
             existing.startedAt = new Date();
             if (event.sub) existing.sub = event.sub;
+            if (event.active_skills) existing.activeSkills = event.active_skills;
           }
         } else if (event.status === "completed") {
           if (existing) {
@@ -272,6 +275,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
             existing.duration = event.duration;
             if (event.sub) existing.sub = event.sub;
             if (event.chips) existing.chips = event.chips;
+            if (event.active_skills) existing.activeSkills = event.active_skills;
             if (event.skills_invoked) existing.skillsInvoked = event.skills_invoked;
           } else {
             // Create completed step directly (missed the running event)

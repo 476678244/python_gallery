@@ -145,21 +145,24 @@ function SkillsPathPanel() {
   const totalSkills = mounted ? skillStore.totalSkills : 0;
   const lastMsg = mounted ? msgStore.getLastMessage() : undefined;
 
-  // Collect invoked skills from execution steps
+  // Collect ready (active) skills and invoked skills from execution steps
+  const readySet = new Set<string>();
   const invokedSet = new Set<string>();
   if (execution) {
     for (const step of execution.steps) {
+      if (step.activeSkills) {
+        step.activeSkills.forEach((s) => readySet.add(s));
+      }
       if (step.skillsInvoked) {
         step.skillsInvoked.forEach((s) => invokedSet.add(s));
       }
     }
   }
 
-  // Build display rows: invoked first, then a few from the skill store
-  const allNames = Array.from(new Set([
-    ...invokedSet,
-    ...flatSkills.slice(0, 8).map((s) => s.name),
-  ]));
+  // Display only the ready skills (from active_skills); fall back to flat store slice when no execution yet
+  const displayNames = readySet.size > 0
+    ? Array.from(readySet)
+    : flatSkills.filter((s) => !s.isFolder).slice(0, 8).map((s) => s.name);
 
   const invokedCount = invokedSet.size;
 
@@ -177,22 +180,29 @@ function SkillsPathPanel() {
             {lastMsg?.content?.slice(0, 40) || ""}
           </span>
           <span className="text-[10px] text-green-600 font-semibold">
-            {invokedCount} invoked
+            {invokedCount} active
           </span>
         </div>
-        {allNames.map((name, i) => {
+        {displayNames.map((name, i) => {
           const invoked = invokedSet.has(name);
           return (
             <div key={name} className={cn(
               "flex items-center gap-2 px-3 py-2 text-xs",
-              i < allNames.length - 1 && "border-b border-slate-100"
+              i < displayNames.length - 1 && "border-b border-slate-100"
             )}>
-              <Wrench className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span className="flex-1 font-medium text-slate-700 truncate">{name}</span>
+              <Wrench className={cn(
+                "w-3.5 h-3.5 flex-shrink-0",
+                invoked ? "text-green-500" : "text-slate-300"
+              )} />
               <span className={cn(
-                "text-[10px] font-semibold px-1.5 py-0.5 rounded",
-                invoked ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400"
-              )}>{invoked ? "invoked" : "skipped"}</span>
+                "flex-1 font-medium truncate",
+                invoked ? "text-slate-800" : "text-slate-400"
+              )}>{name}</span>
+              {invoked && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                  active
+                </span>
+              )}
             </div>
           );
         })}
