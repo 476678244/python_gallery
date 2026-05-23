@@ -7,11 +7,13 @@ import {
   Coins,
   ClipboardList,
   Terminal,
-  FileText,
+  Eye,
   Brain,
   ChevronDown,
   GripHorizontal,
   GripVertical,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useUIStore, type RightPanelKey } from "@/stores/ui-store";
 import { useExecutionStore } from "@/stores/execution-store";
@@ -33,7 +35,7 @@ const RAIL_ITEMS: {
   { key: "budget",  icon: Coins,        label: "Budget" },
   { key: "log",     icon: ClipboardList,label: "Log",     badge: "live",  badgeVariant: "amber" },
   { key: "shell",   icon: Terminal,     label: "Shell" },
-  { key: "context", icon: FileText,     label: "Context" },
+  { key: "prompts", icon: Eye,          label: "Prompts", badge: "1",     badgeVariant: "blue" },
   { key: "memory",  icon: Brain,        label: "Memory",  badge: "3" },
 ];
 
@@ -45,7 +47,7 @@ const PANEL_TITLES: Record<RightPanelKey, string> = {
   budget:  "Prompt Budget",
   log:     "Backend Log",
   shell:   "Shell",
-  context: "Context Files",
+  prompts: "Prompt Inspect",
   memory:  "Memory",
 };
 
@@ -76,28 +78,101 @@ function ExecutionPathPanel() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  const uiStore = useUIStore();
+  const currentCallIndex = mounted ? uiStore.currentCallIndex : 0;
+  const totalCalls = mounted ? uiStore.totalCalls : 0;
+  const nextCall = uiStore.nextCall;
+  const prevCall = uiStore.prevCall;
+
   const execStore = useExecutionStore();
   const execution = mounted ? execStore.getLatestExecution() : undefined;
-  const steps = execution
-    ? execution.steps.filter((s) => s.name !== "Start")
-    : [];
-  const isActive = execution?.status === "running";
+
+  // Get steps from current LLM call, or fallback to overall execution steps
+  const currentLLMCall = execution?.llmCalls?.[currentCallIndex];
+  const steps = currentLLMCall
+    ? currentLLMCall.steps.filter((s) => s.name !== "Start")
+    : execution?.steps?.filter((s) => s.name !== "Start") ?? [];
+
+  const isActive = currentLLMCall?.status === "running" || execution?.status === "running";
+  const hasNext = currentCallIndex < totalCalls - 1;
+  const hasPrev = currentCallIndex > 0;
+
+  // Show navigation if there are multiple calls
+  const showNav = totalCalls > 1;
 
   if (steps.length === 0) {
     return (
       <div className="p-3 text-xs text-slate-400">
+        {showNav && (
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+            <button
+              onClick={prevCall}
+              disabled={!hasPrev}
+              className={cn(
+                "p-1 rounded text-[10px]",
+                hasPrev ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+              )}
+            >
+              ← Prev
+            </button>
+            <span className="text-[10px] font-medium text-slate-500">
+              Call {currentCallIndex + 1}/{totalCalls}
+            </span>
+            <button
+              onClick={nextCall}
+              disabled={!hasNext}
+              className={cn(
+                "p-1 rounded text-[10px]",
+                hasNext ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+              )}
+            >
+              Next →
+            </button>
+          </div>
+        )}
         {isActive ? "Execution starting..." : "Send a message to see execution plan."}
       </div>
     );
   }
 
-  const totalDur = execution?.totalDuration ?? steps.reduce((s, st) => s + (st.duration || 0), 0);
-  const totalTokens = execution?.metadata?.totalTokens;
+  const totalDur = steps.reduce((s, st) => s + (st.duration || 0), 0);
+  const callTokens = currentLLMCall?.promptTokens && currentLLMCall?.completionTokens
+    ? currentLLMCall.promptTokens + currentLLMCall.completionTokens
+    : undefined;
 
   return (
     <div className="p-3 space-y-0">
+      {/* Navigation for LLM Calls */}
+      {showNav && (
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+          <button
+            onClick={prevCall}
+            disabled={!hasPrev}
+            className={cn(
+              "p-1 rounded text-[10px] transition-colors",
+              hasPrev ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            )}
+          >
+            ← Prev
+          </button>
+          <span className="text-[10px] font-semibold text-red-600">
+            Call {currentCallIndex + 1} of {totalCalls}
+          </span>
+          <button
+            onClick={nextCall}
+            disabled={!hasNext}
+            className={cn(
+              "p-1 rounded text-[10px] transition-colors",
+              hasNext ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            )}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
-        Current run · {execution?.messageId?.slice(0, 20)}
+        {currentLLMCall ? `Call #${currentLLMCall.callNumber} execution` : "Current run"}
       </p>
       {steps.map((step, i) => (
         <div key={step.id} className="flex gap-2">
@@ -118,13 +193,13 @@ function ExecutionPathPanel() {
           </div>
         </div>
       ))}
-      {execution?.status === "completed" && (
+      {(currentLLMCall?.status === "completed" || (!currentLLMCall && execution?.status === "completed")) && (
         <div className="flex gap-2">
           <div className="w-5 flex-shrink-0 flex justify-center">
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-green-100 mt-0.5" />
           </div>
           <p className="text-xs font-semibold text-green-600 mt-0.5">
-            ✓ Complete · {totalDur.toFixed(2)}s{totalTokens ? ` · ${totalTokens} tokens` : ""}
+            ✓ Complete · {totalDur.toFixed(2)}s{callTokens ? ` · ${callTokens} tokens` : ""}
           </p>
         </div>
       )}
@@ -137,18 +212,31 @@ function SkillsPathPanel() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  const uiStore = useUIStore();
+  const currentCallIndex = mounted ? uiStore.currentCallIndex : 0;
+  const totalCalls = mounted ? uiStore.totalCalls : 0;
+  const nextCall = uiStore.nextCall;
+  const prevCall = uiStore.prevCall;
+
   const execStore = useExecutionStore();
   const skillStore = useSkillStore();
-  const msgStore = useMessageStore();
   const execution = mounted ? execStore.getLatestExecution() : undefined;
   const flatSkills = mounted ? skillStore.flatSkills : [];
   const totalSkills = mounted ? skillStore.totalSkills : 0;
-  const lastMsg = mounted ? msgStore.getLastMessage() : undefined;
 
-  // Collect ready (active) skills and invoked skills from execution steps
+  // Get current LLM call
+  const currentLLMCall = execution?.llmCalls?.[currentCallIndex];
+
+  // Collect skills from current LLM call, or fallback to overall execution
   const readySet = new Set<string>();
   const invokedSet = new Set<string>();
-  if (execution) {
+
+  if (currentLLMCall) {
+    // Use current call's skills
+    currentLLMCall.activeSkills?.forEach((s) => readySet.add(s));
+    currentLLMCall.skillsInvoked?.forEach((s) => invokedSet.add(s));
+  } else if (execution) {
+    // Fallback: collect from all steps
     for (const step of execution.steps) {
       if (step.activeSkills) {
         step.activeSkills.forEach((s) => readySet.add(s));
@@ -165,50 +253,88 @@ function SkillsPathPanel() {
     : flatSkills.filter((s) => !s.isFolder).slice(0, 8).map((s) => s.name);
 
   const invokedCount = invokedSet.size;
+  const showNav = totalCalls > 1;
+  const hasNext = currentCallIndex < totalCalls - 1;
+  const hasPrev = currentCallIndex > 0;
 
   return (
     <div className="p-3">
+      {/* Navigation for LLM Calls */}
+      {showNav && (
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+          <button
+            onClick={prevCall}
+            disabled={!hasPrev}
+            className={cn(
+              "p-1 rounded text-[10px] transition-colors",
+              hasPrev ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            )}
+          >
+            ← Prev
+          </button>
+          <span className="text-[10px] font-semibold text-red-600">
+            Call {currentCallIndex + 1} of {totalCalls}
+          </span>
+          <button
+            onClick={nextCall}
+            disabled={!hasNext}
+            className={cn(
+              "p-1 rounded text-[10px] transition-colors",
+              hasNext ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            )}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-        Per-message skill invocation
+        {currentLLMCall ? `Call #${currentLLMCall.callNumber} skills` : "Per-message skill invocation"}
       </p>
       <div className="border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-700">
-            💬 {execution?.messageId?.slice(0, 20) || "—"}
+            🔧 Skills
           </span>
-          <span className="text-[11px] text-slate-400 flex-1 truncate">
-            {lastMsg?.content?.slice(0, 40) || ""}
+          <span className="text-[10px] text-slate-400 flex-1 truncate">
+            {currentLLMCall ? `Call ${currentLLMCall.callNumber}` : (execution?.messageId?.slice(0, 20) || "—")}
           </span>
           <span className="text-[10px] text-green-600 font-semibold">
             {invokedCount} active
           </span>
         </div>
-        {displayNames.map((name, i) => {
-          const invoked = invokedSet.has(name);
-          return (
-            <div key={name} className={cn(
-              "flex items-center gap-2 px-3 py-2 text-xs",
-              i < displayNames.length - 1 && "border-b border-slate-100"
-            )}>
-              <Wrench className={cn(
-                "w-3.5 h-3.5 flex-shrink-0",
-                invoked ? "text-green-500" : "text-slate-300"
-              )} />
-              <span className={cn(
-                "flex-1 font-medium truncate",
-                invoked ? "text-slate-800" : "text-slate-400"
-              )}>{name}</span>
-              {invoked && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                  active
-                </span>
-              )}
-            </div>
-          );
-        })}
+        {displayNames.length > 0 ? (
+          displayNames.map((name, i) => {
+            const invoked = invokedSet.has(name);
+            return (
+              <div key={name} className={cn(
+                "flex items-center gap-2 px-3 py-2 text-xs",
+                i < displayNames.length - 1 && "border-b border-slate-100"
+              )}>
+                <Wrench className={cn(
+                  "w-3.5 h-3.5 flex-shrink-0",
+                  invoked ? "text-green-500" : "text-slate-300"
+                )} />
+                <span className={cn(
+                  "flex-1 font-medium truncate",
+                  invoked ? "text-slate-800" : "text-slate-400"
+                )}>{name}</span>
+                {invoked && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                    active
+                  </span>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="px-3 py-4 text-xs text-slate-400 text-center">
+            No skills activated for this call
+          </div>
+        )}
       </div>
       <p className="text-[10px] text-slate-400 mt-3">
-        {totalSkills} skills registered · {invokedCount} active this message
+        {totalSkills} skills registered · {invokedCount} active
       </p>
     </div>
   );
@@ -463,13 +589,199 @@ function ShellPanel() {
   );
 }
 
-// ── Context / Memory ────────────────────────────────────────────
-function ContextPanel() {
+// ── Prompt Inspect ─────────────────────────────────────────────
+interface LLMCall {
+  call_id: string;
+  call_number: number;
+  timestamp: string;
+  messages: { role: string; content: string }[];
+  formatted_prompt: string;
+  token_estimate: number;
+  response?: string;
+  response_timestamp?: string;
+  response_tokens?: number;
+  duration_ms?: number;
+}
+
+function PromptInspectPanel() {
+  const [mounted, setMounted] = useState(false);
+  const [calls, setCalls] = useState<LLMCall[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Use global UI store for call navigation (synced across panels)
+  const uiStore = useUIStore();
+  const currentCallIndex = mounted ? uiStore.currentCallIndex : 0;
+  const totalCalls = mounted ? uiStore.totalCalls : 0;
+  const setTotalCalls = uiStore.setTotalCalls;
+  const nextCall = uiStore.nextCall;
+  const prevCall = uiStore.prevCall;
+
+  const execStore = useExecutionStore();
+  const execution = mounted ? execStore.getLatestExecution() : undefined;
+  const messageId = execution?.messageId;
+
+  // Fetch LLM calls when messageId changes
+  useEffect(() => {
+    if (!messageId) {
+      setCalls([]);
+      setTotalCalls(0);
+      return;
+    }
+
+    const fetchCalls = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`http://localhost:8000/llm-calls/${messageId}`);
+        const data = await response.json();
+        const fetchedCalls = data.calls || [];
+        setCalls(fetchedCalls);
+        setTotalCalls(fetchedCalls.length);
+      } catch (e) {
+        console.error("Failed to fetch LLM calls:", e);
+        setCalls([]);
+        setTotalCalls(0);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCalls();
+
+    // Poll for updates every 2 seconds while execution is running
+    const interval = setInterval(() => {
+      if (execution?.status === "running") {
+        fetchCalls();
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [messageId, execution?.status, setTotalCalls]);
+
+  const currentCall = calls[currentCallIndex];
+  const hasNext = currentCallIndex < calls.length - 1;
+  const hasPrev = currentCallIndex > 0;
+
+  if (isLoading && calls.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 text-xs p-4">
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        Loading LLM calls...
+      </div>
+    );
+  }
+
+  if (calls.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 text-xs text-center p-4">
+        <Eye className="w-8 h-8 text-slate-300" />
+        No LLM calls recorded yet.
+        <span className="text-slate-300">Send a message to see prompt logs.</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 text-xs text-center p-4">
-      <FileText className="w-8 h-8 text-slate-300" />
-      No context files attached.
-      <span className="text-slate-300">Drop files or use 📎 in the input bar.</span>
+    <div className="flex flex-col h-full">
+      {/* Navigation Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+        <button
+          onClick={prevCall}
+          disabled={!hasPrev}
+          className={cn(
+            "p-1 rounded transition-colors",
+            hasPrev ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+          )}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <div className="text-center">
+          <p className="text-[11px] font-semibold text-red-600">
+            LLM Calls {currentCallIndex + 1} of {totalCalls || calls.length}
+          </p>
+          <p className="text-[9px] text-slate-400">
+            {currentCall?.duration_ms ? `${currentCall.duration_ms.toFixed(0)}ms` : "pending"}
+          </p>
+        </div>
+        <button
+          onClick={nextCall}
+          disabled={!hasNext}
+          className={cn(
+            "p-1 rounded transition-colors",
+            hasNext ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+          )}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Call Details */}
+      {currentCall && (
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* Prompt Section */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-600">Prompt Input</p>
+              <span className="text-[9px] text-slate-400">
+                ~{currentCall.token_estimate?.toFixed(0)} tokens
+              </span>
+            </div>
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div
+                className="p-2.5 text-[11px] text-slate-700 whitespace-pre-wrap font-mono leading-relaxed"
+                style={{ maxHeight: "200px", overflowY: "auto" }}
+              >
+                {currentCall.formatted_prompt || "No prompt data"}
+              </div>
+            </div>
+          </div>
+
+          {/* Response Section */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-green-600">Response</p>
+              <span className="text-[9px] text-slate-400">
+                {currentCall.response_tokens ? `${currentCall.response_tokens} tokens` : "pending"}
+              </span>
+            </div>
+            <div className="border border-slate-200 rounded-lg overflow-hidden bg-green-50/30">
+              {currentCall.response ? (
+                <div
+                  className="p-2.5 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed"
+                  style={{ maxHeight: "200px", overflowY: "auto" }}
+                >
+                  {currentCall.response}
+                </div>
+              ) : (
+                <div className="p-3 text-center text-slate-400 text-[11px]">
+                  Waiting for response...
+                  {execution?.status === "running" && (
+                    <div className="mt-2 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Metadata */}
+          <div className="pt-2 border-t border-slate-200">
+            <p className="text-[9px] text-slate-400 mb-1.5">Call Metadata</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-50 rounded px-2 py-1.5">
+                <p className="text-[9px] text-slate-400">Call ID</p>
+                <p className="text-[10px] font-mono text-slate-700 truncate">{currentCall.call_id?.slice(-8)}</p>
+              </div>
+              <div className="bg-slate-50 rounded px-2 py-1.5">
+                <p className="text-[9px] text-slate-400">Time</p>
+                <p className="text-[10px] text-slate-700">
+                  {new Date(currentCall.timestamp).toLocaleTimeString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -501,7 +813,7 @@ function PanelBody({ panelKey }: { panelKey: RightPanelKey }) {
     case "budget":  return <BudgetPanel />;
     case "log":     return <BackendLogPanel />;
     case "shell":   return <ShellPanel />;
-    case "context": return <ContextPanel />;
+    case "prompts": return <PromptInspectPanel />;
     case "memory":  return <MemoryPanel />;
   }
 }
@@ -622,7 +934,11 @@ function PanelCard({
   useEffect(() => { setMounted(true); }, []);
 
   const store = useUIStore();
-  const def = RAIL_ITEMS.find((r) => r.key === panelKey)!;
+  const def = RAIL_ITEMS.find((r) => r.key === panelKey);
+  // Safety check: if panelKey is not in RAIL_ITEMS, don't render
+  if (!def) {
+    return null;
+  }
   const Icon = def.icon;
   const expanded = mounted ? store.isPanelExpanded(panelKey) : false;
   const collapseToggle = store.collapseToggle;
@@ -732,14 +1048,18 @@ export function RightPanel() {
   const setPanelHeight = store.setPanelHeight;
   const panelHeights = mounted ? store.panelHeights : {};
 
+  // Valid panel keys that exist in RAIL_ITEMS
+  const validPanelKeys = new Set(RAIL_ITEMS.map((r) => r.key));
+
   const expandedKeys = openPanelKeys
     .filter((k) => !k.startsWith("!"))
-    .map((k) => k as RightPanelKey);
+    .map((k) => k as RightPanelKey)
+    .filter((k) => validPanelKeys.has(k));
 
   const anyExpanded = expandedKeys.length > 0;
-  const allKeys = openPanelKeys.map((k) =>
-    k.startsWith("!") ? (k.slice(1) as RightPanelKey) : (k as RightPanelKey)
-  );
+  const allKeys = openPanelKeys
+    .map((k) => (k.startsWith("!") ? k.slice(1) : k) as RightPanelKey)
+    .filter((k) => validPanelKeys.has(k));
 
   // Auto-distribute heights when panel count changes (1-3 panels)
   // Only auto-distribute if all expanded panels have default height (not user-adjusted)

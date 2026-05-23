@@ -69,7 +69,7 @@ def load_safe_claw():
                 skills_manager.skill_scanner.scan_all_skills()
         memory_manager = MemoryManager(
             config=MemoryConfig(),
-            workspace_path=str(DATA_DIR),
+            workspace_path=str(WORKSPACE_DIR),
         )
         chat_agent = ChatAgent(
             llm_service=llm_service,
@@ -231,9 +231,11 @@ def build_skill_tree() -> List[Dict[str, Any]]:
 
 # ── File-backed session + message storage ────────────────────────────────────
 
-DATA_DIR = Path(__file__).parent.parent / ".safeclaw_data"
+WORKSPACE_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "workspace"
+DATA_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "Data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 MESSAGES_DIR = DATA_DIR / "messages"
+WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -466,6 +468,31 @@ async def chat_stream(request: ChatRequest):
             # ── Done ──────────────────────────────────────────────
             total_dur = round(datetime.now().timestamp() - t0, 3)
             total_tokens = prompt_tokens + completion_tokens
+
+            # Build LLM calls array with per-call execution and skills data
+            llm_calls = [{
+                "call_id": f"call-1-{msg_id}",
+                "call_number": 1,
+                "timestamp": datetime.now().isoformat(),
+                "status": "completed",
+                "steps": [
+                    {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed",
+                     "duration": round(datetime.now().timestamp() - t_parse_start, 3)},
+                    {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed",
+                     "duration": router_dur},
+                    {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed",
+                     "duration": mem_dur},
+                    {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed",
+                     "duration": llm_dur, "chips": [f"{prompt_tokens} in", f"{completion_tokens} out"]},
+                ],
+                "active_skills": active_skills[:10] if active_skills else [],
+                "skills_invoked": skill_names,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "duration_ms": round(llm_dur * 1000, 2),
+                "response_preview": full_response[:200] if full_response else "",
+            }]
+
             yield _sse({
                 "type": "done",
                 "session_id": request.session_id,
@@ -487,6 +514,8 @@ async def chat_stream(request: ChatRequest):
                     {"name": "LLM call",              "duration": llm_dur},
                 ],
                 "skills_used": [{"name": s, "duration": 0} for s in skill_names],
+                "llm_calls": llm_calls,
+                "total_calls": len(llm_calls),
             })
                 
         except Exception as e:
@@ -873,6 +902,67 @@ async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+# LLM Call Logs endpoint
+@app.get("/llm-calls/{message_id}")
+async def get_llm_calls(message_id: str):
+    """Get LLM call logs (prompts, responses, execution steps, skills) for a specific message"""
+    try:
+        # Import the function from official_integration
+        pkg_root = str(Path(__file__).parent.parent.parent)
+        if pkg_root not in sys.path:
+            sys.path.insert(0, pkg_root)
+        from streamlit_ui.safe_claw.core.deepagents.official_integration import get_llm_call_logs
+
+        logs = get_llm_call_logs(message_id)
+
+        # Enrich logs with execution steps and skills if not already present
+        enriched_calls = []
+        for i, call in enumerate(logs):
+            enriched_call = {
+                **call,
+                # Add execution steps if not present
+                "steps": call.get("steps") or [
+                    {"id": f"step-{i}-1", "name": "LLM Request", "type": "model_call", "status": "completed",
+                     "duration": call.get("duration_ms", 0) / 1000 if call.get("duration_ms") else 0}
+                ],
+                # Add skills data if not present
+                "active_skills": call.get("active_skills") or [],
+                "skills_invoked": call.get("skills_invoked") or [],
+                "prompt_tokens": call.get("prompt_tokens") or call.get("token_estimate", 0),
+                "completion_tokens": call.get("completion_tokens") or call.get("response_tokens", 0),
+            }
+            enriched_calls.append(enriched_call)
+
+        return {
+            "message_id": message_id,
+            "calls": enriched_calls,
+            "total_calls": len(enriched_calls),
+        }
+    except Exception as e:
+        print(f"LLM call logs error: {e}")
+        return {
+            "message_id": message_id,
+            "calls": [],
+            "total_calls": 0,
+            "error": str(e),
+        }
+
+
+@app.delete("/llm-calls/{message_id}")
+async def clear_llm_calls(message_id: str):
+    """Clear LLM call logs for a specific message"""
+    try:
+        pkg_root = str(Path(__file__).parent.parent.parent)
+        if pkg_root not in sys.path:
+            sys.path.insert(0, pkg_root)
+        from streamlit_ui.safe_claw.core.deepagents.official_integration import clear_llm_call_logs
+
+        clear_llm_call_logs(message_id)
+        return {"success": True, "message_id": message_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

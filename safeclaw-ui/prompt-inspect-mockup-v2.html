@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeClaw - Prompt Inspect Panel (Updated)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc;
+      padding: 40px;
+      display: flex;
+      gap: 30px;
+      flex-wrap: wrap;
+    }
+    .mockup-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      overflow: hidden;
+      width: 380px;
+      height: 500px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #e2e8f0;
+    }
+
+    /* Header - matching the screenshot */
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #fff;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .nav-arrow {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #f8fafc;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      transition: all 0.15s;
+      font-size: 18px;
+      font-weight: 500;
+    }
+    .nav-arrow:hover:not(:disabled) {
+      background: #e2e8f0;
+      color: #334155;
+    }
+    .nav-arrow:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    .nav-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .nav-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #dc2626; /* Red color matching screenshot */
+      letter-spacing: 0.3px;
+    }
+    .nav-subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    /* Content Area */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      background: #fafafa;
+    }
+
+    /* Section styling */
+    .section {
+      margin-bottom: 16px;
+      background: white;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .section-label.prompt { color: #2563eb; }
+    .section-label.response { color: #16a34a; }
+    .token-badge {
+      font-size: 10px;
+      color: #64748b;
+      background: #fff;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }
+    .section-body {
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #334155;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    /* Role styling in prompt */
+    .message {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .message:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .role-tag {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .role-system { color: #7c3aed; }
+    .role-user { color: #2563eb; }
+    .role-assistant { color: #16a34a; }
+    .role-tool { color: #ea580c; }
+    .role-icon {
+      font-size: 12px;
+    }
+    .message-content {
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.6;
+      padding-left: 16px;
+      border-left: 2px solid #e2e8f0;
+    }
+
+    /* Response specific */
+    .response-section .section-body {
+      background: #f0fdf4;
+      border-left: 3px solid #86efac;
+    }
+
+    /* Metadata bar */
+    .metadata-bar {
+      display: flex;
+      gap: 16px;
+      padding: 10px 16px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .metadata-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .metadata-value {
+      font-weight: 600;
+      color: #334155;
+      font-family: 'SF Mono', monospace;
+    }
+
+    /* Empty state */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: #94a3b8;
+      text-align: center;
+      padding: 30px;
+    }
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      background: #f1f5f9;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+    .empty-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+    }
+    .empty-subtitle {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    /* Waiting state */
+    .waiting-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      gap: 10px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid #3b82f6;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Mockup labels */
+    .mockup-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .mockup-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      text-align: center;
+    }
+
+    /* Green arrow styling matching screenshot */
+    .arrow-green {
+      color: #16a34a;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Mockup 1: Matches Screenshot - LLM Calls 4 of 20 -->
+  <div class="mockup-wrapper">
+    <div class="mockup-label">Matches Screenshot: "LLM Calls 4 of 20"</div>
+    <div class="mockup-container">
+      <!-- Navigation Header -->
+      <div class="panel-header">
+        <button class="nav-arrow">←</button>
+        <div class="nav-center">
+          <span class="nav-title">LLM Calls 4 of 20</span>
+          <span class="nav-subtitle">892ms • 1,247 tokens</span>
+        </div>
+        <button class="nav-arrow">→</button>
+      </div>
+
+      <!-- Content -->
+      <div class="content">
+        <!-- Prompt Section -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-label prompt">Prompt Input</span>
+            <span class="token-badge">~1,247 tokens</span>
+          </div>
+          <div class="section-body">
+            <div class="message">
+              <div class="role-tag role-system">
+                <span class="role-icon">🔧</span> SYSTEM
+              </div>
+              <div class="message-content">
+                You are SafeClaw, a helpful AI assistant with access to skills...
+              </div>
+            </div>
+            <div class="message">
+              <div class="role-tag role-user">
+                <span class="role-icon">👤</span> USER
+              </div>
+              <div class="message-content">
+                how many skills here
+              </div>
+            </div>
+            <div class="message">
+              <div class="role-tag role-tool">
+                <span class="role-icon">🔧</span> TOOL: skill_list_available
+              </div>
+              <div class="message-content">
+                Found 47 skills across 5 categories...
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Response Section -->
+        <div class="section response-section">
+          <div class="section-header">
+            <span class="section-label response">Response</span>
+            <span class="token-badge">89 tokens</span>
+          </div>
+          <div class="section-body">
+            Could you clarify what "here" refers to? For example:
+
+            • A list of skills you've pasted in your message?
+            • The capabilities of an AI model (like mine)?
+            • Skills mentioned in a document...
+
+            Let me know the context so I can give an accurate count! 😊
+          </div>
+        </div>
+      </div>
+
+      <!-- Metadata Footer -->
+      <div class="metadata-bar">
+        <div class="metadata-item">
+          <span>Call ID:</span>
+          <span class="metadata-value">a3f7b2e8</span>
+        </div>
+        <div class="metadata-item">
+          <span>Time:</span>
+          <span class="metadata-value">14:32:18</span>
+        </div>
+        <div class="metadata-item">
+          <span>Model:</span>
+          <span class="metadata-value">qwen3.5-9b</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mockup 2: First Call (Waiting) -->
+  <div class="mockup-wrapper">
+    <div class="mockup-label">State: First Call Waiting</div>
+    <div class="mockup-container">
+      <div class="panel-header">
+        <button class="nav-arrow" disabled>←</button>
+        <div class="nav-center">
+          <span class="nav-title">LLM Calls 1 of 5</span>
+          <span class="nav-subtitle">pending...</span>
+        </div>
+        <button class="nav-arrow">→</button>
+      </div>
+
+      <div class="content">
+        <div class="section">
+          <div class="section-header">
+            <span class="section-label prompt">Prompt Input</span>
+            <span class="token-badge">~456 tokens</span>
+          </div>
+          <div class="section-body">
+            <div class="message">
+              <div class="role-tag role-user">
+                <span class="role-icon">👤</span> USER
+              </div>
+              <div class="message-content">
+                Analyze this code and suggest improvements
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section response-section">
+          <div class="section-header">
+            <span class="section-label response">Response</span>
+            <span class="token-badge">waiting...</span>
+          </div>
+          <div class="section-body">
+            <div class="waiting-box">
+              Waiting for response...
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="metadata-bar">
+        <div class="metadata-item">
+          <span>Call ID:</span>
+          <span class="metadata-value">c8d9e1f4</span>
+        </div>
+        <div class="metadata-item">
+          <span>Time:</span>
+          <span class="metadata-value">14:35:42</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mockup 3: Empty State -->
+  <div class="mockup-wrapper">
+    <div class="mockup-label">State: Empty (No messages)</div>
+    <div class="mockup-container">
+      <div class="panel-header">
+        <button class="nav-arrow" disabled>←</button>
+        <div class="nav-center">
+          <span class="nav-title">LLM Calls</span>
+          <span class="nav-subtitle">no data</span>
+        </div>
+        <button class="nav-arrow" disabled>→</button>
+      </div>
+
+      <div class="content">
+        <div class="empty-state">
+          <div class="empty-icon">👁</div>
+          <div class="empty-title">No LLM calls recorded yet</div>
+          <div class="empty-subtitle">Send a message to see prompt logs</div>
+        </div>
+      </div>
+
+      <div class="metadata-bar">
+        <div class="metadata-item">
+          <span>Status:</span>
+          <span class="metadata-value">waiting for data</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mockup 4: Multiple Tool Calls -->
+  <div class="mockup-wrapper">
+    <div class="mockup-label">State: Complex Multi-Tool Call</div>
+    <div class="mockup-container">
+      <div class="panel-header">
+        <button class="nav-arrow">←</button>
+        <div class="nav-center">
+          <span class="nav-title">LLM Calls 2 of 8</span>
+          <span class="nav-subtitle">2,891ms • 3,421 tokens</span>
+        </div>
+        <button class="nav-arrow">→</button>
+      </div>
+
+      <div class="content">
+        <div class="section">
+          <div class="section-header">
+            <span class="section-label prompt">Prompt Input</span>
+            <span class="token-badge">~2,156 tokens</span>
+          </div>
+          <div class="section-body">
+            <div class="message">
+              <div class="role-tag role-system">
+                <span class="role-icon">🔧</span> SYSTEM
+              </div>
+              <div class="message-content">
+                Available tools: skill_stock_analysis, skill_data_query...
+              </div>
+            </div>
+            <div class="message">
+              <div class="role-tag role-tool">
+                <span class="role-icon">🔧</span> TOOL: skill_stock_analysis
+              </div>
+              <div class="message-content">
+                {"symbol": "AAPL", "data": [...], "trend": "bullish"}
+              </div>
+            </div>
+            <div class="message">
+              <div class="role-tag role-tool">
+                <span class="role-icon">🔧</span> TOOL: skill_data_query
+              </div>
+              <div class="message-content">
+                {"market_cap": "2.8T", "pe_ratio": 28.5}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section response-section">
+          <div class="section-header">
+            <span class="section-label response">Response</span>
+            <span class="token-badge">245 tokens</span>
+          </div>
+          <div class="section-body">
+            Based on the stock analysis data, AAPL shows strong bullish signals:
+
+            📈 Trend: Bullish (+5.2% this month)
+            💰 Market Cap: $2.8T
+            📊 P/E Ratio: 28.5 (above sector average)
+
+            Recommendation: HOLD with price target $195
+          </div>
+        </div>
+      </div>
+
+      <div class="metadata-bar">
+        <div class="metadata-item">
+          <span>Call ID:</span>
+          <span class="metadata-value">b5c7d9e2</span>
+        </div>
+        <div class="metadata-item">
+          <span>Time:</span>
+          <span class="metadata-value">14:38:15</span>
+        </div>
+        <div class="metadata-item">
+          <span>Tools:</span>
+          <span class="metadata-value">2 invoked</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -2,6 +2,19 @@ python version: 3.11
 
 conda activate safe_claw
 
+## ⚠️ WORKSPACE DIRECTORY — MANDATORY RULE
+
+**ALL temporary files, agent outputs, and working files MUST be written to:**
+
+```
+WORKSPACE_DIR = ~/Downloads/safe_claw_worksapce/workspace/
+```
+
+- This is the **only** designated working directory for the SafeClaw agent.
+- **Never** write temporary files to the project source tree, `/tmp`, or any other location.
+- Code reference: `WORKSPACE_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "workspace"` in `streamlit_ui/api/main.py`
+- The directory is auto-created on startup. Do not hardcode alternative paths.
+
 For package import under streamlit_ui. follow below practice:
 - start from streamlit_ui.safe_claw.
 - Don`t from safe_claw.

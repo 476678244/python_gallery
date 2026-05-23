@@ -7,7 +7,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type SidebarView = "sessions" | "skills" | "memory" | "safety" | "system" | "settings";
-export type RightPanelKey = "exec" | "skills" | "budget" | "log" | "shell" | "context" | "memory";
+export type RightPanelKey = "exec" | "skills" | "budget" | "log" | "shell" | "prompts" | "memory";
 export type Theme = "light" | "dark" | "system";
 
 // Panel heights in pixels (min: 60, max: 600)
@@ -27,6 +27,10 @@ interface UIState {
   rightPanelWidth: number;
   // Panel heights (key -> height in px)
   panelHeights: Record<RightPanelKey, number>;
+
+  // LLM Call navigation - synced across exec/skills/prompts panels
+  currentCallIndex: number;
+  totalCalls: number;
 
   // Theme
   theme: Theme;
@@ -57,6 +61,12 @@ interface UIActions {
   getPanelHeight: (key: RightPanelKey) => number;
   setPanelHeight: (key: RightPanelKey, height: number) => void;
 
+  // LLM Call navigation actions
+  setCurrentCallIndex: (index: number) => void;
+  nextCall: () => void;
+  prevCall: () => void;
+  setTotalCalls: (total: number) => void;
+
   // Theme actions
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
@@ -85,9 +95,13 @@ const initialUIState: UIState = {
     budget: DEFAULT_PANEL_HEIGHT,
     log: DEFAULT_PANEL_HEIGHT,
     shell: DEFAULT_PANEL_HEIGHT,
-    context: DEFAULT_PANEL_HEIGHT,
+    prompts: DEFAULT_PANEL_HEIGHT,
     memory: DEFAULT_PANEL_HEIGHT,
   },
+
+  // LLM Call navigation - start at 0, will be updated by panels
+  currentCallIndex: 0,
+  totalCalls: 0,
 
   theme: "system",
 
@@ -174,6 +188,27 @@ export const useUIStore = create<UIState & UIActions>()(
       // Keyboard shortcuts
       toggleKeyboardShortcuts: () =>
         set({ showKeyboardShortcuts: !get().showKeyboardShortcuts }),
+
+      // LLM Call navigation
+      setCurrentCallIndex: (index) => {
+        const total = get().totalCalls;
+        set({
+          currentCallIndex: Math.max(0, Math.min(total - 1, index))
+        });
+      },
+      nextCall: () => {
+        const { currentCallIndex, totalCalls } = get();
+        if (currentCallIndex < totalCalls - 1) {
+          set({ currentCallIndex: currentCallIndex + 1 });
+        }
+      },
+      prevCall: () => {
+        const { currentCallIndex } = get();
+        if (currentCallIndex > 0) {
+          set({ currentCallIndex: currentCallIndex - 1 });
+        }
+      },
+      setTotalCalls: (total) => set({ totalCalls: total }),
     }),
     {
       name: "safeclaw-ui-store",

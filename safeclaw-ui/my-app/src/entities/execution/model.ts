@@ -31,20 +31,44 @@ export interface ExecutionStep {
   };
 }
 
+export interface LLMCall {
+  callId: string;
+  callNumber: number;
+  timestamp: Date;
+  status: ExecutionStatus;
+  // Execution path for this specific call
+  steps: ExecutionStep[];
+  // Skills for this specific call
+  activeSkills?: string[];
+  skillsInvoked?: string[];
+  // Token counts
+  promptTokens?: number;
+  completionTokens?: number;
+  // Timing
+  durationMs?: number;
+  // Response content (for reference)
+  responsePreview?: string;
+}
+
 export interface ExecutionGraph {
   id: string;
   sessionId: string;
   messageId: string;
   status: ExecutionStatus;
-  steps: ExecutionStep[];
+  steps: ExecutionStep[];  // Legacy: overall steps
   rootStepId: string;
   startedAt: Date;
   completedAt?: Date;
   totalDuration?: number;
+  // New: LLM calls with their own execution paths
+  llmCalls: LLMCall[];
+  // Current active call index for UI
+  currentCallIndex: number;
   metadata?: {
     totalTokens?: number;
     skillsUsed?: string[];
     modelsUsed?: string[];
+    totalCalls?: number;
   };
 }
 
@@ -84,6 +108,24 @@ export function createExecutionGraph(
     steps: [rootStep],
     rootStepId: rootStep.id,
     startedAt: new Date(),
+    llmCalls: [],
+    currentCallIndex: 0,
+  };
+}
+
+// Factory for LLMCall
+export function createLLMCall(
+  callNumber: number,
+  callId?: string
+): LLMCall {
+  return {
+    callId: callId || crypto.randomUUID(),
+    callNumber,
+    timestamp: new Date(),
+    status: "running",
+    steps: [],
+    activeSkills: [],
+    skillsInvoked: [],
   };
 }
 
