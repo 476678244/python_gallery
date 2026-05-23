@@ -1,22 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests/e2e",
+  testDir: ".",
   timeout: 150_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
-  retries: 1,  // Phase 4: Self-healing - retry once on failure
+  retries: 1,
   reporter: [["list"], ["html", { open: "never" }]],
-  globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: process.env.FRONTEND_URL || "http://localhost:3000",
     trace: "on-first-retry",
     video: "on-first-retry",
     screenshot: "on",
-    headless: false,  // Show browser window for visual confirmation
-    launchOptions: {
-      slowMo: 500,  // Slow down operations for better visibility
-    },
   },
   projects: [
     {

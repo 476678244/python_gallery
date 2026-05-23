@@ -434,6 +434,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                     if ("SkillsMiddleware.before_agent" in chunk_str or
                             "PatchToolCallsMiddleware.before_agent" in chunk_str or
                             "PromptLoggerMiddleware.before_model" in chunk_str or
+                            "PromptLoggerMiddleware.after_model" in chunk_str or
                             "TodoListMiddleware.after_model" in chunk_str):
                         logger.debug(f"Skipping middleware event: {chunk}")
                         continue

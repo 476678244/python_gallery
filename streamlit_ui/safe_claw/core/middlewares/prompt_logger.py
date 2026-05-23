@@ -108,7 +108,7 @@ class PromptLoggerMiddleware(AgentMiddleware):
 
         return state
 
-    def after_model(self, state, response, runtime):
+    def after_model(self, state, runtime):
         """Called after the model responds - captures the response"""
         runtime_id = id(runtime) if runtime else None
 
@@ -117,8 +117,17 @@ class PromptLoggerMiddleware(AgentMiddleware):
             message_id = prompt_data["message_id"]
             call_id = prompt_data["call_id"]
 
-            # Extract response content
-            response_text = self._extract_response_text(response)
+            # Extract response content from state (messages last item is the assistant response)
+            messages = state.get("messages", []) if isinstance(state, dict) else []
+            response_text = ""
+            if messages:
+                last_msg = messages[-1]
+                if isinstance(last_msg, dict):
+                    response_text = last_msg.get("content", "")
+                elif hasattr(last_msg, 'content'):
+                    response_text = str(last_msg.content)
+                else:
+                    response_text = str(last_msg)
             response_tokens = len(response_text.split()) if response_text else 0
 
             # Calculate duration
@@ -173,7 +182,7 @@ class PromptLoggerMiddleware(AgentMiddleware):
                 f"✅ LLM RESPONSE #{prompt_data['call_number']} [{message_id[:20]}...]: "
                 f"{response_tokens} tokens, {duration_ms:.0f}ms")
 
-        return response
+        return state
 
     def _extract_response_text(self, response) -> str:
         """Extract text content from various response formats"""

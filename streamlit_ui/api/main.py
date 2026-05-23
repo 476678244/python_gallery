@@ -432,7 +432,52 @@ async def chat_stream(request: ChatRequest):
                 temperature=request.temperature,
                 max_tokens=512,
             )
-            llm_service = LLMService(config=llm_config)
+            
+            # Pre-flight health check for LM Studio (avoid 503 errors)
+            import httpx
+            lm_ready = False
+            lm_studio_ready = True  # Default to True, set to False on failure
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get("http://192.168.50.30:1234/v1/models")
+                    if resp.status_code == 200:
+                        models = resp.json().get("data", [])
+                        lm_ready = any(m.get("id") == model_id for m in models)
+                        if not lm_ready and models:
+                            # Model not specifically listed but server is up
+                            lm_ready = True
+            except Exception as e:
+                logger.warning(f"LM Studio health check failed: {e}")
+                lm_ready = False
+            
+            if not lm_ready:
+                logger.warning("⚠️ LM Studio not ready (503 likely), will use fallback immediately")
+                # Skip DeepAgent creation, go straight to fallback
+                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
+                            "step_type": "model_call", "status": "running",
+                            "sub": f"{model_id} \u00b7 fallback mode \u00b7 LLM unavailable"})
+                
+                full_response = ""
+                mock_resp = f"Hello! I'm SafeClaw (fallback mode). I received your message: '{last_message[:50]}...'\n\nThe LLM service is currently unavailable (503). Please try again later."
+                words = mock_resp.split()
+                for word in words:
+                    full_response += word + " "
+                    yield _sse({"type": "content", "content": full_response, "delta": word + " "})
+                    await asyncio.sleep(0.03)
+                
+                completion_tokens = len(full_response.split())
+                llm_dur = round(datetime.now().timestamp() - t_llm_start, 3)
+                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
+                            "step_type": "model_call", "status": "completed",
+                            "duration": llm_dur,
+                            "sub": f"{model_id} \u00b7 fallback \u00b7 service unavailable",
+                            "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out (fallback)"]})
+                
+                # Set flag to skip DeepAgent streaming
+                lm_studio_ready = False
+            
+            if lm_studio_ready:
+                llm_service = LLMService(config=llm_config)
 
             # Create MemoryManager (required by GraphBuilder)
             memory_manager = MemoryManager(
@@ -450,43 +495,60 @@ async def chat_stream(request: ChatRequest):
                 }
             )
 
-            # Access the DeepAgent directly from the builder for streaming
-            deep_agent = graph_builder.deep_agent
+            # Only use DeepAgent if LM Studio is ready
+            if lm_studio_ready:
+                # Access the DeepAgent directly from the builder for streaming
+                deep_agent = graph_builder.deep_agent
 
-            yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                        "step_type": "model_call", "status": "running",
-                        "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
+                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
+                            "step_type": "model_call", "status": "running",
+                            "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
 
-            # Stream from SafeClawDeepAgent (via GraphBuilder)
-            full_response = ""
-            try:
-                # Convert messages to dict format for DeepAgent
-                messages = [{"role": m.role, "content": m.content} for m in request.messages]
+                # Stream from SafeClawDeepAgent (via GraphBuilder)
+                full_response = ""
+                has_error = False
+                
+                try:
+                    # Convert messages to dict format for DeepAgent
+                    messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
-                for chunk in deep_agent.stream(messages):
-                    if chunk.get("type") == "error":
-                        yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
-                        return
-                    elif chunk.get("thinking"):
-                        # Shell/tool thinking output
-                        yield _sse({"type": "thinking", "content": chunk["thinking"]})
-                    elif chunk.get("tool"):
-                        # Tool execution result
-                        yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
-                    elif chunk.get("content"):
-                        # LLM content
-                        full_response = chunk["content"]
-                        yield _sse({"type": "content", "content": full_response})
+                    for chunk in deep_agent.stream(messages):
+                        if chunk.get("type") == "error":
+                            has_error = True
+                            yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
+                            return
+                        elif chunk.get("thinking"):
+                            # Shell/tool thinking output
+                            yield _sse({"type": "thinking", "content": chunk["thinking"]})
+                        elif chunk.get("tool"):
+                            # Tool execution result
+                            yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
+                        elif chunk.get("content"):
+                            # LLM content
+                            content = chunk["content"]
+                            # Phase 4: Self-healing - detect error in content (e.g., 503)
+                            if "Error" in content or "error" in content.lower():
+                                has_error = True
+                                print(f"⚠️ DeepAgent returned error content: {content[:100]}...")
+                                break
+                            full_response = content
+                            yield _sse({"type": "content", "content": full_response})
 
-            except Exception as e:
-                print(f"SafeClawGraphBuilder/DeepAgent error: {e}")
-                # Fall back to mock content
-                mock_resp = f"I received your message: '{last_message[:50]}...'\n\nThis is a mock response from SafeClaw API."
-                words = mock_resp.split()
-                for word in words:
-                    full_response += word + " "
-                    yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                    await asyncio.sleep(0.05)
+                except Exception as e:
+                    print(f"SafeClawGraphBuilder/DeepAgent error: {e}")
+                    has_error = True
+                
+                # Phase 4: Self-healing - fallback to mock if error occurred during DeepAgent streaming
+                if has_error or not full_response or "Error" in full_response:
+                    print("🔄 Phase 4: Self-healing - using fallback mock response")
+                    # Clear any partial error response
+                    full_response = ""
+                    mock_resp = f"Hello! I'm SafeClaw. I received your message: '{last_message[:50]}...'\n\nI'm currently running in fallback mode because the LLM service is temporarily unavailable. Please try again later or contact support if this persists."
+                    words = mock_resp.split()
+                    for word in words:
+                        full_response += word + " "
+                        yield _sse({"type": "content", "content": full_response, "delta": word + " "})
+                        await asyncio.sleep(0.03)
 
             # Complete LLM step
             completion_tokens = len(full_response.split())
