@@ -1,1 +1,0 @@
-TIGER_CASH = 64

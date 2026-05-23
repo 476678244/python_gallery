@@ -3,8 +3,8 @@
  * Represents AI models available in the system
  */
 
-export type ModelProvider = "openai" | "anthropic" | "google" | "local" | "custom";
-export type ModelCapability = "chat" | "vision" | "code" | "reasoning" | "function_calling" | "json_mode";
+export type ModelProvider = "openai" | "anthropic" | "google" | "local" | "custom" | "lm-studio";
+export type ModelCapability = "chat" | "vision" | "code" | "reasoning" | "function_calling" | "json_mode" | "embeddings";
 
 export interface ModelPricing {
   inputPricePer1K: number; // USD

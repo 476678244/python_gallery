@@ -14,6 +14,13 @@ from typing import AsyncGenerator, List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
+# Configure logging to output to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
 logger = logging.getLogger(__name__)
 
 import httpx
@@ -402,63 +409,89 @@ async def chat_stream(request: ChatRequest):
                         "sub": "3 relevant memories loaded",
                         "chips": ["\u2713 done", f"{mem_dur}s", "3 memories"]})
 
-            # ── Step 4: LLM call ──────────────────────────────────
-            lm_studio_url = "http://192.168.50.30:1234"
+            # ── Step 4: LLM call using SafeClawGraphBuilder ───────────────
             model_id = request.model if request.model else "qwen3.5-9b-vlm"
             t_llm_start = datetime.now().timestamp()
             prompt_tokens = sum(len(m.content.split()) for m in request.messages)
+
+            # Import SafeClawGraphBuilder and related modules
+            from streamlit_ui.safe_claw.services.llm_gateway import LLMService, LLMConfig
+            from streamlit_ui.safe_claw.core.graph.builder import SafeClawGraphBuilder
+            from streamlit_ui.safe_claw.core.memory.manager import MemoryManager
+            from streamlit_ui.safe_claw.models.config import MemoryConfig
+            from streamlit_ui.safe_claw.core.deepagents.official_integration import (
+                _llm_call_logs_lock, _llm_call_logs
+            )
+
+            # Create LLM config for LM Studio
+            llm_config = LLMConfig(
+                provider="openai",
+                model=model_id,
+                api_key="lm-studio",
+                base_url="http://192.168.50.30:1234/v1",
+                temperature=request.temperature,
+                max_tokens=512,
+            )
+            llm_service = LLMService(config=llm_config)
+
+            # Create MemoryManager (required by GraphBuilder)
+            memory_manager = MemoryManager(
+                config=MemoryConfig(),
+                workspace_path=str(WORKSPACE_DIR),
+            )
+
+            # Create SafeClawGraphBuilder with DeepAgent
+            graph_builder = SafeClawGraphBuilder(
+                llm_service=llm_service,
+                memory_manager=memory_manager,
+                config={
+                    "enabled_skills": active_skills,
+                    "print_prompts": True,
+                }
+            )
+
+            # Access the DeepAgent directly from the builder for streaming
+            deep_agent = graph_builder.deep_agent
+
             yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
                         "step_type": "model_call", "status": "running",
                         "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
 
-            lm_ok = False
+            # Stream from SafeClawDeepAgent (via GraphBuilder)
             full_response = ""
             try:
-                payload = {
-                    "model": model_id,
-                    "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-                    "stream": True,
-                    "temperature": request.temperature,
-                    "max_tokens": 512,
-                }
-                async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{lm_studio_url}/v1/chat/completions",
-                        json=payload,
-                        headers={"Authorization": "Bearer lm-studio"},
-                    ) as resp:
-                        if resp.status_code != 200:
-                            raise RuntimeError(f"LM Studio returned {resp.status_code}")
-                        lm_ok = True
-                        async for line in resp.aiter_lines():
-                            if not line.startswith("data:"):
-                                continue
-                            raw = line[5:].strip()
-                            if raw == "[DONE]":
-                                break
-                            try:
-                                evt = json.loads(raw)
-                                delta = evt["choices"][0]["delta"].get("content", "")
-                                if delta:
-                                    full_response += delta
-                                    yield _sse({"type": "content", "content": full_response, "delta": delta})
-                            except Exception:
-                                continue
+                # Convert messages to dict format for DeepAgent
+                messages = [{"role": m.role, "content": m.content} for m in request.messages]
+
+                for chunk in deep_agent.stream(messages):
+                    if chunk.get("type") == "error":
+                        yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
+                        return
+                    elif chunk.get("thinking"):
+                        # Shell/tool thinking output
+                        yield _sse({"type": "thinking", "content": chunk["thinking"]})
+                    elif chunk.get("tool"):
+                        # Tool execution result
+                        yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
+                    elif chunk.get("content"):
+                        # LLM content
+                        full_response = chunk["content"]
+                        yield _sse({"type": "content", "content": full_response})
+
             except Exception as e:
-                print(f"LM Studio error: {e}")
-                if not lm_ok:
-                    # Fall back to mock content
-                    mock_resp = f"I received your message: '{last_message[:50]}...'\n\nThis is a mock response from SafeClaw API."
-                    words = mock_resp.split()
-                    for word in words:
-                        full_response += word + " "
-                        yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                        await asyncio.sleep(0.05)
+                print(f"SafeClawGraphBuilder/DeepAgent error: {e}")
+                # Fall back to mock content
+                mock_resp = f"I received your message: '{last_message[:50]}...'\n\nThis is a mock response from SafeClaw API."
+                words = mock_resp.split()
+                for word in words:
+                    full_response += word + " "
+                    yield _sse({"type": "content", "content": full_response, "delta": word + " "})
+                    await asyncio.sleep(0.05)
 
             # Complete LLM step
             completion_tokens = len(full_response.split())
             llm_dur = round(datetime.now().timestamp() - t_llm_start, 3)
+
             yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
                         "step_type": "model_call", "status": "completed",
                         "duration": llm_dur,
@@ -469,29 +502,64 @@ async def chat_stream(request: ChatRequest):
             total_dur = round(datetime.now().timestamp() - t0, 3)
             total_tokens = prompt_tokens + completion_tokens
 
-            # Build LLM calls array with per-call execution and skills data
-            llm_calls = [{
-                "call_id": f"call-1-{msg_id}",
-                "call_number": 1,
-                "timestamp": datetime.now().isoformat(),
-                "status": "completed",
-                "steps": [
-                    {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed",
-                     "duration": round(datetime.now().timestamp() - t_parse_start, 3)},
-                    {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed",
-                     "duration": router_dur},
-                    {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed",
-                     "duration": mem_dur},
-                    {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed",
-                     "duration": llm_dur, "chips": [f"{prompt_tokens} in", f"{completion_tokens} out"]},
-                ],
-                "active_skills": active_skills[:10] if active_skills else [],
-                "skills_invoked": skill_names,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "duration_ms": round(llm_dur * 1000, 2),
-                "response_preview": full_response[:200] if full_response else "",
-            }]
+            # Retrieve actual LLM call logs from SafeClawDeepAgent (populated by PromptLoggerMiddleware)
+            with _llm_call_logs_lock:
+                agent_logs = _llm_call_logs.get(msg_id, [])
+
+            # Build LLM calls array - use actual logs from middleware if available, fallback to synthetic
+            if agent_logs:
+                llm_calls = []
+                for i, call in enumerate(agent_logs):
+                    llm_calls.append({
+                        "call_id": call.get("call_id", f"call-{i+1}-{msg_id}"),
+                        "call_number": call.get("call_number", i + 1),
+                        "timestamp": call.get("timestamp", datetime.now().isoformat()),
+                        "status": "completed",
+                        "steps": [
+                            {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed",
+                             "duration": round(datetime.now().timestamp() - t_parse_start, 3)},
+                            {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed",
+                             "duration": router_dur},
+                            {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed",
+                             "duration": mem_dur},
+                            {"id": f"llm-{i+1}", "name": f"LLM call #{i+1}", "type": "model_call", "status": "completed",
+                             "duration": (call.get("duration_ms", 0) / 1000) if call.get("duration_ms") else llm_dur,
+                             "chips": [f"{call.get('token_estimate', 0):.0f} in", f"{call.get('response_tokens', 0)} out"]},
+                        ],
+                        "active_skills": active_skills[:10] if active_skills else [],
+                        "skills_invoked": skill_names,
+                        "prompt_tokens": int(call.get("token_estimate", prompt_tokens)),
+                        "completion_tokens": call.get("response_tokens", completion_tokens),
+                        "duration_ms": call.get("duration_ms", round(llm_dur * 1000, 2)),
+                        "response_preview": call.get("response", full_response)[:200] if (call.get("response") or full_response) else "",
+                        # Include full prompt/response from middleware logs
+                        "prompt": call.get("formatted_prompt", ""),
+                        "response": call.get("response", ""),
+                    })
+            else:
+                # Fallback: synthetic log entry (DeepAgent didn't populate logs)
+                llm_calls = [{
+                    "call_id": f"call-1-{msg_id}",
+                    "call_number": 1,
+                    "timestamp": datetime.now().isoformat(),
+                    "status": "completed",
+                    "steps": [
+                        {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed",
+                         "duration": round(datetime.now().timestamp() - t_parse_start, 3)},
+                        {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed",
+                         "duration": router_dur},
+                        {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed",
+                         "duration": mem_dur},
+                        {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed",
+                         "duration": llm_dur, "chips": [f"{prompt_tokens} in", f"{completion_tokens} out"]},
+                    ],
+                    "active_skills": active_skills[:10] if active_skills else [],
+                    "skills_invoked": skill_names,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "duration_ms": round(llm_dur * 1000, 2),
+                    "response_preview": full_response[:200] if full_response else "",
+                }]
 
             yield _sse({
                 "type": "done",
@@ -914,12 +982,13 @@ async def get_llm_calls(message_id: str):
         if pkg_root not in sys.path:
             sys.path.insert(0, pkg_root)
         from streamlit_ui.safe_claw.core.deepagents.official_integration import get_llm_call_logs
-
+        logger.info("get_llm_call_logs...")
         logs = get_llm_call_logs(message_id)
 
         # Enrich logs with execution steps and skills if not already present
         enriched_calls = []
         for i, call in enumerate(logs):
+            logger.info("for i, call in enumerate(logs): {}, {}".format(i, call))
             enriched_call = {
                 **call,
                 # Add execution steps if not present

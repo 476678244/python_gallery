@@ -9,29 +9,30 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* Brand */
-      --brand-50:  #f0f4ff;
-      --brand-100: #dde5ff;
-      --brand-500: #4f6ef7;
-      --brand-600: #3a57e8;
-      --brand-700: #2d45cc;
+      /* Brand (Tailwind blue) */
+      --brand-50:  #eff6ff;
+      --brand-100: #dbeafe;
+      --brand-500: #3b82f6;
+      --brand-600: #2563eb;
+      --brand-700: #1d4ed8;
 
-      /* Neutrals */
+      /* Neutrals (Tailwind slate) */
       --gray-0:   #ffffff;
-      --gray-50:  #f8f9fb;
-      --gray-100: #f0f2f5;
-      --gray-200: #e4e7ed;
-      --gray-300: #cdd2db;
-      --gray-400: #9aa3b0;
-      --gray-500: #6b7585;
-      --gray-600: #4a5262;
-      --gray-700: #333a47;
-      --gray-800: #1e2330;
-      --gray-900: #111520;
+      --gray-50:  #f8fafc;
+      --gray-100: #f1f5f9;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-400: #94a3b8;
+      --gray-500: #64748b;
+      --gray-600: #475569;
+      --gray-700: #334155;
+      --gray-800: #1e293b;
+      --gray-900: #0f172a;
 
       /* Status */
-      --green-400: #34d399;
-      --green-500: #10b981;
+      --green-100: #dcfce7;
+      --green-500: #22c55e;
+      --green-600: #16a34a;
       --amber-400: #fbbf24;
       --red-400:   #f87171;
 
@@ -563,13 +564,12 @@
       font-size: 13.5px;
     }
     .msg-row.user .msg-bubble {
-      background: var(--brand-500);
+      background: #2563eb;
       color: #fff;
       border-bottom-right-radius: 4px;
     }
     .msg-row.assistant .msg-bubble {
-      background: var(--gray-50);
-      border: 1px solid var(--border);
+      background: var(--gray-100);
       color: var(--text-primary);
       border-bottom-left-radius: 4px;
     }
@@ -1135,6 +1135,36 @@
     }
     .panel-empty-icon { font-size: 28px; margin-bottom: 4px; }
 
+    /* ── Skill checkbox items (sidebar Skills section) ─────────── */
+    .skill-cb-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 8px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background .12s;
+    }
+    .skill-cb-row:hover { background: var(--gray-100); }
+    .skill-cb {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      border: 1.5px solid var(--gray-300);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+      transition: background .15s, border-color .15s;
+    }
+    .skill-cb.on {
+      background: var(--brand-500);
+      border-color: var(--brand-500);
+    }
+
     /* ── Misc utils ─────────────────────────────────────────────── */
     .flex { display: flex; }
     .items-center { align-items: center; }
@@ -1198,158 +1228,85 @@
         </div>
       </div>
 
-      <!-- ② SKILL TREE -->
+      <!-- ② WORKSPACES -->
+      <div class="sb-section" id="sec-workspaces">
+        <div class="sb-section-header" onclick="toggleSection('sec-workspaces')">
+          <span class="sb-section-icon">🗂</span>
+          <span class="sb-section-title">Workspaces</span>
+          <span class="sb-section-chevron">▾</span>
+        </div>
+        <div class="sb-section-body" style="max-height:200px">
+          <div style="padding:4px 6px 8px">
+            <div class="session-item" onclick="selectSession(this,'Coupaing Research',0)">
+              <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;display:inline-block"></span>
+              <span class="session-title">Coupaing Research</span>
+            </div>
+            <div class="session-item active" onclick="selectSession(this,'Macan Tire Analysis',2)">
+              <span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;display:inline-block"></span>
+              <span class="session-title">Macan Tire Analysis</span>
+            </div>
+            <div class="session-item" onclick="selectSession(this,'Agent Development',0)">
+              <span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;flex-shrink:0;display:inline-block"></span>
+              <span class="session-title">Agent Development</span>
+            </div>
+            <div class="session-item" style="color:var(--gray-400);font-size:12px;cursor:pointer">
+              <span style="font-size:14px">＋</span>
+              <span>New Workspace</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ SKILLS -->
       <div class="sb-section" id="sec-skills">
         <div class="sb-section-header" onclick="toggleSection('sec-skills')">
-          <span class="sb-section-icon">🛠</span>
-          <span class="sb-section-title">Skill Tree</span>
+          <span class="sb-section-icon">🌲</span>
+          <span class="sb-section-title">Skills</span>
           <span class="sb-section-chevron">▾</span>
         </div>
         <div class="sb-section-body" style="max-height:600px">
-          <div style="padding: 6px 0 8px">
-
-            <!-- Built-in folder -->
-            <div class="tree-row folder" onclick="toggleFolder(this)">
-              <span>▾</span><span>📁</span><span style="flex:1">Built-in</span>
-            </div>
-            <div class="tree-children">
-              <div class="tree-row leaf">
-                <span>🔍</span><span style="flex:1">Research</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>📊</span><span style="flex:1">Analyze</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>💻</span><span style="flex:1">Code</span>
-                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-            </div>
-
-            <!-- Private folder -->
-            <div class="tree-row folder" onclick="toggleFolder(this)" style="margin-top:2px">
-              <span>▾</span><span>📁</span><span style="flex:1">Private Skills</span>
-            </div>
-            <div class="tree-children">
-              <div class="tree-row leaf">
-                <span>🎵</span><span style="flex:1">cue-regeneration</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>🖼️</span><span style="flex:1;font-size:11.5px">lyric-image-gen</span>
-                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-            </div>
+          <div style="padding:4px 10px 6px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--gray-500)">56 skills available</span>
+            <button style="font-size:11px;color:var(--brand-600);background:none;border:none;cursor:pointer">Manage</button>
           </div>
-        </div>
-      </div>
-
-      <!-- ③ TOOL TREE -->
-      <div class="sb-section" id="sec-tools">
-        <div class="sb-section-header" onclick="toggleSection('sec-tools')">
-          <span class="sb-section-icon">🔧</span>
-          <span class="sb-section-title">Tool Tree</span>
-          <span class="sb-section-chevron">▾</span>
-        </div>
-        <div class="sb-section-body" style="max-height:600px">
-          <div style="padding: 6px 0 8px">
-
-            <div class="tree-row folder" onclick="toggleFolder(this)">
-              <span>▾</span><span>🗂</span><span style="flex:1">File System</span>
+          <div style="padding:0 6px 8px">
+            <div class="skill-cb-row" onclick="toggleCb(this)">
+              <div class="skill-cb on"><span>✓</span></div>
+              <span style="font-size:12px;color:var(--gray-800)">web-search</span>
             </div>
-            <div class="tree-children">
-              <div class="tree-row leaf">
-                <span>📖</span><span style="flex:1">read_file</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>✏️</span><span style="flex:1">write_file</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>🔎</span><span style="flex:1">search_files</span>
-                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
+            <div class="skill-cb-row" onclick="toggleCb(this)">
+              <div class="skill-cb on"><span>✓</span></div>
+              <span style="font-size:12px;color:var(--gray-800)">data-analyzer</span>
             </div>
-
-            <div class="tree-row folder" onclick="toggleFolder(this)" style="margin-top:2px">
-              <span>▾</span><span>🌐</span><span style="flex:1">Web</span>
+            <div class="skill-cb-row" onclick="toggleCb(this)">
+              <div class="skill-cb"><span></span></div>
+              <span style="font-size:12px;color:var(--gray-400)">stock_13f_analysis</span>
             </div>
-            <div class="tree-children">
-              <div class="tree-row leaf">
-                <span>🔍</span><span style="flex:1">web_search</span>
-                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
-              <div class="tree-row leaf">
-                <span>📥</span><span style="flex:1">fetch_url</span>
-                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
-              </div>
+            <div class="skill-cb-row" onclick="toggleCb(this)">
+              <div class="skill-cb on"><span>✓</span></div>
+              <span style="font-size:12px;color:var(--gray-800)">market-researcher</span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ④ MODEL SELECTION -->
-      <div class="sb-section" id="sec-models">
-        <div class="sb-section-header" onclick="toggleSection('sec-models')">
-          <span class="sb-section-icon">🤖</span>
-          <span class="sb-section-title">Model</span>
-          <span class="sb-section-chevron">▾</span>
-        </div>
-        <div class="sb-section-body" style="max-height:600px">
-          <div style="padding: 6px 0 10px">
-
-            <div class="model-card active" onclick="selectModel(this)">
-              <div class="model-card-inner">
-                <div class="model-avatar">🧠</div>
-                <div class="model-info">
-                  <div class="model-name">qwen3.5-9b-vlm</div>
-                  <div class="model-desc">LM Studio · Local</div>
-                </div>
-                <div class="model-status online"></div>
-                <div class="model-select-radio"></div>
-              </div>
+            <div class="skill-cb-row" onclick="toggleCb(this)">
+              <div class="skill-cb on"><span>✓</span></div>
+              <span style="font-size:12px;color:var(--gray-800)">price-tracker</span>
             </div>
-
-            <div class="model-card" onclick="selectModel(this)">
-              <div class="model-card-inner">
-                <div class="model-avatar">✨</div>
-                <div class="model-info">
-                  <div class="model-name">gemma-4b</div>
-                  <div class="model-desc">LM Studio · Local</div>
-                </div>
-                <div class="model-status online"></div>
-                <div class="model-select-radio"></div>
-              </div>
-            </div>
-
-            <div class="model-card" onclick="selectModel(this)">
-              <div class="model-card-inner">
-                <div class="model-avatar">🌟</div>
-                <div class="model-info">
-                  <div class="model-name">qwen3.6-27b</div>
-                  <div class="model-desc">LM Studio · Local</div>
-                </div>
-                <div class="model-status online"></div>
-                <div class="model-select-radio"></div>
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
 
     </div><!-- /sidebar-scroll -->
 
-    <div class="sidebar-footer">
-      <div class="avatar">N</div>
-      <div class="footer-info">
-        <div class="footer-name">Nicole</div>
-        <div class="footer-status">
-          <div class="status-dot"></div>
-          systems online
+    <div class="sidebar-footer" style="flex-direction:column;gap:4px;padding:8px 10px">
+      <button style="width:100%;display:flex;align-items:center;gap:8px;padding:6px 8px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:13px;color:var(--gray-700);text-align:left" onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background='none'">
+        <span style="font-size:14px">⚙️</span> Settings
+      </button>
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 8px">
+        <div class="avatar" style="background:linear-gradient(135deg,#3b82f6,#9333ea)">J</div>
+        <div class="footer-info">
+          <div class="footer-name">Junho</div>
+          <div style="font-size:10.5px;color:var(--gray-500)">Pro Plan</div>
         </div>
+        <span style="font-size:16px;color:var(--gray-400);margin-left:auto">⋯</span>
       </div>
     </div>
   </aside>
@@ -1359,16 +1316,21 @@
     <header class="chat-header">
       <div class="chat-title-block">
         <div class="chat-title" id="chatTitle">Analyze Macan tire market</div>
-        <div class="chat-subtitle" id="chatSubtitle">2 messages · qwen3.5-9b-vlm</div>
+        <div class="chat-subtitle" id="chatSubtitle">2 messages · Qwen3.5 9B</div>
       </div>
       <div class="header-controls">
-        <div class="model-select" onclick="toggleModelMenu()">
-          <div class="model-dot"></div>
-          <span id="modelLabel">qwen3.5-9b-vlm</span>
-          <span style="color:var(--text-tertiary)">▾</span>
+        <div style="position:relative;display:inline-flex;align-items:center">
+          <select id="modelSelect" style="appearance:none;padding:6px 28px 6px 10px;font-size:12.5px;border-radius:8px;border:none;background:var(--gray-100);color:var(--gray-700);cursor:pointer;font-family:inherit">
+            <option value="qwen3.5-9b-vlm">Qwen3.5 9B</option>
+            <option value="gemma-4-e4b">Gemma 4 E4B</option>
+            <option value="gemma-4-31b">Gemma 4 31B</option>
+            <option value="qwen3.6-27b">Qwen3.6 27B</option>
+            <option value="qwen/qwen3.5-35b-a3b">Qwen3.5 35B A3B</option>
+          </select>
+          <span style="position:absolute;right:8px;pointer-events:none;font-size:11px;color:var(--gray-500)">▾</span>
         </div>
-        <button class="icon-btn" title="Web Search">🌐</button>
-        <button class="icon-btn active" id="panelToggle" title="Right Panel" onclick="togglePanel()">⬜</button>
+        <button class="icon-btn" title="Web Search" style="font-size:12.5px;display:flex;align-items:center;gap:5px;padding:0 10px;width:auto">🌐 <span>Web</span></button>
+        <button class="icon-btn" id="panelToggle" title="Right Panel" onclick="togglePanel()" style="font-size:15px">▣</button>
       </div>
     </header>
 
@@ -1376,12 +1338,12 @@
     <div class="messages" id="messages">
       <!-- Demo conversation -->
       <div class="msg-row user" data-role="user">
-        <div class="msg-avatar">N</div>
+        <div class="msg-avatar" style="background:#e2e8f0">👤</div>
         <div class="msg-bubble">请帮我分析一下 Porsche Macan 的轮胎市场，关注国内替换胎的品牌分布和价格区间。</div>
       </div>
 
       <div class="msg-row assistant" data-role="assistant">
-        <div class="msg-avatar">🦾</div>
+        <div class="msg-avatar" style="background:linear-gradient(135deg,#3b82f6,#9333ea)">🛡</div>
         <div class="msg-bubble">
           <div class="thinking-block">
             <div class="thinking-step">
@@ -1417,10 +1379,10 @@
     <!-- Input Area -->
     <div class="input-area">
       <div class="skill-pills">
-        <button class="skill-pill active">🔍 Research</button>
-        <button class="skill-pill">📊 Analyze</button>
-        <button class="skill-pill">💻 Code</button>
-        <button class="skill-pill" onclick="addContextPill()">＋ Context</button>
+        <button class="skill-pill active"><span style="color:#a855f7">✦</span> Research</button>
+        <button class="skill-pill"><span style="color:#3b82f6">📄</span> Analyze</button>
+        <button class="skill-pill"><span style="color:#f59e0b">⌨</span> Code</button>
+        <button class="skill-pill" onclick="addContextPill()"><span style="color:var(--gray-500)">＋</span> Context</button>
       </div>
       <div class="input-box">
         <button class="input-attach" title="Attach file">📎</button>
@@ -1472,9 +1434,9 @@
         <span class="rail-label">Shell</span>
       </button>
       <div class="rail-divider"></div>
-      <button class="rail-btn" id="rail-context" title="Context Files" onclick="railToggle('context')">
-        <span class="rail-icon">📄</span>
-        <span class="rail-label">Context</span>
+      <button class="rail-btn" id="rail-prompts" title="Prompt Inspect" onclick="railToggle('prompts')">
+        <span class="rail-icon">👁</span>
+        <span class="rail-label">Prompts</span>
       </button>
       <button class="rail-btn" id="rail-memory" title="Memory" onclick="railToggle('memory')">
         <span class="rail-icon">🧠</span>
@@ -1501,22 +1463,24 @@
       chevron.textContent = collapsed ? '▾' : '▸';
     }
 
-    // ── Model selection ──────────────────────────────
-    function selectModel(card) {
-      document.querySelectorAll('.model-card').forEach(c => c.classList.remove('active'));
-      card.classList.add('active');
-      const name = card.querySelector('.model-name').textContent;
-      document.getElementById('modelLabel').textContent = name;
+    // ── Skill checkbox toggle (sidebar) ──────────────
+    function toggleCb(row) {
+      const cb = row.querySelector('.skill-cb');
+      const label = row.querySelector('span:last-child');
+      cb.classList.toggle('on');
+      const on = cb.classList.contains('on');
+      cb.querySelector('span').textContent = on ? '✓' : '';
+      label.style.color = on ? 'var(--gray-800)' : 'var(--gray-400)';
     }
 
     // ── Rail accordion logic ──────────────────────────
     const RAIL_DEFS = {
-      exec:    { icon:'📈', title:'Execution Path',  badge:'✓ done', badgeCls:'green', render: renderExecution },
-      skills:  { icon:'🛠', title:'Skills Path',     badge:'2 active', badgeCls:'',    render: renderSkillsPath },
-      budget:  { icon:'💰', title:'Prompt Budget',   badge:'562 tok', badgeCls:'',     render: renderBudget },
+      exec:    { icon:'📈', title:'Execution Path',  badge:'✓', badgeCls:'green',      render: renderExecution },
+      skills:  { icon:'🛠', title:'Skills Path',     badge:'2', badgeCls:'blue',        render: renderSkillsPath },
+      budget:  { icon:'💰', title:'Prompt Budget',   badge:null,                        render: renderBudget },
       log:     { icon:'📋', title:'Backend Log',     badge:'live', badgeCls:'amber',   render: renderLog },
       shell:   { icon:'⌨️', title:'Shell',            badge:null,                       render: renderShell },
-      context: { icon:'📄', title:'Context Files',   badge:null,                       render: renderContext },
+      prompts: { icon:'👁', title:'Prompt Inspect',  badge:'1', badgeCls:'blue',        render: renderPrompts },
       memory:  { icon:'🧠', title:'Memory',          badge:'3',                         render: renderMemory },
     };
 
@@ -1786,12 +1750,46 @@
       `;
     }
 
-    function renderContext() {
+    function renderPrompts() {
       return `
-        <div class="panel-empty">
-          <div class="panel-empty-icon">📄</div>
-          No context files attached.<br/>
-          Drop files or use 📎 in the input bar.
+        <div style="display:flex;flex-direction:column;height:100%">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">
+            <button style="padding:4px 8px;border:none;background:none;color:var(--gray-400);cursor:not-allowed;font-size:13px">←</button>
+            <div style="text-align:center">
+              <div style="font-size:11px;font-weight:600;color:#dc2626">LLM Calls 1 of 1</div>
+              <div style="font-size:9px;color:var(--gray-400)">1790ms</div>
+            </div>
+            <button style="padding:4px 8px;border:none;background:none;color:var(--gray-400);cursor:not-allowed;font-size:13px">→</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px">
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#2563eb">Prompt Input</span>
+                <span style="font-size:9px;color:var(--gray-400)">~231 tokens</span>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;font-family:'SF Mono',Menlo,monospace;color:var(--gray-700);line-height:1.6;max-height:160px;overflow-y:auto">[system] You are SafeClaw AI assistant…<br/>[user] 请帮我分析一下 Porsche Macan 的轮胎市场，关注国内替换胎的品牌分布和价格区间。<br/>[memory] User prefers Michelin tires<br/>[memory] Vehicle: Porsche Macan 2022</div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#16a34a">Response</span>
+                <span style="font-size:9px;color:var(--gray-400)">331 tokens</span>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--gray-700);line-height:1.6;background:#f0fdf4;max-height:160px;overflow-y:auto">Porsche Macan（第一代）原厂使用 235/55 R19 或 265/45 R20。国内替换市场主要品牌…</div>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:10px">
+              <div style="font-size:9px;color:var(--gray-400);margin-bottom:8px">Call Metadata</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                <div style="background:var(--gray-50);border-radius:6px;padding:8px">
+                  <div style="font-size:9px;color:var(--gray-400)">Call ID</div>
+                  <div style="font-size:10px;font-family:monospace;color:var(--gray-700)">…4f2a8c1e</div>
+                </div>
+                <div style="background:var(--gray-50);border-radius:6px;padding:8px">
+                  <div style="font-size:9px;color:var(--gray-400)">Time</div>
+                  <div style="font-size:10px;color:var(--gray-700)">15:23:04</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -1835,16 +1833,15 @@
     function renderLog() {
       return `
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-          <span style="width:7px;height:7px;border-radius:50%;background:var(--green-500);display:inline-block"></span>
-          <span style="font-size:11px;color:var(--text-secondary)">Live · uvicorn · port 8000</span>
+          <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;animation:pulse 1.5s infinite"></span>
+          <span style="font-size:11px;color:var(--text-secondary)">Live · uvicorn · :8000</span>
           <button onclick="clearLog(this)" style="margin-left:auto;font-size:10.5px;color:var(--brand-500);background:none;border:none;cursor:pointer">Clear</button>
         </div>
         <div id="logLines" style="
           font-family: 'SF Mono', Menlo, monospace;
           font-size: 10.5px;
           line-height: 1.7;
-          color: var(--text-secondary);
-          background: var(--gray-900);
+          background: #0d1117;
           color: #c9d1d9;
           border-radius: var(--radius-md);
           padding: 8px 10px;
@@ -1878,11 +1875,10 @@
       logTicker = setInterval(() => {
         if (i < FAKE_LOGS.length) { appendLog(box, FAKE_LOGS[i++]); }
         else {
-          // keep appending heartbeat
           appendLog(box, { t:'DEBUG', msg:`heartbeat · ${Math.random().toFixed(3)}s latency` });
           if (box.children.length > 120) box.removeChild(box.firstChild);
         }
-      }, 600);
+      }, 700);
     }
 
     function clearLog(btn) {
@@ -1969,8 +1965,9 @@
       document.querySelectorAll('.session-item').forEach(s => s.classList.remove('active'));
       el.classList.add('active');
       document.getElementById('chatTitle').textContent = title;
+      const model = document.getElementById('modelSelect')?.options[document.getElementById('modelSelect')?.selectedIndex]?.text || 'Qwen3.5 9B';
       document.getElementById('chatSubtitle').textContent =
-        msgCount + ' message' + (msgCount !== 1 ? 's' : '') + ' · qwen3.5-9b-vlm';
+        msgCount + ' message' + (msgCount !== 1 ? 's' : '') + ' · ' + model;
 
       if (msgCount === 0) {
         const msgs = document.getElementById('messages');
@@ -1993,7 +1990,8 @@
       selectSession({ classList: { add(){}, remove(){} }, querySelectorAll:()=>[] }, 'New Chat', 0);
       document.querySelectorAll('.session-item').forEach(s => s.classList.remove('active'));
       document.getElementById('chatTitle').textContent = 'New Chat';
-      document.getElementById('chatSubtitle').textContent = '0 messages · qwen3.5-9b-vlm';
+      const m = document.getElementById('modelSelect')?.options[document.getElementById('modelSelect')?.selectedIndex]?.text || 'Qwen3.5 9B';
+      document.getElementById('chatSubtitle').textContent = '0 messages · ' + m;
       document.getElementById('messages').innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">🦾</div>
@@ -2051,7 +2049,7 @@
       // User bubble
       msgs.innerHTML += `
         <div class="msg-row user" data-role="user">
-          <div class="msg-avatar">N</div>
+          <div class="msg-avatar" style="background:#e2e8f0">👤</div>
           <div class="msg-bubble">${escHtml(text)}</div>
         </div>`;
 
@@ -2063,7 +2061,7 @@
       const streamId = 'stream-' + Date.now();
       msgs.innerHTML += `
         <div class="msg-row assistant" data-role="assistant" id="${streamId}">
-          <div class="msg-avatar">🦾</div>
+          <div class="msg-avatar" style="background:linear-gradient(135deg,#3b82f6,#9333ea)">🛡</div>
           <div class="msg-bubble">
             <div class="thinking-block">
               <div class="thinking-step">
@@ -2091,7 +2089,7 @@
             </div>
             <p>This is a <strong>demo response</strong> to: <em>${escHtml(text)}</em></p>
             <p style="margin-top:8px;color:var(--text-secondary);font-size:12px">
-              (Real responses come from qwen3.5-9b-vlm via LM Studio)
+              (Real responses come from LM Studio via SafeClaw API)
             </p>`;
           msgs.scrollTop = msgs.scrollHeight;
         }
