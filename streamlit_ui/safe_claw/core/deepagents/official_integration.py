@@ -52,40 +52,94 @@ def append_shell_output(line: str):
         _shell_output_buffer.append(line)
 
 
+# Thread-safe storage for LLM call logs
+_llm_call_logs_lock = threading.Lock()
+_llm_call_logs: Dict[str, List[Dict[str, Any]]] = {}  # message_id -> list of LLM calls
+
+
+def get_llm_call_logs(message_id: str) -> List[Dict[str, Any]]:
+    """Get LLM call logs for a specific message"""
+    with _llm_call_logs_lock:
+        return _llm_call_logs.get(message_id, []).copy()
+
+
+def clear_llm_call_logs(message_id: str):
+    """Clear LLM call logs for a specific message"""
+    with _llm_call_logs_lock:
+        if message_id in _llm_call_logs:
+            del _llm_call_logs[message_id]
+
+
+def clear_all_llm_call_logs():
+    """Clear all LLM call logs"""
+    with _llm_call_logs_lock:
+        _llm_call_logs.clear()
+
+
 class PromptLoggerMiddleware(AgentMiddleware):
-    """Custom middleware to capture and log realtime prompts sent to LLM"""
+    """Enhanced middleware to capture and log both LLM prompts and responses"""
 
     def __init__(self, log_file: Optional[str] = None, print_to_console: bool = True):
         self.log_file = log_file
         self.print_to_console = print_to_console
-        self.prompt_count = 0
+        self._call_counter = 0
+        # Track active calls: runtime_id -> {message_id, prompt_data}
+        self._active_calls: Dict[str, Dict[str, Any]] = {}
 
     def before_model(self, state, runtime):
         """Called before the model is invoked - captures the prompt"""
-        self.prompt_count += 1
+        self._call_counter += 1
 
         # Extract messages from state
         messages = state.get("messages", [])
         if not messages:
             return state
 
-        # Format the prompt for display (handle both dict and LangChain message objects)
-        prompt_text = self._format_prompt(messages)
+        # Get session/message context from state
+        session_id = state.get("session_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        # Generate a unique message identifier for this execution
+        message_id = state.get("message_id", f"{session_id}_{self._call_counter}")
 
-        # Create log entry
-        log_entry = {
+        # Format the prompt for display
+        prompt_text = self._format_prompt(messages)
+        serialized_messages = self._serialize_messages(messages)
+
+        # Create unique call ID
+        call_id = f"call_{self._call_counter}_{datetime.now().strftime('%H%M%S%f')}"
+
+        # Store prompt data for response association
+        prompt_data = {
+            "call_id": call_id,
+            "message_id": message_id,
+            "session_id": session_id,
             "timestamp": datetime.now().isoformat(),
-            "prompt_count": self.prompt_count,
-            "messages": self._serialize_messages(messages),
+            "call_number": self._call_counter,
+            "messages": serialized_messages,
             "formatted_prompt": prompt_text,
-            "token_estimate": len(prompt_text.split()) * 1.3  # Rough estimate
+            "token_estimate": len(prompt_text.split()) * 1.3,
+            "response": None,  # Will be filled in after_model
+            "response_timestamp": None,
+            "response_tokens": None,
+            "duration_ms": None,
         }
+
+        # Store in active calls for later association with response
+        runtime_id = id(runtime) if runtime else call_id
+        self._active_calls[runtime_id] = prompt_data
+
+        # Log to shared storage (prompt only initially)
+        with _llm_call_logs_lock:
+            if message_id not in _llm_call_logs:
+                _llm_call_logs[message_id] = []
+            _llm_call_logs[message_id].append(prompt_data)
 
         # Log to console
         if self.print_to_console:
             print(f"\n{'=' * 80}")
-            print(f"🔍 PROMPT #{self.prompt_count} - {datetime.now().strftime('%H:%M:%S')}")
-            print(f"📊 Estimated tokens: {log_entry['token_estimate']:.0f}")
+            print(f"🔍 LLM CALL #{self._call_counter} - {datetime.now().strftime('%H:%M:%S')}")
+            print(f"📨 Message: {message_id[:50]}...")
+            print(f"📊 Estimated tokens: {prompt_data['token_estimate']:.0f}")
             print(f"{'=' * 80}")
             print(prompt_text)
             print(f"{'=' * 80}\n")
@@ -94,24 +148,116 @@ class PromptLoggerMiddleware(AgentMiddleware):
         if self.log_file:
             try:
                 with open(self.log_file, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_entry, indent=2, ensure_ascii=False) + "\n")
+                    f.write(json.dumps({
+                        "type": "prompt",
+                        **prompt_data
+                    }, indent=2, ensure_ascii=False) + "\n")
             except Exception as e:
                 logger.error(f"Failed to write prompt log to file: {e}")
 
         # Log using standard logger
         logger.info(
-            f"🔍 PROMPT #{self.prompt_count}: {log_entry['token_estimate']:.0f} tokens, {len(messages)} messages")
+            f"🔍 LLM CALL #{self._call_counter} [{message_id[:20]}...]: "
+            f"{prompt_data['token_estimate']:.0f} tokens, {len(messages)} messages")
 
         return state
+
+    def after_model(self, state, response, runtime):
+        """Called after the model responds - captures the response"""
+        runtime_id = id(runtime) if runtime else None
+
+        if runtime_id and runtime_id in self._active_calls:
+            prompt_data = self._active_calls.pop(runtime_id)
+            message_id = prompt_data["message_id"]
+            call_id = prompt_data["call_id"]
+
+            # Extract response content
+            response_text = self._extract_response_text(response)
+            response_tokens = len(response_text.split()) if response_text else 0
+
+            # Calculate duration
+            prompt_time = datetime.fromisoformat(prompt_data["timestamp"])
+            response_time = datetime.now()
+            duration_ms = (response_time - prompt_time).total_seconds() * 1000
+
+            # Update stored data with response
+            updated_data = {
+                **prompt_data,
+                "response": response_text,
+                "response_timestamp": response_time.isoformat(),
+                "response_tokens": response_tokens,
+                "duration_ms": round(duration_ms, 2),
+            }
+
+            # Update in shared storage
+            with _llm_call_logs_lock:
+                if message_id in _llm_call_logs:
+                    for i, call in enumerate(_llm_call_logs[message_id]):
+                        if call["call_id"] == call_id:
+                            _llm_call_logs[message_id][i] = updated_data
+                            break
+
+            # Log to console
+            if self.print_to_console:
+                print(f"\n{'=' * 80}")
+                print(f"✅ LLM RESPONSE #{prompt_data['call_number']} - {response_time.strftime('%H:%M:%S')}")
+                print(f"⏱️  Duration: {duration_ms:.0f}ms | 📤 Response tokens: {response_tokens}")
+                print(f"{'=' * 80}")
+                print(response_text[:500] + "..." if len(response_text) > 500 else response_text)
+                print(f"{'=' * 80}\n")
+
+            # Log to file
+            if self.log_file:
+                try:
+                    with open(self.log_file, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "type": "response",
+                            "call_id": call_id,
+                            "message_id": message_id,
+                            "timestamp": response_time.isoformat(),
+                            "response": response_text,
+                            "response_tokens": response_tokens,
+                            "duration_ms": duration_ms,
+                        }, indent=2, ensure_ascii=False) + "\n")
+                except Exception as e:
+                    logger.error(f"Failed to write response log to file: {e}")
+
+            logger.info(
+                f"✅ LLM RESPONSE #{prompt_data['call_number']} [{message_id[:20]}...]: "
+                f"{response_tokens} tokens, {duration_ms:.0f}ms")
+
+        return response
+
+    def _extract_response_text(self, response) -> str:
+        """Extract text content from various response formats"""
+        if isinstance(response, str):
+            return response
+        elif isinstance(response, dict):
+            # Handle dict response
+            if "content" in response:
+                return str(response["content"])
+            elif "message" in response and "content" in response["message"]:
+                return str(response["message"]["content"])
+            else:
+                return json.dumps(response, ensure_ascii=False)
+        elif hasattr(response, 'content'):
+            # LangChain message object
+            return str(response.content)
+        elif hasattr(response, 'dict'):
+            # Pydantic model
+            try:
+                return str(response.dict().get("content", str(response)))
+            except:
+                return str(response)
+        else:
+            return str(response)
 
     def _serialize_messages(self, messages: List) -> List[Dict]:
         """Serialize messages (both dict and LangChain objects) to dict format"""
         serialized = []
         for msg in messages:
             if hasattr(msg, 'dict'):  # LangChain message object
-                # Convert LangChain message to dict
                 msg_dict = msg.dict()
-                # Simplify the structure for logging
                 serialized.append({
                     "role": self._get_role_from_message(msg),
                     "content": msg.content
@@ -119,7 +265,6 @@ class PromptLoggerMiddleware(AgentMiddleware):
             elif isinstance(msg, dict):  # Already a dict
                 serialized.append(msg)
             else:
-                # Fallback for unknown message types
                 serialized.append({
                     "role": "unknown",
                     "content": str(msg)
@@ -141,7 +286,7 @@ class PromptLoggerMiddleware(AgentMiddleware):
             return "unknown"
 
     def _format_prompt(self, messages: List) -> str:
-        """Format messages into a readable prompt string (handles both dict and LangChain objects)"""
+        """Format messages into a readable prompt string"""
         formatted_parts = []
 
         for msg in messages:
@@ -186,8 +331,21 @@ class SafeClawDeepAgent:
         external_paths_config = self.config.get("external_skills_paths", [])
         external_skills_paths = [Path(p) for p in external_paths_config] if external_paths_config else []
         
-        # Initialize skills manager
-        self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+        # Initialize or reuse skills manager from session state
+        import streamlit as st
+        if "skills_manager" in st.session_state:
+            self.skills_manager = st.session_state["skills_manager"]
+            logger.info("Reusing existing SkillsManager from session state")
+        else:
+            self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+            st.session_state["skills_manager"] = self.skills_manager
+            logger.info("Created new SkillsManager and stored in session state")
+        
+        # Sync enabled skills from config if provided
+        enabled_skills = self.config.get("enabled_skills", [])
+        if enabled_skills:
+            self.skills_manager.set_enabled_skills(enabled_skills)
+            logger.info(f"Synced {len(enabled_skills)} enabled skills to SkillsManager")
         
         # Initialize tool manager
         self.tool_manager = ToolManager(
@@ -233,7 +391,26 @@ class SafeClawDeepAgent:
 
             # Get tools and skills paths list from managers
             tools = self.tool_manager.get_all_tools()
-            skills_paths = self.skills_manager.get_skills_paths()
+
+            # Get enabled_skills from SkillsManager (backend owns state)
+            # First check config (for direct API usage), then fall back to SkillsManager state
+            enabled_skills = self.config.get("enabled_skills")
+            if enabled_skills is None:
+                # Try to get from SkillsManager's internal state
+                enabled_skills_state = self.skills_manager.get_enabled_skills_state()
+                if enabled_skills_state is not None:
+                    enabled_skills = list(enabled_skills_state)
+                    logger.info(f"🔧 Loaded {len(enabled_skills)} enabled skills from SkillsManager state")
+            
+            if enabled_skills is not None:
+                # Sync to SkillsManager and use filtered skills
+                self.skills_manager.set_enabled_skills(enabled_skills)
+                skills_paths = self.skills_manager.get_filtered_skills_paths()
+                logger.info(f"🔧 Using Skill Tree filter: {len(enabled_skills)} skills enabled, {len(skills_paths)} paths loaded")
+            else:
+                # No filter - load all skills
+                skills_paths = self.skills_manager.get_skills_paths()
+                logger.info(f"🔧 No Skill Tree filter - loading all {len(skills_paths)} skills")
 
             # DEBUG: 详细记录skills准备过程
             logger.info(f"🔍 DEBUG: 准备传递给create_deep_agent的数据:")

@@ -1,0 +1,2106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeClaw UI Demo</title>
+  <style>
+    /* ── Reset & Tokens ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* Brand */
+      --brand-50:  #f0f4ff;
+      --brand-100: #dde5ff;
+      --brand-500: #4f6ef7;
+      --brand-600: #3a57e8;
+      --brand-700: #2d45cc;
+
+      /* Neutrals */
+      --gray-0:   #ffffff;
+      --gray-50:  #f8f9fb;
+      --gray-100: #f0f2f5;
+      --gray-200: #e4e7ed;
+      --gray-300: #cdd2db;
+      --gray-400: #9aa3b0;
+      --gray-500: #6b7585;
+      --gray-600: #4a5262;
+      --gray-700: #333a47;
+      --gray-800: #1e2330;
+      --gray-900: #111520;
+
+      /* Status */
+      --green-400: #34d399;
+      --green-500: #10b981;
+      --amber-400: #fbbf24;
+      --red-400:   #f87171;
+
+      /* Surfaces */
+      --surface-app:      var(--gray-50);
+      --surface-sidebar:  var(--gray-0);
+      --surface-main:     var(--gray-0);
+      --surface-panel:    var(--gray-0);
+      --surface-input:    var(--gray-0);
+
+      --border:    var(--gray-200);
+      --border-md: var(--gray-300);
+
+      --text-primary:   var(--gray-800);
+      --text-secondary: var(--gray-500);
+      --text-tertiary:  var(--gray-400);
+
+      /* Layout */
+      --sidebar-w: 256px;
+      --panel-w:   280px;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.08);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--text-primary);
+      background: var(--surface-app);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 2px; }
+
+    /* ── Left Sidebar ───────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--surface-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 14px 13px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+    }
+
+    /* ── Sidebar scroll container ── */
+    .sidebar-scroll {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* ── Collapsible Section ── */
+    .sb-section {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sb-section-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: background .12s;
+      position: sticky;
+      top: 0;
+      background: var(--surface-sidebar);
+      z-index: 1;
+    }
+    .sb-section-header:hover { background: var(--gray-50); }
+
+    .sb-section-icon {
+      font-size: 13px;
+      width: 18px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .sb-section-title {
+      flex: 1;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .55px;
+      color: var(--text-secondary);
+    }
+
+    .sb-section-chevron {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+    .sb-section.collapsed .sb-section-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .sb-section-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--brand-500);
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .sb-section-body {
+      overflow: hidden;
+      transition: max-height .22s ease;
+    }
+    .sb-section.collapsed .sb-section-body {
+      max-height: 0 !important;
+    }
+
+    /* ── Section: Chats ── */
+    .sidebar-actions {
+      padding: 8px 10px 6px;
+    }
+
+    .btn-new-chat {
+      width: 100%;
+      padding: 7px 12px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--brand-600);
+      background: var(--brand-50);
+      border: 1px solid var(--brand-100);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all .15s;
+    }
+    .btn-new-chat:hover {
+      background: var(--brand-100);
+      border-color: var(--brand-500);
+    }
+
+    .session-group-label {
+      padding: 6px 14px 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--text-tertiary);
+    }
+
+    .session-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      margin: 1px 6px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .session-item:hover { background: var(--gray-100); }
+    .session-item.active { background: var(--brand-50); }
+
+    .session-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--radius-sm);
+      background: var(--gray-100);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .session-item.active .session-icon { background: var(--brand-100); }
+
+    .session-info { flex: 1; min-width: 0; }
+    .session-title {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-meta { font-size: 10.5px; color: var(--text-tertiary); margin-top: 1px; }
+
+    .session-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--brand-500);
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    /* ── Section: Skill Tree ── */
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 10px;
+      margin: 1px 6px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background .12s;
+      font-size: 12.5px;
+    }
+    .tree-row:hover { background: var(--gray-100); }
+    .tree-row.folder {
+      font-weight: 600;
+      color: var(--text-primary);
+      padding-left: 10px;
+    }
+    .tree-row.leaf { padding-left: 22px; color: var(--text-secondary); }
+    .tree-row.leaf:hover { color: var(--text-primary); }
+
+    .tree-toggle {
+      width: 26px;
+      height: 15px;
+      border-radius: 8px;
+      background: var(--gray-300);
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      margin-left: auto;
+      transition: background .2s;
+    }
+    .tree-toggle.on { background: var(--brand-500); }
+    .tree-toggle::after {
+      content: '';
+      position: absolute;
+      top: 1.5px;
+      left: 1.5px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+      transition: left .2s;
+    }
+    .tree-toggle.on::after { left: 12px; }
+
+    /* ── Section: Model Selection ── */
+    .model-card {
+      margin: 6px 10px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border);
+      overflow: hidden;
+      transition: border-color .15s;
+      cursor: pointer;
+    }
+    .model-card:hover { border-color: var(--brand-500); }
+    .model-card.active {
+      border-color: var(--brand-500);
+      background: var(--brand-50);
+    }
+
+    .model-card-inner {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+    }
+
+    .model-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+      background: var(--gray-100);
+    }
+    .model-card.active .model-avatar { background: var(--brand-100); }
+
+    .model-info { flex: 1; min-width: 0; }
+    .model-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .model-desc { font-size: 10.5px; color: var(--text-tertiary); margin-top: 1px; }
+
+    .model-status {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .model-status.online { background: var(--green-500); }
+    .model-status.offline { background: var(--gray-300); }
+
+    .model-select-radio {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--gray-300);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color .15s;
+    }
+    .model-card.active .model-select-radio {
+      border-color: var(--brand-500);
+    }
+    .model-card.active .model-select-radio::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-500);
+    }
+
+    /* ── Sidebar Footer ── */
+    .sidebar-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #a78bfa, var(--brand-500));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .footer-info { flex: 1; min-width: 0; }
+    .footer-name { font-size: 12px; font-weight: 600; }
+    .footer-status {
+      font-size: 10.5px;
+      color: var(--green-500);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green-500);
+    }
+
+    /* ── Main Chat Area ─────────────────────────────────────────── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--surface-main);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      height: 56px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .chat-title-block { flex: 1; min-width: 0; }
+    .chat-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-subtitle {
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+      margin-top: 1px;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .model-select {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .model-select:hover { border-color: var(--brand-500); background: var(--brand-50); }
+    .model-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green-400);
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: none;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-size: 14px;
+      transition: all .15s;
+    }
+    .icon-btn:hover { background: var(--gray-100); color: var(--text-primary); }
+    .icon-btn.active {
+      background: var(--brand-50);
+      border-color: var(--brand-500);
+      color: var(--brand-600);
+    }
+
+    /* ── Message Area ───────────────────────────────────────────── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .msg-row {
+      display: flex;
+      gap: 10px;
+      max-width: 720px;
+    }
+    .msg-row.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg-row.assistant { align-self: flex-start; }
+
+    .msg-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .msg-row.user .msg-avatar {
+      background: linear-gradient(135deg, #a78bfa, var(--brand-500));
+      color: #fff;
+      font-weight: 700;
+    }
+    .msg-row.assistant .msg-avatar {
+      background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+      color: #fff;
+      font-size: 15px;
+    }
+
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: var(--radius-lg);
+      line-height: 1.6;
+      font-size: 13.5px;
+    }
+    .msg-row.user .msg-bubble {
+      background: var(--brand-500);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-row.assistant .msg-bubble {
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      border-bottom-left-radius: 4px;
+    }
+
+    .thinking-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .thinking-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .step-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    .step-icon.done { background: #d1fae5; color: var(--green-500); }
+    .step-icon.running {
+      background: var(--brand-50);
+      color: var(--brand-500);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); } to { transform: rotate(360deg); }
+    }
+    .step-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .step-time { font-size: 10.5px; color: var(--text-tertiary); }
+
+    /* ── Empty State ────────────────────────────────────────────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--text-tertiary);
+    }
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-xl);
+      background: linear-gradient(135deg, var(--brand-50), var(--brand-100));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+    }
+    .empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+    .empty-sub { font-size: 13px; text-align: center; max-width: 260px; }
+
+    .quick-prompts {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 4px;
+    }
+    .quick-chip {
+      padding: 6px 12px;
+      border-radius: var(--radius-xl);
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .quick-chip:hover {
+      background: var(--brand-50);
+      border-color: var(--brand-500);
+      color: var(--brand-600);
+    }
+
+    /* ── Input Bar ──────────────────────────────────────────────── */
+    .input-area {
+      padding: 12px 20px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-main);
+      flex-shrink: 0;
+    }
+
+    .skill-pills {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .skill-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: var(--radius-xl);
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .skill-pill:hover {
+      background: var(--brand-50);
+      border-color: var(--brand-500);
+      color: var(--brand-600);
+    }
+    .skill-pill.active {
+      background: var(--brand-50);
+      border-color: var(--brand-500);
+      color: var(--brand-600);
+      font-weight: 500;
+    }
+
+    .input-box {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      background: var(--surface-input);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 8px 10px 8px 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .input-box:focus-within {
+      border-color: var(--brand-500);
+      box-shadow: 0 0 0 3px rgba(79,110,247,.1);
+    }
+
+    .input-attach {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: color .15s;
+      flex-shrink: 0;
+      align-self: flex-end;
+      margin-bottom: 2px;
+    }
+    .input-attach:hover { color: var(--brand-500); }
+
+    .input-field {
+      flex: 1;
+      border: none;
+      outline: none;
+      resize: none;
+      font-size: 13.5px;
+      font-family: inherit;
+      color: var(--text-primary);
+      background: transparent;
+      line-height: 1.5;
+      max-height: 120px;
+      min-height: 22px;
+    }
+    .input-field::placeholder { color: var(--text-tertiary); }
+
+    .input-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      align-self: flex-end;
+      margin-bottom: 2px;
+    }
+
+    .send-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      background: var(--brand-500);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all .15s;
+    }
+    .send-btn:hover { background: var(--brand-600); transform: scale(1.05); }
+    .send-btn:disabled { background: var(--gray-200); cursor: not-allowed; transform: none; }
+
+    /* ── Right Zone: IntelliJ-style icon rail + accordion panels ── */
+    .right-zone {
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+      flex-shrink: 0;
+    }
+
+    /* Multi-panel accordion container */
+    .rp-stack {
+      width: 0;
+      overflow-x: hidden;
+      overflow-y: auto;        /* scrolls when >3 panels expanded */
+      background: var(--surface-panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      transition: width .22s cubic-bezier(.4,0,.2,1);
+    }
+    .rp-stack.open { width: 320px; }
+
+    /* Each panel card inside the stack */
+    .rp-card {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;          /* never squish below min-height */
+      transition: max-height .25s ease;
+    }
+    /*
+      Each expanded card occupies exactly 1/3 of the stack height.
+      calc(100vh / 3) keeps exactly 3 panels visible; a 4th triggers scroll.
+    */
+    .rp-card.expanded {
+      min-height: calc(100vh / 3);
+      max-height: calc(100vh / 3);
+    }
+    /* Collapsed: only show the header bar (~37px) */
+    .rp-card.collapsed {
+      min-height: 0;
+      max-height: 37px;
+      overflow: hidden;
+    }
+
+    .rp-card-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 12px;
+      cursor: pointer;
+      user-select: none;
+      flex-shrink: 0;
+      transition: background .12s;
+      border-bottom: 1px solid transparent;
+    }
+    .rp-card.expanded .rp-card-header {
+      border-bottom-color: var(--border);
+      background: var(--gray-50);
+    }
+    .rp-card-header:hover { background: var(--gray-100); }
+
+    .rp-card-icon { font-size: 14px; flex-shrink: 0; }
+    .rp-card-title {
+      flex: 1;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--text-secondary);
+    }
+    .rp-card-chevron {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+    .rp-card.collapsed .rp-card-chevron { transform: rotate(-90deg); }
+
+    .rp-card-badge {
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 8px;
+      background: var(--brand-500);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .rp-card-badge.green { background: var(--green-500); }
+    .rp-card-badge.amber { background: var(--amber-400); color: #451a03; }
+
+    .rp-card-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      min-height: 0;
+    }
+    .rp-card.collapsed .rp-card-body { display: none; }
+
+    /* Icon rail */
+    .rp-rail {
+      width: 44px;
+      min-width: 44px;
+      background: var(--gray-50);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 0;
+      gap: 2px;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .rail-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: none;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      color: var(--text-tertiary);
+      transition: all .12s;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .rail-btn:hover { background: var(--gray-200); color: var(--text-primary); }
+    .rail-btn.active { background: var(--brand-50); color: var(--brand-600); }
+    .rail-btn.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 6px; bottom: 6px;
+      width: 3px;
+      background: var(--brand-500);
+      border-radius: 0 2px 2px 0;
+    }
+    .rail-icon { font-size: 15px; line-height: 1; }
+    .rail-label {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: .3px;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+    .rail-divider {
+      width: 24px; height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+      flex-shrink: 0;
+    }
+
+    /* ── Panel: Execution Path ───────── */
+    .exec-path { display: flex; flex-direction: column; }
+
+    .exec-node {
+      display: flex;
+      gap: 10px;
+      position: relative;
+    }
+    .exec-node-left {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 24px;
+      flex-shrink: 0;
+    }
+    .exec-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--brand-500);
+      border: 2px solid var(--brand-100);
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .exec-dot.done  { background: var(--green-500); border-color: #d1fae5; }
+    .exec-dot.run   { background: var(--amber-400); border-color: #fef3c7; animation: pulse 1.2s infinite; }
+    .exec-dot.wait  { background: var(--gray-300); border-color: var(--gray-100); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .exec-vline {
+      flex: 1;
+      width: 2px;
+      background: var(--border);
+      margin: 2px 0;
+      min-height: 10px;
+    }
+    .exec-content { flex: 1; padding-bottom: 12px; }
+    .exec-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .exec-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; line-height: 1.4; }
+    .exec-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+    .exec-chip {
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 500;
+    }
+    .chip-green  { background: #d1fae5; color: var(--green-500); }
+    .chip-blue   { background: var(--brand-50); color: var(--brand-600); }
+    .chip-gray   { background: var(--gray-100); color: var(--text-secondary); }
+    .chip-amber  { background: #fef3c7; color: #92400e; }
+
+    /* expandable detail row */
+    .exec-expand-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--brand-500);
+      cursor: pointer;
+      margin-top: 4px;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .exec-expand-btn:hover { text-decoration: underline; }
+    .exec-detail-box {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 11.5px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      display: none;
+    }
+    .exec-detail-box.open { display: block; }
+
+    /* ── Panel: Skills Path ──────────── */
+    .sp-message {
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .sp-msg-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--border);
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .sp-msg-header:hover { background: var(--gray-100); }
+    .sp-msg-body { padding: 8px 10px; }
+    .sp-skill-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .sp-skill-row:last-child { border-bottom: none; }
+    .sp-skill-name { flex: 1; color: var(--text-primary); font-weight: 500; }
+    .sp-skill-status {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .sp-skill-status.invoked { background: #d1fae5; color: var(--green-500); }
+    .sp-skill-status.skipped { background: var(--gray-100); color: var(--text-tertiary); }
+    .sp-skill-status.error   { background: #fee2e2; color: #dc2626; }
+    .sp-skill-time { font-size: 10.5px; color: var(--text-tertiary); }
+
+    /* ── Panel: Prompt Budget ────────── */
+    .pb-summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .pb-card {
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+    }
+    .pb-card-label { font-size: 10.5px; color: var(--text-tertiary); margin-bottom: 3px; }
+    .pb-card-value { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .pb-card-sub   { font-size: 10px; color: var(--text-tertiary); margin-top: 1px; }
+
+    .pb-bar-row { margin-bottom: 10px; }
+    .pb-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      margin-bottom: 4px;
+      color: var(--text-secondary);
+    }
+    .pb-bar-track {
+      height: 6px;
+      border-radius: 3px;
+      background: var(--gray-200);
+      overflow: hidden;
+    }
+    .pb-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width .4s ease;
+    }
+    .fill-blue   { background: var(--brand-500); }
+    .fill-green  { background: var(--green-500); }
+    .fill-amber  { background: var(--amber-400); }
+    .fill-purple { background: #a78bfa; }
+
+    .pb-turn-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    .pb-turn-table th {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--text-tertiary);
+      text-align: left;
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .pb-turn-table td {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      padding: 5px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .pb-turn-table tr:last-child td { border-bottom: none; }
+    .num { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 500; }
+
+    /* ── Section label reuse ─────────── */
+    .rp-section-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--text-tertiary);
+      margin: 14px 0 8px;
+    }
+    .rp-section-title:first-child { margin-top: 0; }
+
+    /* Empty panel */
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 200px;
+      color: var(--text-tertiary);
+      font-size: 12.5px;
+      text-align: center;
+    }
+    .panel-empty-icon { font-size: 28px; margin-bottom: 4px; }
+
+    /* ── Misc utils ─────────────────────────────────────────────── */
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: 8px; }
+    .ml-auto { margin-left: auto; }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════ LEFT SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <div class="logo-icon">🦾</div>
+      <span class="logo-text">SafeClaw</span>
+    </div>
+
+    <!-- Scrollable body with 4 collapsible sections -->
+    <div class="sidebar-scroll">
+
+      <!-- ① CHATS -->
+      <div class="sb-section" id="sec-chats">
+        <div class="sb-section-header" onclick="toggleSection('sec-chats')">
+          <span class="sb-section-icon">💬</span>
+          <span class="sb-section-title">Chats</span>
+          <span class="sb-section-badge">3</span>
+          <span class="sb-section-chevron">▾</span>
+        </div>
+        <div class="sb-section-body" style="max-height:600px">
+          <div class="sidebar-actions">
+            <button class="btn-new-chat" onclick="newChat()">＋ New Chat</button>
+          </div>
+
+          <div class="session-group-label">Today</div>
+          <div class="session-item active" onclick="selectSession(this,'Analyze Macan tire market',2)">
+            <div class="session-icon">🔍</div>
+            <div class="session-info">
+              <div class="session-title">Analyze Macan tire market</div>
+              <div class="session-meta">15m ago</div>
+            </div>
+            <div class="session-badge">2</div>
+          </div>
+          <div class="session-item" onclick="selectSession(this,'CUE 文件编码修复',0)">
+            <div class="session-icon">🎵</div>
+            <div class="session-info">
+              <div class="session-title">CUE 文件编码修复</div>
+              <div class="session-meta">1h ago</div>
+            </div>
+          </div>
+
+          <div class="session-group-label" style="margin-top:4px">Yesterday</div>
+          <div class="session-item" onclick="selectSession(this,'lyric image generation',0)">
+            <div class="session-icon">🎨</div>
+            <div class="session-info">
+              <div class="session-title">lyric image generation</div>
+              <div class="session-meta">Yesterday</div>
+            </div>
+          </div>
+          <div style="height:8px"></div>
+        </div>
+      </div>
+
+      <!-- ② SKILL TREE -->
+      <div class="sb-section" id="sec-skills">
+        <div class="sb-section-header" onclick="toggleSection('sec-skills')">
+          <span class="sb-section-icon">🛠</span>
+          <span class="sb-section-title">Skill Tree</span>
+          <span class="sb-section-chevron">▾</span>
+        </div>
+        <div class="sb-section-body" style="max-height:600px">
+          <div style="padding: 6px 0 8px">
+
+            <!-- Built-in folder -->
+            <div class="tree-row folder" onclick="toggleFolder(this)">
+              <span>▾</span><span>📁</span><span style="flex:1">Built-in</span>
+            </div>
+            <div class="tree-children">
+              <div class="tree-row leaf">
+                <span>🔍</span><span style="flex:1">Research</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>📊</span><span style="flex:1">Analyze</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>💻</span><span style="flex:1">Code</span>
+                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+            </div>
+
+            <!-- Private folder -->
+            <div class="tree-row folder" onclick="toggleFolder(this)" style="margin-top:2px">
+              <span>▾</span><span>📁</span><span style="flex:1">Private Skills</span>
+            </div>
+            <div class="tree-children">
+              <div class="tree-row leaf">
+                <span>🎵</span><span style="flex:1">cue-regeneration</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>🖼️</span><span style="flex:1;font-size:11.5px">lyric-image-gen</span>
+                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ TOOL TREE -->
+      <div class="sb-section" id="sec-tools">
+        <div class="sb-section-header" onclick="toggleSection('sec-tools')">
+          <span class="sb-section-icon">🔧</span>
+          <span class="sb-section-title">Tool Tree</span>
+          <span class="sb-section-chevron">▾</span>
+        </div>
+        <div class="sb-section-body" style="max-height:600px">
+          <div style="padding: 6px 0 8px">
+
+            <div class="tree-row folder" onclick="toggleFolder(this)">
+              <span>▾</span><span>🗂</span><span style="flex:1">File System</span>
+            </div>
+            <div class="tree-children">
+              <div class="tree-row leaf">
+                <span>📖</span><span style="flex:1">read_file</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>✏️</span><span style="flex:1">write_file</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>🔎</span><span style="flex:1">search_files</span>
+                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+            </div>
+
+            <div class="tree-row folder" onclick="toggleFolder(this)" style="margin-top:2px">
+              <span>▾</span><span>🌐</span><span style="flex:1">Web</span>
+            </div>
+            <div class="tree-children">
+              <div class="tree-row leaf">
+                <span>🔍</span><span style="flex:1">web_search</span>
+                <div class="tree-toggle on" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+              <div class="tree-row leaf">
+                <span>📥</span><span style="flex:1">fetch_url</span>
+                <div class="tree-toggle" onclick="event.stopPropagation();this.classList.toggle('on')"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ④ MODEL SELECTION -->
+      <div class="sb-section" id="sec-models">
+        <div class="sb-section-header" onclick="toggleSection('sec-models')">
+          <span class="sb-section-icon">🤖</span>
+          <span class="sb-section-title">Model</span>
+          <span class="sb-section-chevron">▾</span>
+        </div>
+        <div class="sb-section-body" style="max-height:600px">
+          <div style="padding: 6px 0 10px">
+
+            <div class="model-card active" onclick="selectModel(this)">
+              <div class="model-card-inner">
+                <div class="model-avatar">🧠</div>
+                <div class="model-info">
+                  <div class="model-name">qwen3.5-9b-vlm</div>
+                  <div class="model-desc">LM Studio · Local</div>
+                </div>
+                <div class="model-status online"></div>
+                <div class="model-select-radio"></div>
+              </div>
+            </div>
+
+            <div class="model-card" onclick="selectModel(this)">
+              <div class="model-card-inner">
+                <div class="model-avatar">✨</div>
+                <div class="model-info">
+                  <div class="model-name">gemma-4b</div>
+                  <div class="model-desc">LM Studio · Local</div>
+                </div>
+                <div class="model-status online"></div>
+                <div class="model-select-radio"></div>
+              </div>
+            </div>
+
+            <div class="model-card" onclick="selectModel(this)">
+              <div class="model-card-inner">
+                <div class="model-avatar">🌟</div>
+                <div class="model-info">
+                  <div class="model-name">qwen3.6-27b</div>
+                  <div class="model-desc">LM Studio · Local</div>
+                </div>
+                <div class="model-status online"></div>
+                <div class="model-select-radio"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /sidebar-scroll -->
+
+    <div class="sidebar-footer">
+      <div class="avatar">N</div>
+      <div class="footer-info">
+        <div class="footer-name">Nicole</div>
+        <div class="footer-status">
+          <div class="status-dot"></div>
+          systems online
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════ MAIN CHAT ═══════════════ -->
+  <main class="main">
+    <header class="chat-header">
+      <div class="chat-title-block">
+        <div class="chat-title" id="chatTitle">Analyze Macan tire market</div>
+        <div class="chat-subtitle" id="chatSubtitle">2 messages · qwen3.5-9b-vlm</div>
+      </div>
+      <div class="header-controls">
+        <div class="model-select" onclick="toggleModelMenu()">
+          <div class="model-dot"></div>
+          <span id="modelLabel">qwen3.5-9b-vlm</span>
+          <span style="color:var(--text-tertiary)">▾</span>
+        </div>
+        <button class="icon-btn" title="Web Search">🌐</button>
+        <button class="icon-btn active" id="panelToggle" title="Right Panel" onclick="togglePanel()">⬜</button>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div class="messages" id="messages">
+      <!-- Demo conversation -->
+      <div class="msg-row user" data-role="user">
+        <div class="msg-avatar">N</div>
+        <div class="msg-bubble">请帮我分析一下 Porsche Macan 的轮胎市场，关注国内替换胎的品牌分布和价格区间。</div>
+      </div>
+
+      <div class="msg-row assistant" data-role="assistant">
+        <div class="msg-avatar">🦾</div>
+        <div class="msg-bubble">
+          <div class="thinking-block">
+            <div class="thinking-step">
+              <div class="step-icon done">✓</div>
+              <span>Understanding request</span>
+              <div class="step-line"></div>
+              <span class="step-time">0.3s</span>
+            </div>
+            <div class="thinking-step">
+              <div class="step-icon done">✓</div>
+              <span>Analyzing context</span>
+              <div class="step-line"></div>
+              <span class="step-time">0.8s</span>
+            </div>
+            <div class="thinking-step">
+              <div class="step-icon done">✓</div>
+              <span>Formulating response</span>
+              <div class="step-line"></div>
+              <span class="step-time">1.2s</span>
+            </div>
+          </div>
+          <p>Porsche Macan（第一代）原厂使用 <strong>235/55 R19</strong> 或 <strong>265/45 R20</strong>。国内替换市场主要品牌分布：</p>
+          <br/>
+          <p>🏆 <strong>高端替换胎</strong>（¥800-1500/条）：米其林 Pilot Sport 4、马牌 SportContact 6</p>
+          <p>🥈 <strong>中端替换胎</strong>（¥400-800/条）：普利司通 Potenza、固特异 Eagle F1</p>
+          <p>💰 <strong>性价比选择</strong>（¥200-400/条）：玲珑、朝阳、万力</p>
+          <br/>
+          <p>建议优先选择米其林或马牌，与车辆定位匹配度更高。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+      <div class="skill-pills">
+        <button class="skill-pill active">🔍 Research</button>
+        <button class="skill-pill">📊 Analyze</button>
+        <button class="skill-pill">💻 Code</button>
+        <button class="skill-pill" onclick="addContextPill()">＋ Context</button>
+      </div>
+      <div class="input-box">
+        <button class="input-attach" title="Attach file">📎</button>
+        <textarea
+          class="input-field"
+          id="inputField"
+          placeholder="Ask anything..."
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <div class="input-actions">
+          <button class="icon-btn" style="border:none" title="Voice">🎙️</button>
+          <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled>➤</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══════════════ RIGHT ZONE ═══════════════ -->
+  <div class="right-zone">
+
+    <!-- Accordion stack (hidden until at least one panel opened) -->
+    <div class="rp-stack" id="rpStack">
+      <!-- panels injected by JS -->
+    </div>
+
+    <!-- Icon rail -->
+    <nav class="rp-rail">
+      <button class="rail-btn" id="rail-exec" title="Execution Path" onclick="railToggle('exec')">
+        <span class="rail-icon">📈</span>
+        <span class="rail-label">Exec</span>
+      </button>
+      <button class="rail-btn" id="rail-skills" title="Skills Path" onclick="railToggle('skills')">
+        <span class="rail-icon">🛠</span>
+        <span class="rail-label">Skills</span>
+      </button>
+      <button class="rail-btn" id="rail-budget" title="Prompt Budget" onclick="railToggle('budget')">
+        <span class="rail-icon">💰</span>
+        <span class="rail-label">Budget</span>
+      </button>
+      <div class="rail-divider"></div>
+      <button class="rail-btn" id="rail-log" title="Backend Log" onclick="railToggle('log')">
+        <span class="rail-icon">📋</span>
+        <span class="rail-label">Log</span>
+      </button>
+      <button class="rail-btn" id="rail-shell" title="Shell" onclick="railToggle('shell')">
+        <span class="rail-icon">⌨️</span>
+        <span class="rail-label">Shell</span>
+      </button>
+      <div class="rail-divider"></div>
+      <button class="rail-btn" id="rail-context" title="Context Files" onclick="railToggle('context')">
+        <span class="rail-icon">📄</span>
+        <span class="rail-label">Context</span>
+      </button>
+      <button class="rail-btn" id="rail-memory" title="Memory" onclick="railToggle('memory')">
+        <span class="rail-icon">🧠</span>
+        <span class="rail-label">Memory</span>
+      </button>
+    </nav>
+
+  </div><!-- /right-zone -->
+
+  <script>
+    // ── Sidebar section collapse ─────────────────────
+    function toggleSection(id) {
+      const sec = document.getElementById(id);
+      sec.classList.toggle('collapsed');
+    }
+
+    // ── Folder collapse inside tree ──────────────────
+    function toggleFolder(el) {
+      const children = el.nextElementSibling;
+      const chevron = el.querySelector('span:first-child');
+      if (!children) return;
+      const collapsed = children.style.display === 'none';
+      children.style.display = collapsed ? '' : 'none';
+      chevron.textContent = collapsed ? '▾' : '▸';
+    }
+
+    // ── Model selection ──────────────────────────────
+    function selectModel(card) {
+      document.querySelectorAll('.model-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      const name = card.querySelector('.model-name').textContent;
+      document.getElementById('modelLabel').textContent = name;
+    }
+
+    // ── Rail accordion logic ──────────────────────────
+    const RAIL_DEFS = {
+      exec:    { icon:'📈', title:'Execution Path',  badge:'✓ done', badgeCls:'green', render: renderExecution },
+      skills:  { icon:'🛠', title:'Skills Path',     badge:'2 active', badgeCls:'',    render: renderSkillsPath },
+      budget:  { icon:'💰', title:'Prompt Budget',   badge:'562 tok', badgeCls:'',     render: renderBudget },
+      log:     { icon:'📋', title:'Backend Log',     badge:'live', badgeCls:'amber',   render: renderLog },
+      shell:   { icon:'⌨️', title:'Shell',            badge:null,                       render: renderShell },
+      context: { icon:'📄', title:'Context Files',   badge:null,                       render: renderContext },
+      memory:  { icon:'🧠', title:'Memory',          badge:'3',                         render: renderMemory },
+    };
+
+    // Track which keys are open (in order)
+    const openPanels = new Set();
+
+    function railToggle(key) {
+      const stack = document.getElementById('rpStack');
+      const cardId = 'rp-card-' + key;
+      const btn = document.getElementById('rail-' + key);
+
+      if (openPanels.has(key)) {
+        // Toggle collapse/expand on the card
+        const card = document.getElementById(cardId);
+        if (card) {
+          card.classList.toggle('collapsed');
+          card.classList.toggle('expanded', !card.classList.contains('collapsed'));
+        }
+        btn.classList.toggle('active', !document.getElementById(cardId).classList.contains('collapsed'));
+        syncStack();
+        return;
+      }
+
+      // Open new panel
+      openPanels.add(key);
+      btn.classList.add('active');
+      stack.classList.add('open');
+
+      const def = RAIL_DEFS[key];
+      const card = document.createElement('div');
+      card.className = 'rp-card expanded';
+      card.id = cardId;
+      card.innerHTML = `
+        <div class="rp-card-header" onclick="collapseToggle('${key}')">
+          <span class="rp-card-icon">${def.icon}</span>
+          <span class="rp-card-title">${def.title}</span>
+          ${def.badge ? `<span class="rp-card-badge ${def.badgeCls||''}">${def.badge}</span>` : ''}
+          <span class="rp-card-chevron">▾</span>
+        </div>
+        <div class="rp-card-body">${def.render()}</div>
+      `;
+      stack.appendChild(card);
+
+      // Run init hooks (e.g. log ticker, shell)
+      if (key === 'log')   initLog(card);
+      if (key === 'shell') initShell(card);
+
+      syncStack();
+    }
+
+    function collapseToggle(key) {
+      const card = document.getElementById('rp-card-' + key);
+      const btn  = document.getElementById('rail-' + key);
+      if (!card) return;
+      const isCollapsed = card.classList.toggle('collapsed');
+      card.classList.toggle('expanded', !isCollapsed);
+      btn.classList.toggle('active', !isCollapsed);
+      syncStack();
+    }
+
+    // Make sure at least one expanded card; if all collapsed hide stack width
+    function syncStack() {
+      const stack = document.getElementById('rpStack');
+      const anyExpanded = stack.querySelector('.rp-card.expanded');
+      if (!anyExpanded) stack.classList.remove('open');
+      else stack.classList.add('open');
+    }
+
+    function togglePanel() { /* no-op, kept for compat */ }
+
+    // ─────────────────────────────────────────────────
+    // RENDER FUNCTIONS for each rail panel
+    // ─────────────────────────────────────────────────
+
+    function renderExecution() {
+      return `
+        <div class="rp-section-title">Current run · msg-1747120230.7</div>
+        <div class="exec-path">
+
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot done"></div>
+              <div class="exec-vline"></div>
+            </div>
+            <div class="exec-content">
+              <div class="exec-name">Understanding request</div>
+              <div class="exec-sub">Parsed intent, extracted entities: Macan, tire market, China</div>
+              <div class="exec-chips">
+                <span class="exec-chip chip-green">✓ done</span>
+                <span class="exec-chip chip-gray">0.31s</span>
+              </div>
+              <button class="exec-expand-btn" onclick="toggleDetail(this)">▸ Show details</button>
+              <div class="exec-detail-box">Intent: market_research<br/>Entities: [Porsche Macan, 轮胎, 国内替换市场]<br/>Confidence: 0.97</div>
+            </div>
+          </div>
+
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot done"></div>
+              <div class="exec-vline"></div>
+            </div>
+            <div class="exec-content">
+              <div class="exec-name">Skill router</div>
+              <div class="exec-sub">Evaluated 5 skills · selected: Research, Analyze</div>
+              <div class="exec-chips">
+                <span class="exec-chip chip-green">✓ done</span>
+                <span class="exec-chip chip-blue">Research</span>
+                <span class="exec-chip chip-blue">Analyze</span>
+                <span class="exec-chip chip-gray">0.12s</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot done"></div>
+              <div class="exec-vline"></div>
+            </div>
+            <div class="exec-content">
+              <div class="exec-name">Memory retrieval</div>
+              <div class="exec-sub">Loaded 3 relevant memories from session</div>
+              <div class="exec-chips">
+                <span class="exec-chip chip-green">✓ done</span>
+                <span class="exec-chip chip-gray">0.08s</span>
+                <span class="exec-chip chip-gray">3 memories</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot done"></div>
+              <div class="exec-vline"></div>
+            </div>
+            <div class="exec-content">
+              <div class="exec-name">LLM call</div>
+              <div class="exec-sub">qwen3.5-9b-vlm · stream · 512 max tokens</div>
+              <div class="exec-chips">
+                <span class="exec-chip chip-green">✓ done</span>
+                <span class="exec-chip chip-gray">1.79s</span>
+                <span class="exec-chip chip-amber">231 tok in</span>
+                <span class="exec-chip chip-blue">331 tok out</span>
+              </div>
+              <button class="exec-expand-btn" onclick="toggleDetail(this)">▸ Show prompt preview</button>
+              <div class="exec-detail-box">System: You are SafeClaw AI…<br/>User: 请帮我分析一下 Porsche Macan 的轮胎市场…<br/><em>[3 memory injections]</em></div>
+            </div>
+          </div>
+
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot done" style="background:var(--green-500);border-color:#d1fae5"></div>
+            </div>
+            <div class="exec-content">
+              <div class="exec-name" style="color:var(--green-500)">✓ Complete</div>
+              <div class="exec-sub">Total 2.30s · 562 tokens · 0 errors</div>
+            </div>
+          </div>
+
+        </div>
+      `;
+    }
+
+    function renderSkillsPath() {
+      return `
+        <div class="rp-section-title">Per-message skill invocation</div>
+
+        <div class="sp-message">
+          <div class="sp-msg-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display==='none'?'':'none'">
+            💬 msg-1 &nbsp;<span style="color:var(--text-tertiary);font-weight:400">Analyze Macan tire market</span>
+            <span style="margin-left:auto;font-size:10px;color:var(--green-500)">2 invoked</span>
+          </div>
+          <div class="sp-msg-body">
+            <div class="sp-skill-row">
+              <span>🔍</span>
+              <span class="sp-skill-name">Research</span>
+              <span class="sp-skill-status invoked">invoked</span>
+              <span class="sp-skill-time">0.45s</span>
+            </div>
+            <div class="sp-skill-row">
+              <span>📊</span>
+              <span class="sp-skill-name">Analyze</span>
+              <span class="sp-skill-status invoked">invoked</span>
+              <span class="sp-skill-time">0.31s</span>
+            </div>
+            <div class="sp-skill-row">
+              <span>💻</span>
+              <span class="sp-skill-name">Code</span>
+              <span class="sp-skill-status skipped">skipped</span>
+              <span class="sp-skill-time">—</span>
+            </div>
+            <div class="sp-skill-row">
+              <span>🎵</span>
+              <span class="sp-skill-name">cue-regeneration</span>
+              <span class="sp-skill-status skipped">skipped</span>
+              <span class="sp-skill-time">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rp-section-title">Skill registry</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.8">
+          5 skills registered · 2 active this session<br/>
+          Last updated: 2 min ago
+        </div>
+      `;
+    }
+
+    function renderBudget() {
+      return `
+        <div class="pb-summary">
+          <div class="pb-card">
+            <div class="pb-card-label">Session Total</div>
+            <div class="pb-card-value">562</div>
+            <div class="pb-card-sub">tokens used</div>
+          </div>
+          <div class="pb-card">
+            <div class="pb-card-label">Budget Left</div>
+            <div class="pb-card-value" style="color:var(--green-500)">7,438</div>
+            <div class="pb-card-sub">of 8,000 limit</div>
+          </div>
+          <div class="pb-card">
+            <div class="pb-card-label">Prompt</div>
+            <div class="pb-card-value">231</div>
+            <div class="pb-card-sub">tokens in</div>
+          </div>
+          <div class="pb-card">
+            <div class="pb-card-label">Completion</div>
+            <div class="pb-card-value">331</div>
+            <div class="pb-card-sub">tokens out</div>
+          </div>
+        </div>
+
+        <div class="rp-section-title">Token breakdown</div>
+
+        <div class="pb-bar-row">
+          <div class="pb-bar-label"><span>System prompt</span><span class="num">88</span></div>
+          <div class="pb-bar-track"><div class="pb-bar-fill fill-purple" style="width:15.6%"></div></div>
+        </div>
+        <div class="pb-bar-row">
+          <div class="pb-bar-label"><span>User message</span><span class="num">55</span></div>
+          <div class="pb-bar-track"><div class="pb-bar-fill fill-blue" style="width:9.8%"></div></div>
+        </div>
+        <div class="pb-bar-row">
+          <div class="pb-bar-label"><span>Memory injection</span><span class="num">88</span></div>
+          <div class="pb-bar-track"><div class="pb-bar-fill fill-amber" style="width:15.6%"></div></div>
+        </div>
+        <div class="pb-bar-row">
+          <div class="pb-bar-label"><span>Completion</span><span class="num">331</span></div>
+          <div class="pb-bar-track"><div class="pb-bar-fill fill-green" style="width:58.9%"></div></div>
+        </div>
+
+        <div class="rp-section-title">Turn history</div>
+        <table class="pb-turn-table">
+          <thead>
+            <tr><th>Turn</th><th>In</th><th>Out</th><th>Total</th><th>Time</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>msg-1</td>
+              <td class="num">231</td>
+              <td class="num">331</td>
+              <td class="num">562</td>
+              <td class="num">2.30s</td>
+            </tr>
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderContext() {
+      return `
+        <div class="panel-empty">
+          <div class="panel-empty-icon">📄</div>
+          No context files attached.<br/>
+          Drop files or use 📎 in the input bar.
+        </div>
+      `;
+    }
+
+    function renderMemory() {
+      return `
+        <div class="rp-section-title">Active memories · this session</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.5">
+            <div style="font-weight:600;margin-bottom:3px">🔍 User prefers Michelin tires</div>
+            <div style="color:var(--text-tertiary)">Mentioned in 2 previous sessions</div>
+          </div>
+          <div style="padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.5">
+            <div style="font-weight:600;margin-bottom:3px">🚗 Vehicle: Porsche Macan 2022</div>
+            <div style="color:var(--text-tertiary)">Stored 3 days ago</div>
+          </div>
+          <div style="padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.5">
+            <div style="font-weight:600;margin-bottom:3px">💰 Budget preference: mid-range</div>
+            <div style="color:var(--text-tertiary)">Inferred from conversation history</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ── Backend Log panel ─────────────────────────────
+    const FAKE_LOGS = [
+      { t:'INFO',  msg:'SafeClaw API started on :8000' },
+      { t:'INFO',  msg:'LM Studio connected · qwen3.5-9b-vlm' },
+      { t:'INFO',  msg:'Session 870c8829 loaded · 0 messages' },
+      { t:'DEBUG', msg:'chat/stream POST received' },
+      { t:'INFO',  msg:'Skill router: Research ✓  Analyze ✓' },
+      { t:'DEBUG', msg:'Memory retrieval: 3 items injected' },
+      { t:'INFO',  msg:'LLM stream started · max_tokens=512' },
+      { t:'DEBUG', msg:'SSE chunk #1 · delta="Hi"' },
+      { t:'DEBUG', msg:'SSE chunk #2 · delta=" there"' },
+      { t:'INFO',  msg:'LLM stream done · 331 tokens · 1.79s' },
+      { t:'INFO',  msg:'Response saved to session' },
+    ];
+    let logTicker = null;
+
+    function renderLog() {
+      return `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--green-500);display:inline-block"></span>
+          <span style="font-size:11px;color:var(--text-secondary)">Live · uvicorn · port 8000</span>
+          <button onclick="clearLog(this)" style="margin-left:auto;font-size:10.5px;color:var(--brand-500);background:none;border:none;cursor:pointer">Clear</button>
+        </div>
+        <div id="logLines" style="
+          font-family: 'SF Mono', Menlo, monospace;
+          font-size: 10.5px;
+          line-height: 1.7;
+          color: var(--text-secondary);
+          background: var(--gray-900);
+          color: #c9d1d9;
+          border-radius: var(--radius-md);
+          padding: 8px 10px;
+          overflow-y: auto;
+          height: calc(100% - 32px);
+          min-height: 80px;
+        "></div>
+      `;
+    }
+
+    function ts() {
+      return new Date().toTimeString().slice(0,8);
+    }
+
+    function levelColor(t) {
+      return { INFO:'#79c0ff', DEBUG:'#8b949e', WARN:'#e3b341', ERROR:'#ff7b72' }[t] || '#c9d1d9';
+    }
+
+    function appendLog(container, entry) {
+      const line = document.createElement('div');
+      line.innerHTML = `<span style="color:#8b949e">${ts()}</span> <span style="color:${levelColor(entry.t)};font-weight:600">${entry.t.padEnd(5)}</span> ${escHtml(entry.msg)}`;
+      container.appendChild(line);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function initLog(card) {
+      const box = card.querySelector('#logLines');
+      if (!box) return;
+      let i = 0;
+      if (logTicker) clearInterval(logTicker);
+      logTicker = setInterval(() => {
+        if (i < FAKE_LOGS.length) { appendLog(box, FAKE_LOGS[i++]); }
+        else {
+          // keep appending heartbeat
+          appendLog(box, { t:'DEBUG', msg:`heartbeat · ${Math.random().toFixed(3)}s latency` });
+          if (box.children.length > 120) box.removeChild(box.firstChild);
+        }
+      }, 600);
+    }
+
+    function clearLog(btn) {
+      const box = btn.closest('.rp-card-body').querySelector('#logLines');
+      if (box) box.innerHTML = '';
+    }
+
+    // ── Shell panel ───────────────────────────────────
+    function renderShell() {
+      return `
+        <div style="
+          display:flex;flex-direction:column;height:100%;
+          background:var(--gray-900);border-radius:var(--radius-md);overflow:hidden;
+          font-family:'SF Mono',Menlo,monospace;font-size:11px;
+        ">
+          <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid #30363d">
+            <span style="width:9px;height:9px;border-radius:50%;background:#ff5f56"></span>
+            <span style="width:9px;height:9px;border-radius:50%;background:#ffbd2e"></span>
+            <span style="width:9px;height:9px;border-radius:50%;background:#27c93f"></span>
+            <span style="margin-left:6px;font-size:10px;color:#8b949e">zsh · python_gallery</span>
+          </div>
+          <div id="shellOutput" style="
+            flex:1;overflow-y:auto;padding:8px 10px;
+            color:#c9d1d9;line-height:1.6;min-height:60px;
+          ">
+            <div><span style="color:#79c0ff">~/python_gallery</span> <span style="color:#8b949e">$</span> uvicorn streamlit_ui.api.main:app --port 8000</div>
+            <div style="color:#8b949e">INFO:     Started server process [8421]</div>
+            <div style="color:#8b949e">INFO:     Waiting for application startup.</div>
+            <div style="color:#8b949e">INFO:     Application startup complete.</div>
+            <div style="color:#8b949e">INFO:     Uvicorn running on http://0.0.0.0:8000</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0;border-top:1px solid #30363d;padding:4px 8px">
+            <span style="color:#79c0ff;margin-right:6px">❯</span>
+            <input id="shellInput" type="text" placeholder="Enter command…" style="
+              flex:1;background:none;border:none;outline:none;
+              color:#c9d1d9;font-family:inherit;font-size:11px;
+            " onkeydown="shellEnter(event)" />
+          </div>
+        </div>
+      `;
+    }
+
+    function initShell(card) {
+      setTimeout(() => {
+        const inp = card.querySelector('#shellInput');
+        if (inp) inp.focus();
+      }, 100);
+    }
+
+    function shellEnter(e) {
+      if (e.key !== 'Enter') return;
+      const inp = e.target;
+      const cmd = inp.value.trim();
+      inp.value = '';
+      if (!cmd) return;
+      const out = inp.closest('div[style]').parentElement.querySelector('#shellOutput');
+      if (!out) return;
+      const dir = document.createElement('div');
+      dir.innerHTML = `<span style="color:#79c0ff">~/python_gallery</span> <span style="color:#8b949e">$</span> ${escHtml(cmd)}`;
+      out.appendChild(dir);
+      // Fake response
+      setTimeout(() => {
+        const resp = document.createElement('div');
+        resp.style.color = '#8b949e';
+        const fakeOut = {
+          'ls': 'safeclaw-ui/  streamlit_ui/  workspace/  start_safeclaw.sh',
+          'pwd': '/Users/nicole/workspace/github/a476678244/python_gallery',
+          'ps aux | grep uvicorn': 'nicole  8421  uvicorn streamlit_ui.api.main:app --port 8000',
+        }[cmd] || `zsh: command output for: ${cmd}`;
+        resp.textContent = fakeOut;
+        out.appendChild(resp);
+        out.scrollTop = out.scrollHeight;
+      }, 180);
+    }
+
+    function toggleDetail(btn) {
+      const box = btn.nextElementSibling;
+      const open = box.classList.toggle('open');
+      btn.textContent = (open ? '▾ Hide' : '▸ Show') + btn.textContent.slice(btn.textContent.indexOf(' '));
+    }
+
+    // ── Session select ──────────────────────────────
+    function selectSession(el, title, msgCount) {
+      document.querySelectorAll('.session-item').forEach(s => s.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('chatTitle').textContent = title;
+      document.getElementById('chatSubtitle').textContent =
+        msgCount + ' message' + (msgCount !== 1 ? 's' : '') + ' · qwen3.5-9b-vlm';
+
+      if (msgCount === 0) {
+        const msgs = document.getElementById('messages');
+        msgs.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🦾</div>
+            <div class="empty-title">How can I help?</div>
+            <div class="empty-sub">Start a conversation or pick a quick prompt</div>
+            <div class="quick-prompts">
+              <div class="quick-chip" onclick="fillPrompt('Analyze market trends')">📊 Analyze market</div>
+              <div class="quick-chip" onclick="fillPrompt('Help me fix a CUE file')">🎵 Fix CUE file</div>
+              <div class="quick-chip" onclick="fillPrompt('Generate a lyric image')">🖼️ Lyric image</div>
+              <div class="quick-chip" onclick="fillPrompt('Write some code for me')">💻 Write code</div>
+            </div>
+          </div>`;
+      }
+    }
+
+    function newChat() {
+      selectSession({ classList: { add(){}, remove(){} }, querySelectorAll:()=>[] }, 'New Chat', 0);
+      document.querySelectorAll('.session-item').forEach(s => s.classList.remove('active'));
+      document.getElementById('chatTitle').textContent = 'New Chat';
+      document.getElementById('chatSubtitle').textContent = '0 messages · qwen3.5-9b-vlm';
+      document.getElementById('messages').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🦾</div>
+          <div class="empty-title">How can I help?</div>
+          <div class="empty-sub">Start a conversation or pick a quick prompt</div>
+          <div class="quick-prompts">
+            <div class="quick-chip" onclick="fillPrompt('Analyze market trends')">📊 Analyze market</div>
+            <div class="quick-chip" onclick="fillPrompt('Help me fix a CUE file')">🎵 Fix CUE file</div>
+            <div class="quick-chip" onclick="fillPrompt('Generate a lyric image')">🖼️ Lyric image</div>
+            <div class="quick-chip" onclick="fillPrompt('Write some code for me')">💻 Write code</div>
+          </div>
+        </div>`;
+    }
+
+    // ── Input ────────────────────────────────────────
+    const inputField = document.getElementById('inputField');
+    const sendBtn = document.getElementById('sendBtn');
+
+    inputField.addEventListener('input', () => {
+      sendBtn.disabled = inputField.value.trim() === '';
+    });
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
+    function handleKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    }
+
+    function fillPrompt(text) {
+      inputField.value = text;
+      sendBtn.disabled = false;
+      inputField.focus();
+    }
+
+    function addContextPill() {
+      const pill = document.createElement('button');
+      pill.className = 'skill-pill active';
+      pill.textContent = '📄 context.txt';
+      document.querySelector('.skill-pills').appendChild(pill);
+    }
+
+    function sendMessage() {
+      const text = inputField.value.trim();
+      if (!text) return;
+
+      const msgs = document.getElementById('messages');
+
+      // Remove empty state if present
+      const emptyState = msgs.querySelector('.empty-state');
+      if (emptyState) emptyState.remove();
+
+      // User bubble
+      msgs.innerHTML += `
+        <div class="msg-row user" data-role="user">
+          <div class="msg-avatar">N</div>
+          <div class="msg-bubble">${escHtml(text)}</div>
+        </div>`;
+
+      inputField.value = '';
+      sendBtn.disabled = true;
+      autoResize(inputField);
+
+      // Streaming placeholder
+      const streamId = 'stream-' + Date.now();
+      msgs.innerHTML += `
+        <div class="msg-row assistant" data-role="assistant" id="${streamId}">
+          <div class="msg-avatar">🦾</div>
+          <div class="msg-bubble">
+            <div class="thinking-block">
+              <div class="thinking-step">
+                <div class="step-icon running">↻</div>
+                <span>Processing…</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      msgs.scrollTop = msgs.scrollHeight;
+
+      // Simulate streaming response
+      setTimeout(() => {
+        const node = document.getElementById(streamId);
+        if (node) {
+          node.querySelector('.msg-bubble').innerHTML = `
+            <div class="thinking-block">
+              <div class="thinking-step">
+                <div class="step-icon done">✓</div>
+                <span>Understanding request</span>
+                <div class="step-line"></div>
+                <span class="step-time">0.3s</span>
+              </div>
+            </div>
+            <p>This is a <strong>demo response</strong> to: <em>${escHtml(text)}</em></p>
+            <p style="margin-top:8px;color:var(--text-secondary);font-size:12px">
+              (Real responses come from qwen3.5-9b-vlm via LM Studio)
+            </p>`;
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+      }, 1400);
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+  </script>
+</body>
+</html>

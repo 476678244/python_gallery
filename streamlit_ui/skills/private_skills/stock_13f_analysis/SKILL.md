@@ -1,5 +1,5 @@
 ---
-name: stock_13f_analyze
+name: stock_13f_analysis
 description: 分析 13F 机构持仓组合表现，对比基金权重 vs 等权 vs S&P500 基准。输入基金名称（如 wcm, coatue, viking）和日期范围，返回收益统计、持仓明细和趋势分析。
 ---
 

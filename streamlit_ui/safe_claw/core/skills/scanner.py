@@ -239,9 +239,11 @@ class SkillScanner:
     def scan_all_skills(self) -> List[SkillIndexEntry]:
         """Full scan of all skills directories - Level 1 only
 
-        Skills are discovered from two entry points:
-        1. linked_skills/ - each subdirectory is a skill collection
-        2. streamlit_ui/skills/ - each subdirectory is a skill collection
+        Skills are discovered from three entry points:
+        1. built_in/ - core built-in skills
+        2. linked_skills/ - each subdirectory is a skill collection
+        3. streamlit_ui/skills/ - each subdirectory is a skill collection
+        4. External skills paths from configuration
 
         Each skill collection folder is scanned recursively for SKILL.md files.
         """
@@ -252,23 +254,38 @@ class SkillScanner:
         if builtin_path.exists():
             all_skills.extend(self.scan_directory(builtin_path, recursive=False))
 
-        # Entry point 1: linked_skills/ - each subdir is a skill collection
-        linked_skills_root = Path(__file__).parent.parent.parent.parent.parent / "linked_skills"
-        if linked_skills_root.exists():
-            logger.info(f"Scanning linked_skills entry point: {linked_skills_root}")
-            for collection_dir in linked_skills_root.iterdir():
-                if collection_dir.is_dir() or collection_dir.is_symlink():
-                    # If it's a symlink, resolve it for scanning but preserve symlink path
-                    if collection_dir.is_symlink():
-                        real_dir = collection_dir.resolve()
-                        logger.info(f"  Scanning skill collection: {collection_dir.name} -> {real_dir}")
-                        # Pass symlink path as prefix to preserve path structure
-                        all_skills.extend(self.scan_directory(real_dir, recursive=True, path_prefix=collection_dir))
-                    else:
-                        logger.info(f"  Scanning skill collection: {collection_dir.name}")
-                        all_skills.extend(self.scan_directory(collection_dir, recursive=True))
-        else:
-            logger.warning(f"linked_skills entry point not found: {linked_skills_root}")
+        # Entry point 1: linked_skills/ at project root - each subdir is a skill collection
+        # Support both relative path from scanner and absolute path
+        linked_skills_paths = [
+            # Relative to scanner location (5 levels up: scanner.py -> skills -> core -> safe_claw -> streamlit_ui -> project_root)
+            Path(__file__).parent.parent.parent.parent.parent / "linked_skills",
+            # Also check if explicitly provided as external path
+        ]
+        
+        # Add any external paths that look like linked_skills
+        for ext_path in self.external_skills_paths:
+            if "linked_skills" in str(ext_path) and ext_path not in linked_skills_paths:
+                linked_skills_paths.append(ext_path)
+        
+        scanned_linked_skills = False
+        for linked_skills_root in linked_skills_paths:
+            if linked_skills_root.exists():
+                logger.info(f"Scanning linked_skills entry point: {linked_skills_root}")
+                scanned_linked_skills = True
+                for collection_dir in linked_skills_root.iterdir():
+                    if collection_dir.is_dir() or collection_dir.is_symlink():
+                        # If it's a symlink, resolve it for scanning but preserve symlink path
+                        if collection_dir.is_symlink():
+                            real_dir = collection_dir.resolve()
+                            logger.info(f"  Scanning skill collection: {collection_dir.name} -> {real_dir}")
+                            # Pass symlink path as prefix to preserve path structure
+                            all_skills.extend(self.scan_directory(real_dir, recursive=True, path_prefix=collection_dir))
+                        else:
+                            logger.info(f"  Scanning skill collection: {collection_dir.name}")
+                            all_skills.extend(self.scan_directory(collection_dir, recursive=True))
+        
+        if not scanned_linked_skills:
+            logger.warning(f"linked_skills entry point not found. Checked: {[str(p) for p in linked_skills_paths]}")
 
         # Entry point 2: streamlit_ui/skills/ - each subdir is a skill collection
         streamlit_skills_root = Path(__file__).parent.parent.parent.parent / "skills"

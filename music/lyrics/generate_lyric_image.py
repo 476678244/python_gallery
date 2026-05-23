@@ -35,11 +35,11 @@ def add_lyrics(draw, width, height):
     scale = 2 if width > 2000 else 1
     # Read lyrics from the markdown file
     try:
-        lyrics_file = "/Users/nicole/workspace/github/a476678244/python_gallery/music/lyrics/离别开出花.md"
+        lyrics_file = "/Users/nicole/workspace/github/a476678244/python_gallery/music/lyrics/祖国的花朵.md"
         title, verses = read_lyrics_from_md(lyrics_file)
 
         # Prepare lyrics for display (flatten verses and add some spacing)
-        lyrics = [title, "", "就是南方凯", ""]  # Title and artist with spacing
+        lyrics = [title, "", "词曲：张志远", ""]  # Title and artist with spacing
 
         # Add verses with spacing in between
         for verse in verses:
@@ -79,8 +79,8 @@ def add_lyrics(draw, width, height):
     ]
 
     # Set font sizes (scale up for high DPI)
-    font_size = 22 * scale  # Scaled for high DPI
-    title_font_size = 26 * scale  # Larger for title/artist
+    font_size = 32 * scale  # Larger font
+    title_font_size = 40 * scale  # Larger for title/artist
     for font_name in try_fonts:
         try:
             print(f"Trying font: {font_name}")
@@ -114,13 +114,13 @@ def add_lyrics(draw, width, height):
 
     # Calculate line height and margins
     bbox = font.getbbox("A")
-    line_height = bbox[3] - bbox[1] + 8  # Further reduced padding
+    line_height = bbox[3] - bbox[1] + 20  # Increased spacing
     top_margin = height // 8  # Start even higher up
     max_lines_per_column = (height - top_margin * 2) // line_height
 
     # Set text colors
-    text_color = (255, 255, 255)  # White
-    outline_color = (0, 0, 0)     # Black
+    text_color = (0, 0, 0)  # Black
+    outline_color = (255, 255, 255)  # White outline for contrast
 
     # Split lyrics into three columns
     column1 = []
@@ -167,105 +167,91 @@ def create_cherry_blossom_image(output_path="cherry_blossom_lyrics.png"):
     # Create a high resolution image (2x scale for better quality)
     scale = 2
     width, height = 1600 * scale, 900 * scale
-    image = Image.new('RGB', (width, height), (20, 10, 40))
+    image = Image.new('RGB', (width, height), (135, 206, 235))
     draw = ImageDraw.Draw(image)
 
-    # Draw gradient background (darker at top, lighter at bottom)
-    for y in range(0, height, 2):  # Skip every other line for faster rendering
-        # Create a gradient from dark blue to dark purple
-        r = int(20 + 30 * (y / height))
-        g = int(10 + 5 * (y / height))
-        b = int(40 + 10 * (y / height))
+    # Draw gradient background (sunny sky - light blue to warm yellow)
+    for y in range(0, height, 2):
+        # Create a gradient from sky blue to warm yellow/green
+        progress = y / height
+        r = int(135 + 100 * progress)
+        g = int(206 + 30 * progress)
+        b = int(235 - 80 * progress)
         draw.line([(0, y), (width, y)], fill=(r, g, b))
-        if y + 1 < height:  # Fill the skipped line
+        if y + 1 < height:
             draw.line([(0, y+1), (width, y+1)], fill=(r, g, b))
 
-    # Draw stars (more stars for higher resolution)
-    for _ in range(300):
-        x = random.randint(0, width)
-        y = random.randint(0, height//2)  # Mostly in upper half
-        size = random.randint(1, 4) * scale // 2  # Scale star sizes
-        brightness = random.randint(200, 255)
-        draw.ellipse([x, y, x+size, y+size], fill=(brightness, brightness, brightness))
+    # Draw bright sun (positioned higher to avoid overlapping lyrics)
+    sun_center = (width - 200 * scale, 120 * scale)
+    sun_radius = 60 * scale
+    draw.ellipse([sun_center[0]-sun_radius, sun_center[1]-sun_radius,
+                  sun_center[0]+sun_radius, sun_center[1]+sun_radius],
+                 fill=(255, 255, 200), outline=(255, 220, 100), width=3*scale)
 
-    # Draw crescent moon (scaled)
-    moon_center = (width - 200 * scale, 150 * scale)
-    moon_radius = 60 * scale
-    draw.ellipse([moon_center[0]-moon_radius, moon_center[1]-moon_radius,
-                  moon_center[0]+moon_radius, moon_center[1]+moon_radius],
-                 fill=(255, 240, 200), outline=None)
-
-    # Draw cherry blossom tree (shifted left and scaled)
-    tree_shift = 100 * scale  # How much to shift the tree to the left
-    trunk_bottom = (width//2 - tree_shift, height - 50 * scale)
-    trunk_top = (width//2 - tree_shift, height//2)
-    branch_length = 200 * scale
-
-    # Draw trunk and branches
-    def draw_branch(start, length, angle, width):
-        if length < 5:
-            return
-
-        # Ensure width is at least 1 and is an integer
-        width = max(1, int(width))
-
-        # Calculate end point
+    # Draw sun rays
+    for i in range(12):
+        angle = i * 30
         rad = math.radians(angle)
-        end = (int(start[0] + math.cos(rad) * length),
-               int(start[1] - math.sin(rad) * length))
+        ray_length = 30 * scale
+        start_x = sun_center[0] + math.cos(rad) * (sun_radius + 10)
+        start_y = sun_center[1] + math.sin(rad) * (sun_radius + 10)
+        end_x = sun_center[0] + math.cos(rad) * (sun_radius + ray_length)
+        end_y = sun_center[1] + math.sin(rad) * (sun_radius + ray_length)
+        draw.line([(start_x, start_y), (end_x, end_y)], fill=(255, 220, 100), width=4*scale)
 
-        # Ensure start points are integers
-        start = (int(start[0]), int(start[1]))
+    # Draw mountains in the background
+    mountain_colors = [(100, 120, 150), (80, 100, 130), (60, 80, 110)]
+    for i, color in enumerate(mountain_colors):
+        base_y = height - 150 * scale + i * 30 * scale
+        points = [
+            (0, height),
+            (width * 0.2, base_y - 200 * scale),
+            (width * 0.4, base_y - 150 * scale),
+            (width * 0.6, base_y - 220 * scale),
+            (width * 0.8, base_y - 180 * scale),
+            (width, base_y - 160 * scale),
+            (width, height)
+        ]
+        draw.polygon(points, fill=color)
 
-        # Draw branch
-        draw.line([start, end], fill=(70, 35, 20), width=width)
+    # Draw river flowing through the landscape
+    river_path = []
+    for x in range(0, width + 1, 20 * scale):
+        y = height - 100 * scale + math.sin(x / (200 * scale)) * 30 * scale
+        river_path.append((x, y))
+    river_path.append((width, height))
+    river_path.append((0, height))
+    draw.polygon(river_path, fill=(100, 180, 220))
 
-        # Recursively draw smaller branches
-        if length > 20:
-            # Main branching
-            draw_branch(end, length * 0.7, angle + 25, width * 0.7)
-            draw_branch(end, length * 0.7, angle - 25, width * 0.7)
+    # Draw colorful flowers on the ground
+    flower_colors = [
+        (255, 100, 100),  # Red
+        (255, 200, 100),  # Orange
+        (255, 255, 100),  # Yellow
+        (255, 150, 200),  # Pink
+        (200, 100, 255),  # Purple
+        (100, 200, 255),  # Light blue
+    ]
+    for _ in range(80):
+        x = random.randint(50 * scale, width - 50 * scale)
+        y = random.randint(height - 200 * scale, height - 50 * scale)
+        flower_size = random.randint(8, 20) * scale // 2
+        color = random.choice(flower_colors)
 
-            # Add some random smaller branches
-            if random.random() > 0.3:
-                draw_branch(end, length * 0.5, angle + 10, width * 0.6)
-            if random.random() > 0.3:
-                draw_branch(end, length * 0.5, angle - 10, width * 0.6)
+        # Draw flower petals
+        for i in range(5):
+            angle = i * 72
+            rad = math.radians(angle)
+            petal_x = x + math.cos(rad) * flower_size
+            petal_y = y + math.sin(rad) * flower_size
+            draw.ellipse([petal_x - flower_size//2, petal_y - flower_size//2,
+                         petal_x + flower_size//2, petal_y + flower_size//2],
+                        fill=color)
 
-        # Add blossoms at the end of smaller branches
-        if length < 30:
-            for _ in range(int(5 - length/10)):
-                offset_x = random.randint(-15, 15)
-                offset_y = random.randint(-5, 5)
-                blossom_size = random.randint(5, 10)
-                blossom_pos = (end[0] + offset_x, end[1] + offset_y)
-
-                # Draw blossom (pink with white center)
-                draw.ellipse([blossom_pos[0]-blossom_size//2, blossom_pos[1]-blossom_size//2,
-                              blossom_pos[0]+blossom_size//2, blossom_pos[1]+blossom_size//2],
-                             fill=(255, 200, 220), outline=(255, 230, 240))
-
-    # Start drawing the tree
-    draw_branch(trunk_top, 100, 90, 15)
-
-    # Add falling petals (more petals for higher resolution)
-    for _ in range(100):
-        x = random.randint(0, width)
-        y = random.randint(0, height)
-        size = random.randint(3, 8) * scale // 2  # Scale petal sizes
-        opacity = random.randint(100, 200)
-        petal_color = (255, 200, 220, opacity)
-
-        # Create a new image with alpha channel for the petal
-        petal = Image.new('RGBA', (size*2, size*2), (0, 0, 0, 0))
-        petal_draw = ImageDraw.Draw(petal)
-        petal_draw.ellipse([0, 0, size*2, size*2], fill=petal_color)
-
-        # Rotate the petal randomly
-        petal = petal.rotate(random.randint(0, 360), expand=1)
-
-        # Paste the petal onto the main image
-        image.paste(petal, (x, y), petal)
+        # Draw flower center
+        draw.ellipse([x - flower_size//3, y - flower_size//3,
+                     x + flower_size//3, y + flower_size//3],
+                    fill=(255, 255, 200))
 
     # Add some blur to create depth (slightly more for higher resolution)
     image = image.filter(ImageFilter.GaussianBlur(radius=scale * 0.7))
