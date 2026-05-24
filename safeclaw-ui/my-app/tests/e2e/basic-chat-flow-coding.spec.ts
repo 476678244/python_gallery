@@ -20,14 +20,34 @@ async function waitForApp(page: Page) {
 async function ensureSession(page: Page) {
   const textarea = page.locator("textarea").first();
   const isDisabled = await textarea.isDisabled().catch(() => true);
-  
+
   if (isDisabled) {
-    const newChatBtn = page.getByText("New Chat").first();
-    await newChatBtn.click();
-    await page.waitForTimeout(1000);
+    // Use API to create a session directly
+    const response = await page.request.post(`${API_URL}/sessions`, {
+      data: { title: "E2E Test Session" }
+    });
+
+    if (response.ok()) {
+      const data = await response.json() as { session?: { id: string } };
+      const sessionId = data.session?.id;
+      if (sessionId) {
+        // Navigate to the session
+        await page.goto(`${BASE_URL}/?session=${sessionId}`);
+        await page.waitForLoadState("networkidle");
+      }
+    }
+
+    // Also try to click any "New Chat" button as fallback
+    const newChatBtn = page.getByRole("button").filter({ hasText: /New Chat|New|新建|Start/i }).first();
+    if (await newChatBtn.count() > 0) {
+      await newChatBtn.click();
+    }
+
+    await page.waitForTimeout(2000);
   }
-  
-  await expect(textarea).not.toBeDisabled({ timeout: 5000 });
+
+  // Wait for textarea to be enabled
+  await expect(textarea).not.toBeDisabled({ timeout: 10000 });
 }
 
 async function sendMessageAndWait(

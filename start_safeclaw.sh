@@ -23,7 +23,7 @@ trap cleanup INT TERM
 
 # Start FastAPI Backend
 echo -e "${BLUE}📡 Starting FastAPI Backend...${NC}"
-cd /Users/nicole/workspace/github/a476678244/python_gallery/streamlit_ui
+cd /Users/nicole/workspace/github/a476678244/python_gallery
 source /opt/miniconda3/etc/profile.d/conda.sh && conda activate safe_claw
 python start_api.py &
 API_PID=$!
