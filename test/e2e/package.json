@@ -1,0 +1,16 @@
+{
+  "name": "safeclaw-e2e-tests",
+  "private": true,
+  "description": "SafeClaw E2E tests (Playwright)",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:skill-tree": "npx playwright test skill-tree.spec.ts",
+    "test:chat": "npx playwright test basic-chat-flow-coding.spec.ts",
+    "test:prompt-inspect": "npx playwright test prompt-inspect-flow-coding.spec.ts",
+    "test:headed": "npx playwright test --headed",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

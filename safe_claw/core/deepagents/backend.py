@@ -623,16 +623,16 @@ class SecureFilesystemBackend:
         
         return rel_path
 
-    def ls(self, path: str) -> LsResult:
-        """List directory entries"""
+    def ls_info(self, path: str) -> list:
+        """List directory entries (BackendProtocol interface)"""
         try:
             resolved_path = self._resolve_path(path)
             
             if not resolved_path.exists():
-                return LsResult(error=f"Error: Path '{path}' not found")
+                return []
             
             if not resolved_path.is_dir():
-                return LsResult(error=f"Error: '{path}' is not a directory")
+                return []
             
             entries = []
             for item in sorted(resolved_path.iterdir()):
@@ -640,39 +640,40 @@ class SecureFilesystemBackend:
                     stat = item.stat()
                     rel_path = self._get_relative_path(item)
                     
-                    file_info = FileInfo(
-                        path=rel_path,
-                        is_dir=item.is_dir(),
-                        size=stat.st_size if item.is_file() else None,
-                        modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat()
-                    )
+                    file_info = {
+                        "path": "/" + rel_path if not rel_path.startswith("/") else rel_path,
+                        "is_dir": item.is_dir(),
+                        "size": stat.st_size if item.is_file() else None,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    }
                     entries.append(file_info)
                 except Exception as e:
                     logger.warning(f"Failed to stat {item}: {e}")
             
-            return LsResult(entries=entries)
+            return entries
             
         except ValueError as e:
-            return LsResult(error=str(e))
+            logger.error(f"ls_info failed: {e}")
+            return []
         except Exception as e:
-            logger.error(f"ls failed: {e}")
-            return LsResult(error=f"Error: {str(e)}")
+            logger.error(f"ls_info failed: {e}")
+            return []
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
-        """Read file content"""
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        """Read file content (BackendProtocol interface - returns cat -n formatted string)"""
         try:
             resolved_path = self._resolve_path(file_path)
             
             if not resolved_path.exists():
-                return ReadResult(error=f"Error: File '{file_path}' not found")
+                return f"Error: File '{file_path}' not found"
             
             if not resolved_path.is_file():
-                return ReadResult(error=f"Error: '{file_path}' is not a file")
+                return f"Error: '{file_path}' is not a file"
             
             # Check file size
             file_size = resolved_path.stat().st_size
             if file_size > self.config.max_file_size:
-                return ReadResult(error=f"Error: File too large (max {self.config.max_file_size} bytes)")
+                return f"Error: File too large (max {self.config.max_file_size} bytes)"
             
             # Read file content
             with open(resolved_path, 'r', encoding='utf-8') as f:
@@ -683,29 +684,32 @@ class SecureFilesystemBackend:
                 try:
                     content = self._decrypt_content(content)
                 except Exception as e:
-                    return ReadResult(error=f"Error: Failed to decrypt file - {str(e)}")
+                    return f"Error: Failed to decrypt file - {str(e)}"
             
-            # Apply offset and limit
+            # Apply offset (line-based) and limit
+            lines = content.split('\n')
             if offset > 0:
-                content = content[offset:]
-            if limit > 0 and len(content) > limit:
-                content = content[:limit]
+                lines = lines[offset:]
+            if limit > 0:
+                lines = lines[:limit]
             
-            stat = resolved_path.stat()
-            file_data = FileData(
-                content=content,
-                encoding="utf-8",
-                created_at=datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat()
-            )
+            # Format as cat -n style (1-indexed line numbers)
+            start_line = offset + 1
+            formatted_lines = []
+            for i, line in enumerate(lines):
+                line_num = start_line + i
+                # Truncate long lines
+                if len(line) > 2000:
+                    line = line[:2000]
+                formatted_lines.append(f"{line_num}\t{line}")
             
-            return ReadResult(file_data=file_data)
+            return '\n'.join(formatted_lines)
             
         except ValueError as e:
-            return ReadResult(error=str(e))
+            return str(e)
         except Exception as e:
             logger.error(f"read failed: {e}")
-            return ReadResult(error=f"Error: {str(e)}")
+            return f"Error: {str(e)}"
 
     def write(self, file_path: str, content: str) -> WriteResult:
         """Write file content (create-only)"""
@@ -825,14 +829,14 @@ class SecureFilesystemBackend:
             logger.error(f"edit failed: {e}")
             return EditResult(error=f"Error: {str(e)}")
 
-    def grep(self, pattern: str, path: Optional[str] = None, glob: Optional[str] = None) -> GrepResult:
-        """Search for pattern in files"""
+    def grep_raw(self, pattern: str, path: Optional[str] = None, glob: Optional[str] = None) -> list:
+        """Search for pattern in files (BackendProtocol interface)"""
         try:
             matches = []
             search_path = self._resolve_path(path if path else "/")
             
             if not search_path.exists():
-                return GrepResult(error=f"Error: Path '{path}' not found")
+                return f"Error: Path '{path}' not found"
             
             # Collect files to search
             files_to_search = []
@@ -863,56 +867,60 @@ class SecureFilesystemBackend:
                         except:
                             continue  # Skip files that can't be decrypted
                     
-                    # Search for pattern
+                    # Search for pattern (literal string, not regex per protocol)
+                    rel = self._get_relative_path(file_path)
+                    abs_path = "/" + rel if not rel.startswith("/") else rel
                     for line_num, line in enumerate(content.split('\n'), 1):
-                        if re.search(pattern, line):
-                            matches.append(GrepMatch(
-                                path=self._get_relative_path(file_path),
-                                line=line_num,
-                                text=line.strip()
-                            ))
+                        if pattern in line:
+                            matches.append({
+                                "path": abs_path,
+                                "line": line_num,
+                                "text": line.strip()
+                            })
                 
                 except Exception as e:
                     logger.warning(f"Failed to search {file_path}: {e}")
             
-            return GrepResult(matches=matches)
+            return matches
             
         except ValueError as e:
-            return GrepResult(error=str(e))
+            return str(e)
         except Exception as e:
-            logger.error(f"grep failed: {e}")
-            return GrepResult(error=f"Error: {str(e)}")
+            logger.error(f"grep_raw failed: {e}")
+            return f"Error: {str(e)}"
 
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:
-        """Match files using glob pattern"""
+    def glob_info(self, pattern: str, path: str = "/") -> list:
+        """Match files using glob pattern (BackendProtocol interface)"""
         try:
             resolved_path = self._resolve_path(path)
             
             if not resolved_path.exists():
-                return GlobResult(error=f"Error: Path '{path}' not found")
+                return []
             
             matches = []
             for item in resolved_path.glob(pattern):
                 try:
                     stat = item.stat()
                     rel_path = self._get_relative_path(item)
-                    file_info = FileInfo(
-                        path=rel_path,
-                        is_dir=item.is_dir(),
-                        size=stat.st_size if item.is_file() else None,
-                        modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat()
-                    )
+                    abs_path = "/" + rel_path if not rel_path.startswith("/") else rel_path
+                    file_info = {
+                        "path": abs_path,
+                        "is_dir": item.is_dir(),
+                        "size": stat.st_size if item.is_file() else None,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    }
                     matches.append(file_info)
                 except Exception as e:
                     logger.warning(f"Failed to stat {item}: {e}")
             
-            return GlobResult(matches=matches)
+            return matches
             
         except ValueError as e:
-            return GlobResult(error=str(e))
+            logger.error(f"glob_info failed: {e}")
+            return []
         except Exception as e:
-            logger.error(f"glob failed: {e}")
-            return GlobResult(error=f"Error: {str(e)}")
+            logger.error(f"glob_info failed: {e}")
+            return []
 
 
 class FilesystemBackendFactory:

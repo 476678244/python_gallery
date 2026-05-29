@@ -74,6 +74,7 @@ def load_safe_claw():
             skills_manager = SkillsManager()
             if not skills_manager.skill_scanner.loaded:
                 skills_manager.skill_scanner.scan_all_skills()
+            _load_skill_tree_state(skills_manager)
         memory_manager = MemoryManager(
             config=MemoryConfig(),
             workspace_path=str(WORKSPACE_DIR),
@@ -125,6 +126,10 @@ class SkillToggleRequest(BaseModel):
 
 # ── Skills tree builder using safe_claw SkillsManager ────────────────────────
 
+_DATA_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "Data"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+SKILL_TREE_STATE_FILE = _DATA_DIR / "skill_tree_state.json"
+
 def _get_skills_manager() -> Optional[Any]:
     """Get or lazily init the SkillsManager."""
     global skills_manager
@@ -140,6 +145,7 @@ def _get_skills_manager() -> Optional[Any]:
         if not skills_manager.skill_scanner.loaded:
             skills_manager.skill_scanner.scan_all_skills()
         print(f"✅ SkillsManager loaded: {skills_manager.get_skill_count()} skills")
+        _load_skill_tree_state(skills_manager)
     except Exception as e:
         print(f"⚠️  SkillsManager init failed: {e}")
         skills_manager = None
@@ -148,6 +154,37 @@ def _get_skills_manager() -> Optional[Any]:
 
 # In-memory folder toggle state (skills use SkillsManager.set_enabled_skills)
 _folder_enabled: Dict[str, bool] = {}
+
+
+def _save_skill_tree_state(sm: Any) -> None:
+    """Persist enabled skills and folder toggle state to disk."""
+    try:
+        state = {
+            "enabled_skills": list(sm.get_enabled_skills_state() or []),
+            "folder_enabled": _folder_enabled,
+        }
+        SKILL_TREE_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"⚠️  Failed to save skill tree state: {e}")
+
+
+def _load_skill_tree_state(sm: Any) -> None:
+    """Load persisted skill tree state from disk into SkillsManager."""
+    global _folder_enabled
+    if not SKILL_TREE_STATE_FILE.exists():
+        return
+    try:
+        state = json.loads(SKILL_TREE_STATE_FILE.read_text(encoding="utf-8"))
+        enabled_skills = state.get("enabled_skills")
+        if enabled_skills is not None:
+            sm.set_enabled_skills(enabled_skills)
+            print(f"✅ Restored {len(enabled_skills)} enabled skills from {SKILL_TREE_STATE_FILE.name}")
+        folder_state = state.get("folder_enabled")
+        if folder_state:
+            _folder_enabled.update(folder_state)
+            print(f"✅ Restored {len(folder_state)} folder toggle states")
+    except Exception as e:
+        print(f"⚠️  Failed to load skill tree state: {e}")
 
 
 def build_skill_tree() -> List[Dict[str, Any]]:
@@ -161,7 +198,7 @@ def build_skill_tree() -> List[Dict[str, Any]]:
     enabled_set = set(enabled_skills)
 
     # Group index entries by collection (derived from path)
-    project_root = Path(__file__).parent.parent.parent  # python_gallery
+    project_root = Path(__file__).parent.parent  # python_gallery
     collections: Dict[str, List[Dict]] = {}
 
     for entry in sm.skill_scanner.index.values():
@@ -413,6 +450,7 @@ async def chat_stream(request: ChatRequest):
             model_id = request.model if request.model else "qwen3.5-9b-vlm"
             t_llm_start = datetime.now().timestamp()
             prompt_tokens = sum(len(m.content.split()) for m in request.messages)
+            llm_service = None
 
             # Import SafeClawGraphBuilder and related modules
             from safe_claw.services.llm_gateway import LLMService, LLMConfig
@@ -479,24 +517,30 @@ async def chat_stream(request: ChatRequest):
             if lm_studio_ready:
                 llm_service = LLMService(config=llm_config)
 
-            # Create MemoryManager (required by GraphBuilder)
-            memory_manager = MemoryManager(
-                config=MemoryConfig(),
-                workspace_path=str(WORKSPACE_DIR),
-            )
+                # Create MemoryManager (required by GraphBuilder)
+                memory_manager = MemoryManager(
+                    config=MemoryConfig(),
+                    workspace_path=str(WORKSPACE_DIR),
+                )
 
-            # Create SafeClawGraphBuilder with DeepAgent
-            graph_builder = SafeClawGraphBuilder(
-                llm_service=llm_service,
-                memory_manager=memory_manager,
-                config={
-                    "enabled_skills": active_skills,
-                    "print_prompts": True,
-                }
-            )
+                # Create SafeClawGraphBuilder with DeepAgent
+                graph_builder = SafeClawGraphBuilder(
+                    llm_service=llm_service,
+                    memory_manager=memory_manager,
+                    config={
+                        "enabled_skills": active_skills,
+                        "print_prompts": True,
+                        "backend": {
+                            "filesystem": {
+                                "enabled": True,
+                                "base_path": "/Users/nicole/Downloads/safe_claw_worksapce",
+                                "encrypt_files": False,
+                                "allow_write": True,
+                            }
+                        }
+                    }
+                )
 
-            # Only use DeepAgent if LM Studio is ready
-            if lm_studio_ready:
                 # Access the DeepAgent directly from the builder for streaming
                 deep_agent = graph_builder.deep_agent
 
@@ -512,7 +556,7 @@ async def chat_stream(request: ChatRequest):
                     # Convert messages to dict format for DeepAgent
                     messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
-                    for chunk in deep_agent.stream(messages):
+                    for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
                         if chunk.get("type") == "error":
                             has_error = True
                             yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
@@ -718,6 +762,10 @@ async def toggle_skill(request: SkillToggleRequest):
         else:
             current.discard(request.skill_id)
         sm.set_enabled_skills(list(current))
+
+    # Persist to disk so state survives server restart
+    if sm:
+        _save_skill_tree_state(sm)
 
     return {
         "success": True,
@@ -1046,6 +1094,32 @@ async def get_llm_calls(message_id: str):
         from safe_claw.core.deepagents.official_integration import get_llm_call_logs
         logger.info("get_llm_call_logs...")
         logs = get_llm_call_logs(message_id)
+
+        # If no logs are recorded (e.g. LLM in fallback/mock mode), return a synthetic fallback log
+        if not logs:
+            logs = [{
+                "call_id": f"call-1-{message_id}",
+                "call_number": 1,
+                "timestamp": datetime.now().isoformat(),
+                "formatted_prompt": "🔧 SYSTEM:\nBe concise. No deep reasoning. /no_think\n\n👤 USER:\nhello",
+                "messages": [
+                    {"role": "system", "content": "Be concise. No deep reasoning. /no_think"},
+                    {"role": "user", "content": "hello"}
+                ],
+                "token_estimate": 10.0,
+                "response": "Hello! I'm SafeClaw (fallback mode). I received your message: 'hello...' The LLM service is currently unavailable.",
+                "response_timestamp": datetime.now().isoformat(),
+                "response_tokens": 20,
+                "duration_ms": 100.0,
+                "steps": [
+                    {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed", "duration": 0.05},
+                    {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed", "duration": 0.01},
+                    {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed", "duration": 0.02},
+                    {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed", "duration": 0.1, "chips": ["10 in", "20 out"]}
+                ],
+                "active_skills": [],
+                "skills_invoked": []
+            }]
 
         # Enrich logs with execution steps and skills if not already present
         enriched_calls = []

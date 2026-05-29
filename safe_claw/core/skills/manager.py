@@ -77,7 +77,7 @@ class SkillsManager:
             List of skill directory paths as strings
         """
         try:
-            project_root = Path(__file__).parent.parent.parent.parent.parent
+            project_root = Path(__file__).parent.parent.parent.parent
             paths = []
             scanned_sources = []
             

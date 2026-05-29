@@ -33,7 +33,7 @@ class ToolManager:
 
         # Initialize tools
         self._initialize_builtin_tools()
-        self._initialize_skills_tools()
+        # self._initialize_skills_tools()
         self._combine_tools()
 
     def _initialize_builtin_tools(self):

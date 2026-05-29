@@ -143,8 +143,8 @@ class SafeClawDeepAgent:
         )
 
         # Context length monitoring
-        self.max_context_length = config.get("max_context_length", 8192) if config else 8192
-        self.system_prompt_limit = config.get("system_prompt_limit", 4096) if config else 4096
+        self.max_context_length = config.get("max_context_length", 18192) if config else 18192
+        self.system_prompt_limit = config.get("system_prompt_limit", 8192) if config else 8192
 
         self._initialize_agent()
 
@@ -356,8 +356,14 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
     def invoke(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         pass
 
-    def stream(self, messages: List[Dict[str, str]]):
-        """Stream DeepAgent response"""
+    def stream(self, messages: List[Dict[str, str]], message_id: str = "", session_id: str = ""):
+        """Stream DeepAgent response
+        
+        Args:
+            messages: List of message dicts with role/content
+            message_id: Backend message ID for LLM call log correlation
+            session_id: Session ID for context tracking
+        """
         if not self.deep_agent:
             yield {"content": "DeepAgent not initialized", "success": False}
             return
@@ -390,8 +396,9 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             # Create state for LangGraph with proper message format
             state = {
                 "messages": langchain_messages,
-                "session_id": "streamlit_session",
-                "user_id": "streamlit_user"
+                "session_id": session_id or "streamlit_session",
+                "user_id": "streamlit_user",
+                "message_id": message_id,  # Used by PromptLoggerMiddleware for log correlation
             }
 
             # Configure execution

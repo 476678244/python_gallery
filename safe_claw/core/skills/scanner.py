@@ -288,9 +288,9 @@ class SkillScanner:
             logger.warning(f"linked_skills entry point not found. Checked: {[str(p) for p in linked_skills_paths]}")
 
         # Entry point 2: skills/ - each subdir is a skill collection
-        skills_root = Path(__file__).parent.parent.parent / "skills"
+        skills_root = Path(__file__).parent.parent.parent.parent / "skills"
         if skills_root.exists():
-            logger.info(f"Scanning skills entry point: {streamlit_skills_root}")
+            logger.info(f"Scanning skills entry point: {skills_root}")
             for collection_dir in skills_root.iterdir():
                 if collection_dir.is_dir() or collection_dir.is_symlink():
                     # Handle symlinks same as above

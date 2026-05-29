@@ -103,6 +103,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     completeThinkingStep,
     setThinking,
     completeExecution,
+    remapExecution,
     handleExecutionStepEvent,
   } = useExecutionStore();
 
@@ -163,6 +164,12 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             skillsUsed: data.executionGraph?.metadata?.skillsUsed,
             totalDuration: data.timing?.totalDuration,
           });
+          // Remap execution to backend's message_id so PromptInspectPanel
+          // can fetch /llm-calls/{backend_msg_id} correctly
+          const backendMsgId = data.executionGraph?.messageId;
+          if (backendMsgId && backendMsgId !== streamingId) {
+            remapExecution(streamingId, backendMsgId);
+          }
           setThinking(false);
           // Persist after state update is flushed
           setTimeout(() => {
@@ -198,6 +205,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     addThinkingStep,
     completeStreaming,
     completeExecution,
+    remapExecution,
     cancelStreaming,
     handleExecutionStepEvent,
   ]);

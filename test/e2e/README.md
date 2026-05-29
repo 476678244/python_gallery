@@ -18,17 +18,37 @@
 
 ## 测试文件
 
+**统一测试入口：`test/e2e/`**（已从 `safeclaw-ui/my-app/tests/e2e/` 合并）
+
 | 文件 | 说明 |
 |------|------|
 | `basic-chat-flow-coding.spec.ts` | 基础对话 5 阶段 E2E 测试 |
-| `playwright.config.ts` | Playwright 配置（已废弃，使用 safeclaw-ui 中的配置） |
-
-**正式测试入口在 `safeclaw-ui/my-app/tests/e2e/`：**
-
-| 文件 | 说明 |
-|------|------|
-| `basic-chat-flow-coding.spec.ts` | 基础对话功能测试 |
+| `skill-tree.spec.ts` | **Skill Tree 4 主目录 E2E 测试** |
 | `skill-recognition-flow-coding.spec.ts` | Skill 路由识别测试 |
+| `skills-path-activation.spec.ts` | Skills Path 面板激活测试 |
+| `skills-path-panel.spec.ts` | Skills Path 面板 UI 测试 |
+| `skill-tree-reload-consistency.spec.ts` | Skill Tree 重载一致性测试 |
+| `skill-tree-session-switch.spec.ts` | Skill Tree 会话切换一致性测试 |
+| `skill-autocomplete.spec.ts` | Skill 自动补全测试 |
+| `sidebar.spec.ts` | 侧边栏 UI 测试 |
+| `safeclaw.spec.ts` | SafeClaw 综合测试 |
+| `chat-input-dropzone.spec.ts` | 聊天输入拖拽区测试 |
+| `exec-panel-chat.spec.ts` | 执行面板聊天测试 |
+| `prompt-inspect-panel.spec.ts` | Prompt 检查面板测试 |
+| `prompt-inspect-flow-coding.spec.ts` | **Prompt Inspect + Private Skills E2E (Flow Coding 5阶段)** |
+| `right-panel-resize.spec.ts` | 右侧面板调整大小测试 |
+| `right-panel-toggle.spec.ts` | 右侧面板开关测试 |
+| `playwright.config.ts` | Playwright 配置（headless: false） |
+| `global-teardown.ts` | 全局清理（kill 服务进程） |
+
+### Skill Tree 4 主目录
+
+| 目录 | 路径 | 类型 | 预期 skills |
+|------|------|------|-------------|
+| Private Skills | `skills/private_skills/` | 本地目录 | 6-10 |
+| Anthropic Skills | `linked_skills/anthropic_skills` | symlink → `/Users/nicole/workspace/github/skills/skills` | 15-20 |
+| Ljg Skills | `linked_skills/ljg-skills` | symlink → `/Users/nicole/workspace/github/ljg-skills/skills` | 18-25 |
+| Superpowers Skills | `linked_skills/superpowers_skills` | symlink → `/Users/nicole/workspace/github/superpowers/skills` | 12-18 |
 
 ---
 
@@ -71,15 +91,15 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 ### 运行测试
 
 ```bash
-# headed 模式（可视化浏览器，推荐调试）
+# 运行 Skill Tree 测试（headed 模式，推荐）
 cd /Users/nicole/workspace/github/a476678244/python_gallery/safeclaw-ui/my-app
-npx playwright test tests/e2e/basic-chat-flow-coding.spec.ts --headed
-
-# headless 模式（CI/无头）
-npx playwright test tests/e2e/basic-chat-flow-coding.spec.ts
+npx playwright test --config ../../test/e2e/playwright.config.ts skill-tree.spec.ts
 
 # 运行全部 E2E 测试
-npx playwright test tests/e2e/
+npx playwright test --config ../../test/e2e/playwright.config.ts
+
+# 运行特定测试文件
+npx playwright test --config ../../test/e2e/playwright.config.ts basic-chat-flow-coding.spec.ts
 
 # 查看测试报告
 npx playwright show-report
@@ -104,6 +124,7 @@ npx playwright show-report
 | Phase 3 | 2 轮对话后 user 消息 ≥ 2，assistant 消息 ≥ 2 |
 | Phase 4 | 连续 3 条消息均获得回复（失败时自动重建 session） |
 | Phase 5 | 最终回复长度 > 20，截图保存成功 |
+| Skill Tree T1-T10 | 4 主目录加载、toggle、persist、API 一致 |
 
 ---
 
@@ -123,7 +144,7 @@ npx playwright show-report
 - **playwright.config.ts 中 `headless: false`** — 默认有头模式，方便 Flow Coding 可视化确认
 - **`slowMo: 500`** — 降速操作，便于肉眼观察测试流程
 - **`retries: 1`** — Phase 4 自愈：失败后自动重试一次
-- **`afterAll` 中 cleanup** — 测试完毕自动 kill 临时启动的服务进程
+- **`globalTeardown`** — 测试完毕自动 kill 临时启动的服务进程
 - **`ensureSession` 双策略** — 先用 API 创建 session，再 fallback 到点击按钮
 
 ### 典型成功输出
