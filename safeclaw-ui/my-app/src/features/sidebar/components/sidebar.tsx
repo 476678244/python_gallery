@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, Plus, Shield, Loader2, Cpu } from "lucide-react";
 import { useSessionStore } from "@/stores/session-store";
 import { SessionList } from "./session-list";
@@ -68,12 +68,28 @@ const SIDEBAR_MODELS = [
 function ModelSection() {
   const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const selectedModel = currentSession?.settings?.model ?? "qwen3.5-9b-vlm";
+  const [globalModel, setGlobalModel] = useState<string | null>(null);
+  const selectedModel = currentSession?.settings?.model ?? globalModel ?? "qwen3.5-9b-vlm";
+
+  // Initialize from the persisted agent_config.json selection.
+  useEffect(() => {
+    fetch("/api/settings/model")
+      .then((r) => r.json())
+      .then((d) => setGlobalModel(d.model ?? null))
+      .catch(() => setGlobalModel(null));
+  }, []);
 
   const handleSelect = (modelId: string) => {
+    setGlobalModel(modelId);
     if (currentSessionId) {
       updateSessionSettings(currentSessionId, { model: modelId });
     }
+    // Persist globally to agent_config.json
+    fetch("/api/settings/model", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    }).catch(() => {});
   };
 
   return (

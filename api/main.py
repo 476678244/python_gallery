@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 
 import httpx
 
+# LM Studio endpoint (override via env or runtime via /settings/llm).
+# Local IP must bypass proxy -> trust_env=False on httpx clients.
+LM_STUDIO_BASE_URL = os.environ.get("LM_STUDIO_BASE_URL", "http://192.168.1.100:1234/v1")
+
+
+def _lm_studio_models_url() -> str:
+    """Derive the /models URL from the current base URL."""
+    return LM_STUDIO_BASE_URL.rstrip("/") + "/models"
+
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -128,7 +137,12 @@ class SkillToggleRequest(BaseModel):
 
 _DATA_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "Data"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
-SKILL_TREE_STATE_FILE = _DATA_DIR / "skill_tree_state.json"
+AGENT_CONFIG_FILE = _DATA_DIR / "agent_config.json"
+_LEGACY_SKILL_TREE_STATE_FILE = _DATA_DIR / "skill_tree_state.json"
+
+DEFAULT_MODEL = "qwen3.5-9b-vlm"
+# Globally selected agent model, persisted in agent_config.json.
+_selected_model: str = DEFAULT_MODEL
 
 def _get_skills_manager() -> Optional[Any]:
     """Get or lazily init the SkillsManager."""
@@ -156,35 +170,61 @@ def _get_skills_manager() -> Optional[Any]:
 _folder_enabled: Dict[str, bool] = {}
 
 
-def _save_skill_tree_state(sm: Any) -> None:
-    """Persist enabled skills and folder toggle state to disk."""
+def _save_agent_config(sm: Any) -> None:
+    """Persist agent config (enabled skills, folder toggles, model) to disk."""
     try:
-        state = {
-            "enabled_skills": list(sm.get_enabled_skills_state() or []),
+        config = {
+            "model": _selected_model,
+            "enabled_skills": list(sm.get_enabled_skills_state() or []) if sm else [],
             "folder_enabled": _folder_enabled,
         }
-        SKILL_TREE_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        AGENT_CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"⚠️  Failed to save skill tree state: {e}")
+        print(f"⚠️  Failed to save agent config: {e}")
 
 
-def _load_skill_tree_state(sm: Any) -> None:
-    """Load persisted skill tree state from disk into SkillsManager."""
-    global _folder_enabled
-    if not SKILL_TREE_STATE_FILE.exists():
-        return
+# Backwards-compatible alias
+_save_skill_tree_state = _save_agent_config
+
+
+def _load_agent_config(sm: Any) -> None:
+    """Load persisted agent config from disk into SkillsManager and globals."""
+    global _folder_enabled, _selected_model
+    # Migrate legacy skill_tree_state.json -> agent_config.json on first load.
+    config_file = AGENT_CONFIG_FILE
+    if not config_file.exists():
+        if _LEGACY_SKILL_TREE_STATE_FILE.exists():
+            config_file = _LEGACY_SKILL_TREE_STATE_FILE
+            print(f"ℹ️  Migrating legacy {config_file.name} -> {AGENT_CONFIG_FILE.name}")
+        else:
+            return
     try:
-        state = json.loads(SKILL_TREE_STATE_FILE.read_text(encoding="utf-8"))
-        enabled_skills = state.get("enabled_skills")
-        if enabled_skills is not None:
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        model = config.get("model")
+        if model:
+            _selected_model = model
+            print(f"✅ Restored selected model: {model}")
+        enabled_skills = config.get("enabled_skills")
+        if enabled_skills is not None and sm:
             sm.set_enabled_skills(enabled_skills)
-            print(f"✅ Restored {len(enabled_skills)} enabled skills from {SKILL_TREE_STATE_FILE.name}")
-        folder_state = state.get("folder_enabled")
+            print(f"✅ Restored {len(enabled_skills)} enabled skills from {config_file.name}")
+        folder_state = config.get("folder_enabled")
         if folder_state:
             _folder_enabled.update(folder_state)
             print(f"✅ Restored {len(folder_state)} folder toggle states")
+        # Write migrated config to the new file once the SkillsManager is available
+        # (avoid clobbering enabled_skills when sm is None at startup).
+        if config_file is _LEGACY_SKILL_TREE_STATE_FILE and sm:
+            _save_agent_config(sm)
     except Exception as e:
-        print(f"⚠️  Failed to load skill tree state: {e}")
+        print(f"⚠️  Failed to load agent config: {e}")
+
+
+# Backwards-compatible alias
+_load_skill_tree_state = _load_agent_config
+
+# Load persisted model selection at startup (skills loaded later on SM init).
+_load_agent_config(None)
 
 
 def build_skill_tree() -> List[Dict[str, Any]]:
@@ -279,9 +319,33 @@ WORKSPACE_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "workspace"
 DATA_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "Data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 MESSAGES_DIR = DATA_DIR / "messages"
+LLM_CONFIG_FILE = DATA_DIR / "llm_config.json"
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_llm_config() -> None:
+    """Load persisted LM Studio base URL, overriding the default if present."""
+    global LM_STUDIO_BASE_URL
+    if LLM_CONFIG_FILE.exists():
+        try:
+            data = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
+            url = data.get("base_url")
+            if url:
+                LM_STUDIO_BASE_URL = url
+                logger.info(f"Loaded LM Studio base URL from config: {url}")
+        except Exception as e:
+            logger.warning(f"Failed to load LLM config: {e}")
+
+
+def _save_llm_config() -> None:
+    LLM_CONFIG_FILE.write_text(
+        json.dumps({"base_url": LM_STUDIO_BASE_URL}, indent=2), encoding="utf-8"
+    )
+
+
+_load_llm_config()
 
 
 def _load_sessions() -> List[Dict[str, Any]]:
@@ -447,7 +511,7 @@ async def chat_stream(request: ChatRequest):
                         "chips": ["\u2713 done", f"{mem_dur}s", "3 memories"]})
 
             # ── Step 4: LLM call using SafeClawGraphBuilder ───────────────
-            model_id = request.model if request.model else "qwen3.5-9b-vlm"
+            model_id = request.model if request.model else _selected_model
             t_llm_start = datetime.now().timestamp()
             prompt_tokens = sum(len(m.content.split()) for m in request.messages)
             llm_service = None
@@ -466,7 +530,7 @@ async def chat_stream(request: ChatRequest):
                 provider="openai",
                 model=model_id,
                 api_key="lm-studio",
-                base_url="http://192.168.50.30:1234/v1",
+                base_url=LM_STUDIO_BASE_URL,
                 temperature=request.temperature,
                 max_tokens=512,
             )
@@ -476,8 +540,8 @@ async def chat_stream(request: ChatRequest):
             lm_ready = False
             lm_studio_ready = True  # Default to True, set to False on failure
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.get("http://192.168.50.30:1234/v1/models")
+                async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+                    resp = await client.get(_lm_studio_models_url())
                     if resp.status_code == 200:
                         models = resp.json().get("data", [])
                         lm_ready = any(m.get("id") == model_id for m in models)
@@ -819,7 +883,7 @@ async def create_session(request: SessionCreateRequest):
             "title": request.title,
             "status": "active",
             "message_count": 0,
-            "settings": {"model": request.model or "qwen3.5-9b-vlm", "enabled_skills": []},
+            "settings": {"model": request.model or _selected_model, "enabled_skills": []},
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "last_activity_at": datetime.now().isoformat()
@@ -1040,7 +1104,7 @@ async def get_available_models():
     """Query LM Studio for loaded models; fall back to static list."""
     try:
         async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-            resp = await client.get("http://192.168.50.30:1234/v1/models")
+            resp = await client.get(_lm_studio_models_url())
             if resp.status_code == 200:
                 data = resp.json()
                 models = [
@@ -1057,6 +1121,71 @@ async def get_available_models():
     except Exception:
         pass
     return {"models": FALLBACK_MODELS, "source": "fallback"}
+
+
+class LLMSettingsRequest(BaseModel):
+    base_url: str
+
+
+@app.get("/settings/llm")
+async def get_llm_settings():
+    """Return the current LM Studio base URL and live reachability."""
+    reachable = False
+    try:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+            resp = await client.get(_lm_studio_models_url())
+            reachable = resp.status_code == 200
+    except Exception:
+        reachable = False
+    return {"base_url": LM_STUDIO_BASE_URL, "reachable": reachable}
+
+
+@app.put("/settings/llm")
+async def update_llm_settings(request: LLMSettingsRequest):
+    """Update and persist the LM Studio base URL, then test reachability."""
+    global LM_STUDIO_BASE_URL
+    base_url = request.base_url.strip()
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid base_url '{base_url}': must start with http:// or https://",
+        )
+    LM_STUDIO_BASE_URL = base_url
+    _save_llm_config()
+    logger.info(f"LM Studio base URL updated to: {base_url}")
+
+    reachable = False
+    error: Optional[str] = None
+    try:
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+            resp = await client.get(_lm_studio_models_url())
+            reachable = resp.status_code == 200
+    except Exception as e:
+        error = str(e)
+    return {"base_url": LM_STUDIO_BASE_URL, "reachable": reachable, "error": error}
+
+
+class ModelSelectionRequest(BaseModel):
+    model: str
+
+
+@app.get("/settings/model")
+async def get_selected_model():
+    """Return the globally selected agent model."""
+    return {"model": _selected_model}
+
+
+@app.put("/settings/model")
+async def update_selected_model(request: ModelSelectionRequest):
+    """Update and persist the globally selected agent model in agent_config.json."""
+    global _selected_model
+    model = request.model.strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="model must not be empty")
+    _selected_model = model
+    _save_agent_config(_get_skills_manager())
+    logger.info(f"Selected agent model updated to: {model}")
+    return {"model": _selected_model}
 
 
 # File upload endpoint

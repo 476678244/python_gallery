@@ -12,6 +12,7 @@ import {
   apiCreateSession,
   apiDeleteSession,
   apiArchiveSession,
+  apiUpdateSession,
 } from "@/features/session/services/session-api";
 
 interface SessionState {
@@ -163,12 +164,21 @@ export const useSessionStore = create<SessionState & SessionActions>()(
         },
 
         updateSessionSettings: (sessionId, settings) => {
+          // Optimistic local update
           set((state) => {
             const session = state.sessions.find((s) => s.id === sessionId);
             if (session) {
               session.settings = { ...session.settings, ...settings };
               session.updatedAt = new Date();
             }
+          });
+          // Persist to backend so it auto-applies next time
+          apiUpdateSession(sessionId, { settings }).catch((error) => {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Failed to persist session settings";
+            set({ error: message });
           });
         },
 

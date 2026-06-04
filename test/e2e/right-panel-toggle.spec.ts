@@ -1,11 +1,15 @@
 /**
  * Right Panel Toggle Tests
  *
- * Tests panel open/collapse/close functionality:
- *   ① Click rail icon to open panel
- *   ② Click header to collapse/expand
- *   ③ Click rail icon again to close
- *   ④ Multiple panels open simultaneously
+ * Design: 2-state model — rail icon is an on/off switch.
+ *   Closed  → not rendered in DOM at all.
+ *   Open    → rendered in DOM; can be expanded or collapsed via header click.
+ *
+ * State transitions:
+ *   ① Click rail icon  → open panel (expanded by default)
+ *   ② Click header     → collapse (37px header-only, still in DOM)
+ *   ③ Click header     → expand back
+ *   ④ Click rail icon  → close panel (removed from DOM entirely)
  *
  * Requires Next.js running on http://localhost:3000
  */
@@ -16,6 +20,10 @@ import { test, expect, Page } from "@playwright/test";
 
 async function goto(page: Page) {
   await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  // Reset persisted UI state so no panels leak from previous tests
+  await page.evaluate(() => localStorage.removeItem("safeclaw-ui-store"));
+  await page.reload();
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(500);
 }
@@ -47,6 +55,12 @@ async function isPanelExpanded(page: Page, title: string): Promise<boolean> {
   return height > 40; // Expanded panels are taller than just header (37px)
 }
 
+/** Check if a panel title is completely absent from the DOM (not just hidden) */
+async function isPanelAbsent(page: Page, title: string): Promise<boolean> {
+  const panels = page.locator("div.border-b").filter({ hasText: new RegExp(title, "i") });
+  return (await panels.count()) === 0;
+}
+
 // ─── ① Basic Toggle ─────────────────────────────────────────────────────────
 
 test.describe("Right Panel · Basic Toggle", () => {
@@ -66,6 +80,24 @@ test.describe("Right Panel · Basic Toggle", () => {
     // Should be expanded (showing content)
     const expanded = await isPanelExpanded(page, "Execution Path");
     expect(expanded).toBe(true);
+  });
+
+  test("should only show opened panels and hide all others", async ({ page }) => {
+    await goto(page);
+
+    // Open only Skills panel
+    await togglePanel(page, "Skills");
+
+    // Skills should be visible
+    const skillsPanel = panelBody(page, "Skills Path");
+    await expect(skillsPanel).toBeVisible();
+
+    // All other panels should be completely absent from DOM
+    const otherTitles = ["Execution Path", "Prompt Budget", "Backend Log", "Shell", "Prompt Inspect", "Memory"];
+    for (const title of otherTitles) {
+      const absent = await isPanelAbsent(page, title);
+      expect(absent, `Expected "${title}" to be absent when only Skills is open`).toBe(true);
+    }
   });
 
   test("should collapse panel when clicking header", async ({ page }) => {
@@ -119,8 +151,29 @@ test.describe("Right Panel · Basic Toggle", () => {
     // Click rail button again to close
     await togglePanel(page, "Exec");
 
-    // Panel should be gone
-    await expect(execPanel).not.toBeVisible();
+    // Panel should be completely removed from DOM, not just hidden
+    const absent = await isPanelAbsent(page, "Execution Path");
+    expect(absent).toBe(true);
+  });
+
+  test("should close a collapsed panel when clicking rail icon", async ({ page }) => {
+    await goto(page);
+
+    // Open and then collapse via header click
+    await togglePanel(page, "Exec");
+    const header = panelHeader(page, "Execution Path");
+    await header.click();
+    await page.waitForTimeout(300);
+
+    // Collapsed panel is still in DOM (37px header only)
+    const execPanel = panelBody(page, "Execution Path");
+    const collapsedHeight = await execPanel.evaluate((el) => el.getBoundingClientRect().height);
+    expect(collapsedHeight).toBeLessThan(50);
+
+    // Click rail icon → panel is closed entirely (removed from DOM)
+    await togglePanel(page, "Exec");
+    const absent = await isPanelAbsent(page, "Execution Path");
+    expect(absent).toBe(true);
   });
 });
 

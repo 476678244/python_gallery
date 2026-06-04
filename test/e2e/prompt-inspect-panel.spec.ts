@@ -21,6 +21,10 @@ import { test, expect, Page } from "@playwright/test";
 async function goto(page: Page) {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  // Reset persisted UI state so no panels leak from previous tests
+  await page.evaluate(() => localStorage.removeItem("safeclaw-ui-store"));
+  await page.reload();
+  await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1000);
 }
 

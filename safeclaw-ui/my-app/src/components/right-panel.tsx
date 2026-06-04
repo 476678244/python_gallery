@@ -1162,10 +1162,12 @@ export function RightPanel() {
     .map((k) => k as RightPanelKey)
     .filter((k) => validPanelKeys.has(k));
 
-  const anyExpanded = expandedKeys.length > 0;
   const allKeys = openPanelKeys
     .map((k) => (k.startsWith("!") ? k.slice(1) : k) as RightPanelKey)
     .filter((k) => validPanelKeys.has(k));
+
+  const anyOpen = allKeys.length > 0;
+  const anyExpanded = expandedKeys.length > 0;
 
   // Auto-distribute heights when panel count changes (1-3 panels)
   // Only auto-distribute if all expanded panels have default height (not user-adjusted)
@@ -1212,19 +1214,19 @@ export function RightPanel() {
   return (
     <div className="flex flex-row h-screen flex-shrink-0">
       {/* Horizontal resize handle - on the LEFT side of the panel (next to chat) */}
-      {mounted && anyExpanded && (
+      {mounted && anyOpen && (
         <HorizontalResizeHandle onResize={handleWidthResize} />
       )}
 
-      {/* Accordion stack — hidden on SSR to avoid hydration mismatch */}
+      {/* Accordion stack — shown whenever at least one panel is open; hidden on SSR to avoid hydration mismatch */}
       <div
         className={cn(
           "flex flex-col border-l border-slate-200 bg-white overflow-x-hidden transition-all duration-220",
-          mounted && anyExpanded ? "opacity-100" : "w-0 opacity-0",
+          mounted && anyOpen ? "opacity-100" : "w-0 opacity-0",
           // Allow scrolling when >3 panels, otherwise fit to viewport
           expandedKeys.length > 3 ? "overflow-y-auto" : "overflow-y-hidden"
         )}
-        style={mounted && anyExpanded ? { width: rightPanelWidth } : undefined}
+        style={mounted && anyOpen ? { width: rightPanelWidth } : undefined}
       >
         {mounted && allKeys.map((key) => (
           <PanelCard

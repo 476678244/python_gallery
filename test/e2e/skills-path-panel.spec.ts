@@ -17,7 +17,17 @@ import { test, expect, Page } from "@playwright/test";
 async function goto(page: Page) {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  // Reset persisted UI state so no panels leak from previous tests
+  await page.evaluate(() => localStorage.removeItem("safeclaw-ui-store"));
+  await page.reload();
+  await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1000);
+}
+
+/** Check if a panel title is completely absent from the DOM */
+async function isPanelAbsent(page: Page, title: string): Promise<boolean> {
+  const panels = page.locator("div.border-b").filter({ hasText: new RegExp(title, "i") });
+  return (await panels.count()) === 0;
 }
 
 async function sendMessage(page: Page, message: string) {
@@ -47,6 +57,13 @@ test.describe("Skills Path Panel · Invocation & Consistency", () => {
     // Verify Skills Path panel header is visible
     const skillsPanelHeader = page.locator("text=Skills Path").first();
     await expect(skillsPanelHeader).toBeVisible();
+
+    // Only Skills Path should be rendered; other panels must be completely absent
+    const otherTitles = ["Execution Path", "Prompt Budget", "Backend Log", "Shell", "Prompt Inspect", "Memory"];
+    for (const title of otherTitles) {
+      const absent = await isPanelAbsent(page, title);
+      expect(absent, `Expected "${title}" to be absent when only Skills Path is open`).toBe(true);
+    }
 
     // Send a message to trigger skill invocations
     await sendMessage(page, "hello");
