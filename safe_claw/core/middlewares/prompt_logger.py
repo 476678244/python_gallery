@@ -216,7 +216,7 @@ class PromptLoggerMiddleware(AgentMiddleware):
                 msg_dict = msg.dict()
                 serialized.append({
                     "role": self._get_role_from_message(msg),
-                    "content": msg.content
+                    "content": self._stringify_content(msg.content)
                 })
             elif isinstance(msg, dict):  # Already a dict
                 serialized.append(msg)
@@ -226,6 +226,35 @@ class PromptLoggerMiddleware(AgentMiddleware):
                     "content": str(msg)
                 })
         return serialized
+
+    def _stringify_content(self, content) -> str:
+        """Render message content as readable text.
+
+        Multimodal content (list of parts) is collapsed to its text parts plus
+        compact placeholders for images, so base64 data URLs don't bloat logs.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    parts.append(str(part))
+                    continue
+                ptype = part.get("type")
+                if ptype == "text":
+                    parts.append(part.get("text", ""))
+                elif ptype == "image_url":
+                    url = (part.get("image_url") or {}).get("url", "")
+                    if url.startswith("data:"):
+                        mime = url[5:].split(";", 1)[0] or "image"
+                        parts.append(f"[image: {mime}, {len(url)} bytes base64]")
+                    else:
+                        parts.append(f"[image: {url}]")
+                else:
+                    parts.append(f"[{ptype}]")
+            return "\n".join(parts)
+        return str(content)
 
     def _get_role_from_message(self, msg) -> str:
         """Extract role from LangChain message object"""
@@ -248,11 +277,11 @@ class PromptLoggerMiddleware(AgentMiddleware):
         for msg in messages:
             if hasattr(msg, 'content'):  # LangChain message object
                 role = self._get_role_from_message(msg)
-                content = msg.content
+                content = self._stringify_content(msg.content)
                 tool_name = getattr(msg, 'name', None)
             elif isinstance(msg, dict):  # Dict message
                 role = msg.get("role", "unknown")
-                content = msg.get("content", "")
+                content = self._stringify_content(msg.get("content", ""))
                 tool_name = msg.get("name")
             else:
                 role = "unknown"

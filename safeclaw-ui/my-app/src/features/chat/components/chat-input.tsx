@@ -30,6 +30,16 @@ export interface UploadedFile {
   type: string;
 }
 
+// Read a File as a base64 data URL (e.g. "data:image/jpeg;base64,...")
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface SkillSuggestion {
   id: string;
   name: string;
@@ -131,10 +141,34 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
 
     // Get all messages for context
     const messages = getMessagesForSession(sessionId);
-    const apiMessages = messages.map((m) => ({
+    const apiMessages: { role: string; content: any }[] = messages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
+
+    // Inject image attachments as multimodal content into the last user message
+    // so vision-capable models (VLM) can actually "see" them.
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length > 0 && apiMessages.length > 0) {
+      try {
+        const imageParts = await Promise.all(
+          imageFiles.map(async (f) => ({
+            type: "image_url",
+            image_url: { url: await readFileAsDataUrl(f.file) },
+          }))
+        );
+        const lastIdx = apiMessages.length - 1;
+        apiMessages[lastIdx] = {
+          role: apiMessages[lastIdx].role,
+          content: [
+            ...(content ? [{ type: "text", text: content }] : []),
+            ...imageParts,
+          ],
+        };
+      } catch (err) {
+        console.error("Failed to encode image attachments:", err);
+      }
+    }
 
     // Start streaming
     const streamingId = startStreaming(sessionId);

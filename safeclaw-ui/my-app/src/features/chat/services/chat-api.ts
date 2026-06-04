@@ -7,8 +7,16 @@ import { Message, createAssistantMessage } from "@/entities/message";
 import { ExecutionGraph, createExecutionGraph, ExecutionStep } from "@/entities/execution";
 
 // Types
+// A single piece of message content: plain text, or a multimodal part
+// (e.g. { type: "text", text } or { type: "image_url", image_url: { url } })
+export type MessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type MessageContent = string | MessageContentPart[];
+
 export interface ChatStreamRequest {
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: MessageContent }[];
   sessionId?: string;
   enabledSkills?: string[];
   model?: string;

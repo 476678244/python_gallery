@@ -10,7 +10,7 @@ import sys
 import os
 import re
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, List, Dict, Any, Optional
+from typing import AsyncGenerator, List, Dict, Any, Optional, Union
 from datetime import datetime
 from pathlib import Path
 
@@ -104,7 +104,19 @@ def load_safe_claw():
 # Pydantic models
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    # content is either plain text or a multimodal array of parts
+    # (e.g. [{"type": "text", "text": ...}, {"type": "image_url", "image_url": {"url": ...}}])
+    content: Union[str, List[Dict[str, Any]]]
+
+    def text(self) -> str:
+        """Extract the plain-text portion of the message content."""
+        if isinstance(self.content, str):
+            return self.content
+        parts = []
+        for part in self.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+        return " ".join(parts)
 
 
 class ChatRequest(BaseModel):
@@ -441,7 +453,7 @@ async def chat_stream(request: ChatRequest):
             last_message = None
             for msg in reversed(request.messages):
                 if msg.role == "user":
-                    last_message = msg.content
+                    last_message = msg.text()
                     break
             
             if not last_message:
@@ -513,7 +525,7 @@ async def chat_stream(request: ChatRequest):
             # ── Step 4: LLM call using SafeClawGraphBuilder ───────────────
             model_id = request.model if request.model else _selected_model
             t_llm_start = datetime.now().timestamp()
-            prompt_tokens = sum(len(m.content.split()) for m in request.messages)
+            prompt_tokens = sum(len(m.text().split()) for m in request.messages)
             llm_service = None
 
             # Import SafeClawGraphBuilder and related modules
