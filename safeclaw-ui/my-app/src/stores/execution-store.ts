@@ -73,6 +73,9 @@ interface ExecutionActions {
   getExecutionPath: (messageId: string) => { name: string; duration: number }[];
   isExecutionComplete: (messageId: string) => boolean;
 
+  // Remap execution messageId (frontend UUID → backend message_id)
+  remapExecution: (oldMessageId: string, newMessageId: string) => void;
+
   // Cleanup
   clearExecution: (messageId: string) => void;
   clearAllExecutions: () => void;
@@ -327,6 +330,26 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
     isExecutionComplete: (messageId) => {
       const graph = get().getExecution(messageId);
       return graph?.status === "completed" || graph?.status === "error";
+    },
+
+    remapExecution: (oldMessageId, newMessageId) => {
+      if (!newMessageId || oldMessageId === newMessageId) return;
+      set((state) => {
+        // Remap in active executions
+        if (state.activeExecutions[oldMessageId]) {
+          const graph = state.activeExecutions[oldMessageId];
+          graph.messageId = newMessageId;
+          state.activeExecutions[newMessageId] = graph;
+          delete state.activeExecutions[oldMessageId];
+        }
+        // Remap in completed executions
+        if (state.completedExecutions[oldMessageId]) {
+          const graph = state.completedExecutions[oldMessageId];
+          graph.messageId = newMessageId;
+          state.completedExecutions[newMessageId] = graph;
+          delete state.completedExecutions[oldMessageId];
+        }
+      });
     },
 
     clearExecution: (messageId) => {

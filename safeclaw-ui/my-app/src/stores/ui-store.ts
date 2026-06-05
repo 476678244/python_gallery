@@ -132,14 +132,11 @@ export const useUIStore = create<UIState & UIActions>()(
 
       railToggle: (key) => {
         const keys = get().openPanelKeys;
-        if (keys.includes(key)) {
-          // collapse it
-          set({ openPanelKeys: keys.map((k) => (k === key ? "!" + key : k)) });
-        } else if (keys.includes("!" + key)) {
-          // expand it
-          set({ openPanelKeys: keys.map((k) => (k === "!" + key ? key : k)) });
+        if (keys.includes(key) || keys.includes("!" + key)) {
+          // Panel is already open (expanded or collapsed) → close it
+          set({ openPanelKeys: keys.filter((k) => k !== key && k !== "!" + key) });
         } else {
-          // add new (expanded)
+          // Panel is closed → open it (expanded by default)
           set({ openPanelKeys: [...keys, key] });
         }
       },

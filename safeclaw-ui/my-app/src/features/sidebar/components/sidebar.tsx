@@ -7,11 +7,12 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, Plus, Shield, Loader2, Cpu } from "lucide-react";
 import { useSessionStore } from "@/stores/session-store";
 import { SessionList } from "./session-list";
 import { SkillTreePanel } from "@/features/skills/components/skill-tree-panel";
+import { AVAILABLE_MODELS } from "@/entities/model";
 import { cn } from "@/shared/utils/cn";
 
 // ── Collapsible Section wrapper ───────────────────────────────────
@@ -56,24 +57,36 @@ function SbSection({
   );
 }
 
-// ── Model card ────────────────────────────────────────────────────
-const SIDEBAR_MODELS = [
-  { id: "qwen3.5-9b-vlm",       name: "Qwen3.5 9B",      sub: "9B · Q4_K_M · Loaded" },
-  { id: "gemma-4-e4b",          name: "Gemma 4 E4B",     sub: "7.5B · Q6_K · 6.71 GB" },
-  { id: "gemma-4-31b",          name: "Gemma 4 31B",     sub: "31B · Q4_K_M · 18.52 GB" },
-  { id: "qwen3.6-27b",          name: "Qwen3.6 27B",     sub: "27B · Q4_K_M · 16.28 GB" },
-  { id: "qwen/qwen3.5-35b-a3b", name: "Qwen3.5 35B A3B", sub: "35B-A3B · Q4_K_M · 20.56 GB" },
-];
+// ── Model card (derived from the single source of truth) ─────────
+const SIDEBAR_MODELS = AVAILABLE_MODELS
+  .filter((m) => m.isEnabled)
+  .map((m) => ({ id: m.id, name: m.name, sub: m.description ?? "" }));
 
 function ModelSection() {
   const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const selectedModel = currentSession?.settings?.model ?? "qwen3.5-9b-vlm";
+  const [globalModel, setGlobalModel] = useState<string | null>(null);
+  const selectedModel = currentSession?.settings?.model ?? globalModel ?? "qwen3.5-9b-vlm";
+
+  // Initialize from the persisted agent_config.json selection.
+  useEffect(() => {
+    fetch("/api/settings/model")
+      .then((r) => r.json())
+      .then((d) => setGlobalModel(d.model ?? null))
+      .catch(() => setGlobalModel(null));
+  }, []);
 
   const handleSelect = (modelId: string) => {
+    setGlobalModel(modelId);
     if (currentSessionId) {
       updateSessionSettings(currentSessionId, { model: modelId });
     }
+    // Persist globally to agent_config.json
+    fetch("/api/settings/model", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    }).catch(() => {});
   };
 
   return (

@@ -590,17 +590,71 @@ function ShellPanel() {
 }
 
 // ── Prompt Inspect ─────────────────────────────────────────────
+interface Message {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  name?: string; // for tool calls
+}
+
 interface LLMCall {
   call_id: string;
   call_number: number;
   timestamp: string;
-  messages: { role: string; content: string }[];
+  messages: Message[];
   formatted_prompt: string;
   token_estimate: number;
   response?: string;
   response_timestamp?: string;
   response_tokens?: number;
   duration_ms?: number;
+  model?: string;
+}
+
+// Role badge component
+function RoleBadge({ role, toolName }: { role: Message["role"]; toolName?: string }) {
+  const roleConfig = {
+    system: { icon: "🔧", label: "SYSTEM", color: "text-violet-600", bg: "bg-violet-50", border: "border-violet-200" },
+    user: { icon: "👤", label: "USER", color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200" },
+    assistant: { icon: "🤖", label: "ASSISTANT", color: "text-green-600", bg: "bg-green-50", border: "border-green-200" },
+    tool: { icon: "🔧", label: toolName ? `TOOL: ${toolName}` : "TOOL", color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
+  };
+
+  const config = roleConfig[role];
+
+  return (
+    <div className={cn("flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider", config.color)}>
+      <span>{config.icon}</span>
+      <span>{config.label}</span>
+    </div>
+  );
+}
+
+// Message content component
+function MessageContent({ content, role }: { content: string; role: Message["role"] }) {
+  const borderColor = {
+    system: "border-l-violet-300",
+    user: "border-l-blue-300",
+    assistant: "border-l-green-300",
+    tool: "border-l-orange-300",
+  }[role];
+
+  return (
+    <div className={cn("pl-3 border-l-2 text-[11px] text-slate-600 leading-relaxed", borderColor)}>
+      {content}
+    </div>
+  );
+}
+
+// Prompt message component
+function PromptMessage({ message, isLast }: { message: Message; isLast: boolean }) {
+  return (
+    <div className={cn("pb-3", !isLast && "border-b border-slate-100 mb-3")}>
+      <RoleBadge role={message.role} toolName={message.name} />
+      <div className="mt-1">
+        <MessageContent content={message.content} role={message.role} />
+      </div>
+    </div>
+  );
 }
 
 function PromptInspectPanel() {
@@ -663,6 +717,9 @@ function PromptInspectPanel() {
   const hasNext = currentCallIndex < calls.length - 1;
   const hasPrev = currentCallIndex > 0;
 
+  // Calculate total tokens for current call
+  const totalTokens = (currentCall?.token_estimate || 0) + (currentCall?.response_tokens || 0);
+
   if (isLoading && calls.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 text-xs p-4">
@@ -674,42 +731,52 @@ function PromptInspectPanel() {
 
   if (calls.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400 text-xs text-center p-4">
-        <Eye className="w-8 h-8 text-slate-300" />
-        No LLM calls recorded yet.
-        <span className="text-slate-300">Send a message to see prompt logs.</span>
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400 text-xs text-center p-4">
+        <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
+          <Eye className="w-7 h-7 text-slate-300" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-500 mb-1">No LLM calls recorded yet</p>
+          <p className="text-slate-400">Send a message to see prompt logs</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Navigation Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+    <div className="flex flex-col h-full bg-white">
+      {/* Navigation Header - "LLM Calls N of M" */}
+      <div className="flex items-center justify-between px-3 py-2.5 bg-white border-b border-slate-200">
         <button
           onClick={prevCall}
           disabled={!hasPrev}
           className={cn(
-            "p-1 rounded transition-colors",
-            hasPrev ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            "w-8 h-8 flex items-center justify-center rounded-lg transition-all",
+            hasPrev
+              ? "hover:bg-slate-100 text-slate-600 bg-slate-50"
+              : "text-slate-300 cursor-not-allowed bg-transparent"
           )}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
         <div className="text-center">
-          <p className="text-[11px] font-semibold text-red-600">
+          <p className="text-[12px] font-bold text-red-600 tracking-wide">
             LLM Calls {currentCallIndex + 1} of {totalCalls || calls.length}
           </p>
-          <p className="text-[9px] text-slate-400">
-            {currentCall?.duration_ms ? `${currentCall.duration_ms.toFixed(0)}ms` : "pending"}
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            {currentCall?.duration_ms
+              ? `${currentCall.duration_ms.toFixed(0)}ms • ${totalTokens.toLocaleString()} tokens`
+              : "pending..."}
           </p>
         </div>
         <button
           onClick={nextCall}
           disabled={!hasNext}
           className={cn(
-            "p-1 rounded transition-colors",
-            hasNext ? "hover:bg-slate-200 text-slate-600" : "text-slate-300 cursor-not-allowed"
+            "w-8 h-8 flex items-center justify-center rounded-lg transition-all",
+            hasNext
+              ? "hover:bg-slate-100 text-slate-600 bg-slate-50"
+              : "text-slate-300 cursor-not-allowed bg-transparent"
           )}
         >
           <ChevronRight className="w-4 h-4" />
@@ -718,66 +785,105 @@ function PromptInspectPanel() {
 
       {/* Call Details */}
       {currentCall && (
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className="flex-1 overflow-y-auto bg-slate-50/50">
           {/* Prompt Section */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-600">Prompt Input</p>
-              <span className="text-[9px] text-slate-400">
-                ~{currentCall.token_estimate?.toFixed(0)} tokens
-              </span>
-            </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
-              <div
-                className="p-2.5 text-[11px] text-slate-700 whitespace-pre-wrap font-mono leading-relaxed"
-                style={{ maxHeight: "200px", overflowY: "auto" }}
-              >
-                {currentCall.formatted_prompt || "No prompt data"}
+          <div className="p-3">
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              {/* Section Header */}
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                  Prompt Input
+                </span>
+                <span className="text-[9px] text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  ~{currentCall.token_estimate?.toLocaleString() || "0"} tokens
+                </span>
+              </div>
+              {/* Messages */}
+              <div className="p-3 space-y-3" style={{ maxHeight: "200px", overflowY: "auto" }}>
+                {currentCall.messages && currentCall.messages.length > 0 ? (
+                  currentCall.messages.map((msg, i) => (
+                    <PromptMessage
+                      key={i}
+                      message={msg}
+                      isLast={i === currentCall.messages.length - 1}
+                    />
+                  ))
+                ) : currentCall.formatted_prompt ? (
+                  <div className="text-[11px] text-slate-600 whitespace-pre-wrap font-mono leading-relaxed">
+                    {currentCall.formatted_prompt}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic">No prompt data available</div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Response Section */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-green-600">Response</p>
-              <span className="text-[9px] text-slate-400">
-                {currentCall.response_tokens ? `${currentCall.response_tokens} tokens` : "pending"}
-              </span>
-            </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-green-50/30">
-              {currentCall.response ? (
-                <div
-                  className="p-2.5 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed"
-                  style={{ maxHeight: "200px", overflowY: "auto" }}
-                >
-                  {currentCall.response}
-                </div>
-              ) : (
-                <div className="p-3 text-center text-slate-400 text-[11px]">
-                  Waiting for response...
-                  {execution?.status === "running" && (
-                    <div className="mt-2 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                  )}
-                </div>
-              )}
+          <div className="px-3 pb-3">
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              {/* Section Header */}
+              <div className="flex items-center justify-between px-3 py-2 bg-green-50/50 border-b border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-green-600">
+                  Response
+                </span>
+                <span className="text-[9px] text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {currentCall.response_tokens
+                    ? `${currentCall.response_tokens.toLocaleString()} tokens`
+                    : "waiting..."}
+                </span>
+              </div>
+              {/* Response Content */}
+              <div className="bg-green-50/20">
+                {currentCall.response ? (
+                  <div
+                    className="p-3 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed border-l-3 border-green-400"
+                    style={{ maxHeight: "200px", overflowY: "auto" }}
+                  >
+                    {currentCall.response}
+                  </div>
+                ) : (
+                  <div className="p-6 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <span className="text-[11px]">Waiting for response...</span>
+                    {execution?.status === "running" && (
+                      <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Metadata */}
-          <div className="pt-2 border-t border-slate-200">
-            <p className="text-[9px] text-slate-400 mb-1.5">Call Metadata</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-slate-50 rounded px-2 py-1.5">
-                <p className="text-[9px] text-slate-400">Call ID</p>
-                <p className="text-[10px] font-mono text-slate-700 truncate">{currentCall.call_id?.slice(-8)}</p>
+          {/* Metadata Footer */}
+          <div className="px-3 pb-3">
+            <div className="flex items-center gap-4 px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400">Call ID:</span>
+                <span className="text-[10px] font-mono font-semibold text-slate-700">
+                  {currentCall.call_id?.slice(-8) || "—"}
+                </span>
               </div>
-              <div className="bg-slate-50 rounded px-2 py-1.5">
-                <p className="text-[9px] text-slate-400">Time</p>
-                <p className="text-[10px] text-slate-700">
-                  {new Date(currentCall.timestamp).toLocaleTimeString()}
-                </p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400">Time:</span>
+                <span className="text-[10px] font-semibold text-slate-700">
+                  {currentCall.timestamp
+                    ? new Date(currentCall.timestamp).toLocaleTimeString("en-US", {
+                        hour12: false,
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })
+                    : "—"}
+                </span>
               </div>
+              {currentCall.model && (
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <span className="text-[10px] text-slate-400">Model:</span>
+                  <span className="text-[10px] font-semibold text-slate-700">
+                    {currentCall.model}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1056,10 +1162,12 @@ export function RightPanel() {
     .map((k) => k as RightPanelKey)
     .filter((k) => validPanelKeys.has(k));
 
-  const anyExpanded = expandedKeys.length > 0;
   const allKeys = openPanelKeys
     .map((k) => (k.startsWith("!") ? k.slice(1) : k) as RightPanelKey)
     .filter((k) => validPanelKeys.has(k));
+
+  const anyOpen = allKeys.length > 0;
+  const anyExpanded = expandedKeys.length > 0;
 
   // Auto-distribute heights when panel count changes (1-3 panels)
   // Only auto-distribute if all expanded panels have default height (not user-adjusted)
@@ -1081,7 +1189,7 @@ export function RightPanel() {
 
     // Check if all expanded panels have default height
     const allDefault = expandedKeys.every(
-      (key) => panelHeights[key] === DEFAULT_HEIGHT
+      (key) => (panelHeights as Record<RightPanelKey, number>)[key] === DEFAULT_HEIGHT
     );
 
     if (allDefault) {
@@ -1106,19 +1214,19 @@ export function RightPanel() {
   return (
     <div className="flex flex-row h-screen flex-shrink-0">
       {/* Horizontal resize handle - on the LEFT side of the panel (next to chat) */}
-      {mounted && anyExpanded && (
+      {mounted && anyOpen && (
         <HorizontalResizeHandle onResize={handleWidthResize} />
       )}
 
-      {/* Accordion stack — hidden on SSR to avoid hydration mismatch */}
+      {/* Accordion stack — shown whenever at least one panel is open; hidden on SSR to avoid hydration mismatch */}
       <div
         className={cn(
           "flex flex-col border-l border-slate-200 bg-white overflow-x-hidden transition-all duration-220",
-          mounted && anyExpanded ? "opacity-100" : "w-0 opacity-0",
+          mounted && anyOpen ? "opacity-100" : "w-0 opacity-0",
           // Allow scrolling when >3 panels, otherwise fit to viewport
           expandedKeys.length > 3 ? "overflow-y-auto" : "overflow-y-hidden"
         )}
-        style={mounted && anyExpanded ? { width: rightPanelWidth } : undefined}
+        style={mounted && anyOpen ? { width: rightPanelWidth } : undefined}
       >
         {mounted && allKeys.map((key) => (
           <PanelCard

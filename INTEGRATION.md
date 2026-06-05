@@ -1,6 +1,6 @@
 # SafeClaw Integration Guide
 
-整合 Next.js UI (safeclaw-ui) 与 SafeClaw Python 后端 (streamlit_ui/safe_claw)
+整合 Next.js UI (safeclaw-ui) 与 SafeClaw Python 后端 (safe_claw)
 
 ## 架构
 

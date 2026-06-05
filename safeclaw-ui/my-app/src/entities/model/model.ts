@@ -3,8 +3,8 @@
  * Represents AI models available in the system
  */
 
-export type ModelProvider = "openai" | "anthropic" | "google" | "local" | "custom";
-export type ModelCapability = "chat" | "vision" | "code" | "reasoning" | "function_calling" | "json_mode";
+export type ModelProvider = "openai" | "anthropic" | "google" | "local" | "custom" | "lm-studio" | "deepseek";
+export type ModelCapability = "chat" | "vision" | "code" | "reasoning" | "function_calling" | "json_mode" | "embeddings";
 
 export interface ModelPricing {
   inputPricePer1K: number; // USD
@@ -110,6 +110,36 @@ export const AVAILABLE_MODELS: Model[] = [
     capabilities: {
       maxTokens: 32768,
       contextWindow: 128000,
+      supportedModes: ["chat", "code", "reasoning", "function_calling"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+  },
+  {
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    description: "Cloud · fast · deepseek.com",
+    icon: "deepseek",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 65536,
+      supportedModes: ["chat", "code", "reasoning", "function_calling"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+  },
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    provider: "deepseek",
+    description: "Cloud · thinking · deepseek.com",
+    icon: "deepseek",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 65536,
       supportedModes: ["chat", "code", "reasoning", "function_calling"],
       supportsStreaming: true,
       supportsSystemPrompt: true,

@@ -30,6 +30,16 @@ export interface UploadedFile {
   type: string;
 }
 
+// Read a File as a base64 data URL (e.g. "data:image/jpeg;base64,...")
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface SkillSuggestion {
   id: string;
   name: string;
@@ -47,7 +57,7 @@ import { useSessionStore } from "@/stores/session-store";
 
 export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, onFileUpload }: ChatInputProps) {
   // Get session from store if not provided via props
-  const { currentSessionId } = useSessionStore();
+  const { currentSessionId, sessions } = useSessionStore();
   const sessionId = sessionIdProp ?? currentSessionId;
   const disabled = disabledProp ?? !sessionId;
   const [input, setInput] = useState("");
@@ -103,6 +113,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     completeThinkingStep,
     setThinking,
     completeExecution,
+    remapExecution,
     handleExecutionStepEvent,
   } = useExecutionStore();
 
@@ -130,10 +141,34 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
 
     // Get all messages for context
     const messages = getMessagesForSession(sessionId);
-    const apiMessages = messages.map((m) => ({
+    const apiMessages: { role: string; content: any }[] = messages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
+
+    // Inject image attachments as multimodal content into the last user message
+    // so vision-capable models (VLM) can actually "see" them.
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length > 0 && apiMessages.length > 0) {
+      try {
+        const imageParts = await Promise.all(
+          imageFiles.map(async (f) => ({
+            type: "image_url",
+            image_url: { url: await readFileAsDataUrl(f.file) },
+          }))
+        );
+        const lastIdx = apiMessages.length - 1;
+        apiMessages[lastIdx] = {
+          role: apiMessages[lastIdx].role,
+          content: [
+            ...(content ? [{ type: "text", text: content }] : []),
+            ...imageParts,
+          ],
+        };
+      } catch (err) {
+        console.error("Failed to encode image attachments:", err);
+      }
+    }
 
     // Start streaming
     const streamingId = startStreaming(sessionId);
@@ -141,10 +176,15 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     setThinking(true);
 
     // Stream chat
+    // Resolve current model from session settings
+    const currentSession = sessions.find((s) => s.id === sessionId);
+    const currentModel = currentSession?.settings?.model;
+
     await streamChat(
       {
         messages: apiMessages,
         sessionId: sessionId,
+        model: currentModel,
       },
       {
         onThinking: (step) => {
@@ -163,6 +203,12 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             skillsUsed: data.executionGraph?.metadata?.skillsUsed,
             totalDuration: data.timing?.totalDuration,
           });
+          // Remap execution to backend's message_id so PromptInspectPanel
+          // can fetch /llm-calls/{backend_msg_id} correctly
+          const backendMsgId = data.executionGraph?.messageId;
+          if (backendMsgId && backendMsgId !== streamingId) {
+            remapExecution(streamingId, backendMsgId);
+          }
           setThinking(false);
           // Persist after state update is flushed
           setTimeout(() => {
@@ -190,6 +236,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     input,
     isStreaming,
     sessionId,
+    sessions,
     addUserMessage,
     getMessagesForSession,
     startStreaming,
@@ -198,6 +245,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     addThinkingStep,
     completeStreaming,
     completeExecution,
+    remapExecution,
     cancelStreaming,
     handleExecutionStepEvent,
   ]);

@@ -1,4 +1,4 @@
-# Flow Coding（心流编码）
+# Flow Coding（川流编程）
 
 > 在 Vibe Coding 的基础上，闭合开发内循环的最后一公里。
 
@@ -50,7 +50,16 @@ Vibe：  描述意图 → AI 生成代码 → 运行 → 调试 → 重复
 
 ## 二、定义：什么是 Flow Coding
 
-**Flow Coding（心流编码）** 是一种软件开发范式：在 Vibe Coding（AI 辅助代码生成）的基础上，通过浏览器自动化工具（如 Playwright）将验证环节也完全自动化，使开发者的注意力始终停留在「意图表达」与「判断」层面，不被任何中间操作打断，从而持续处于 Mihaly Csikszentmihalyi 所定义的心流状态（Flow State）。
+**Flow Coding（川流编程）** 是一种软件开发范式：在 Vibe Coding（AI 辅助代码生成）的基础上，通过浏览器自动化工具（如 Playwright）将验证环节也完全自动化，使开发者的注意力始终停留在「意图表达」与「判断」层面，不被任何中间操作打断，从而持续处于 Mihaly Csikszentmihalyi 所定义的心流状态（Flow State）。
+
+### 命名释义：为什么是「川流」
+
+「川流」比「心流」更贴合本范式的理念。它有两层含义：
+
+1. **过程之川**：开发不再是「写代码 → 停下来手动验证 → 再写」的断点式跳跃，而是「意图 → 生成 → 验证 → 修复」如河川般连续不断、奔流向前的过程——*川流不息*。
+2. **双源汇流**：生产端（Vibe Coding）与验证端（Dev Automation）两股自动化支流汇入同一条主干，形成端到端的闭合水系；正如《论语》「逝者如斯夫，不舍昼夜」，开发内循环持续流动、永不停滞。
+
+「心流（Flow State）」描述的是开发者的*心理状态*（结果），「川流」描述的是达成这一状态的*工作流形态*（手段）——以连续不断的自动化川流，承载并保持开发者的心流。
 
 ### 公式
 
@@ -172,6 +181,29 @@ AI：    → 生成 Playwright 脚本
 
 开发者从"每轮都要'变成'只看最后一轮"——注意力守恒从"减少切换"升级为"消除中间轮次的注意力消耗"。
 
+#### 自愈的范围：端到端，而非只改前端
+
+自我修复**不限于修改前端代码**。Flow Coding 验证的是**端到端的产品功能完整性**，因此碰到问题时必须：
+
+1. **先定位问题来源**：根据 console error / network error / 断言失败 / API 响应，判断根因在前端、后端、数据层还是接口契约。
+2. **在正确的位置修改**：前端、后端代码均可修改，遵循"最小上游修复优于下游绕过"，对症修复根因而非掩盖症状。
+
+#### 自愈的边界：3 × 3 原则（防止无限迭代）
+
+自愈循环**禁止无限制迭代**。采用 3 × 3 收敛策略：
+
+- **单方向最多 3 次**：沿同一修复方向（同一根因假设）最多迭代尝试 3 次修正。
+- **方向最多切换 3 次**：若一个方向 3 次仍未解决，判定该假设错误，切换到新方向（新的根因假设）；方向切换最多 3 次。
+- **触顶即停、回报开发者**：达到 3 × 3 上限（最多 9 次尝试）仍未收敛时，停止自动循环，汇总各方向的尝试与失败证据，交回开发者判断。
+
+```
+方向 A：尝试 1 → 尝试 2 → 尝试 3   (未解决，切换方向)
+方向 B：尝试 1 → 尝试 2 → 尝试 3   (未解决，切换方向)
+方向 C：尝试 1 → 尝试 2 → 尝试 3   (仍未解决 → 停止，回报开发者)
+```
+
+这保证自愈在高信任层高效收敛的同时，不会陷入无意义的"反复试错"消耗。
+
 ### 原则 3：注意力守恒
 
 开发者的注意力是稀缺资源。每一次从"对话窗口"切到"浏览器"再切回来，都有 ~15 秒的上下文切换成本（认知心理学中称为 Attention Residue，Sophie Leroy, 2009）。Flow Coding 的目标是将切换次数降到零。
@@ -271,6 +303,79 @@ Flow Coding 不依赖特定工具，但以下是当前最成熟的组合：
 |------|----------|------|
 | 一键触发 | IDE Task / npm script / Makefile | 开发者在对话窗口说"跑一下"即可触发 |
 | 结果回传 | 截图文件 + JSON 报告 | AI 可读取截图和报告，进入下一轮迭代 |
+
+### 可复用模板：Playwright（TS）验证端脚手架
+
+以下为开箱即用的 Playwright TS 模板，约定：**验证端只用 Playwright TS 脚本，不写任何 Python 测试脚本**，统一分辨率 1920×1080。将两个文件放入独立的 `test/e2e/` 目录即可作为一个自包含的验证工程。
+
+**`test/e2e/package.json`**
+
+```json
+{
+  "name": "<project>-e2e-tests",
+  "private": true,
+  "description": "E2E tests (Playwright)",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
+```
+
+**`test/e2e/playwright.config.ts`**
+
+```ts
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: ".",
+  timeout: 150_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  retries: 1, // Phase 4: Self-healing - retry once on failure
+  reporter: [["list"], ["html", { open: "never" }]],
+  use: {
+    baseURL: process.env.FRONTEND_URL || "http://localhost:3000",
+    trace: "on-first-retry",
+    video: "on-first-retry",
+    screenshot: "on",
+    headless: false, // Show browser window for visual confirmation
+    launchOptions: {
+      slowMo: 500, // Slow down operations for better visibility
+    },
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1920, height: 1080 }, // Flow Coding standard resolution
+      },
+    },
+  ],
+});
+```
+
+**初始化与运行**
+
+```bash
+cd test/e2e
+npm install
+npx playwright install chromium
+npx playwright test               # 运行全部 spec
+npx playwright test <spec>.spec.ts  # 运行单个 spec
+```
+
+**模板约定**
+
+- **只用 TS**：所有验证逻辑（含 API 断言）都写在 `*.spec.ts` 中，通过 `page.request` 直接调用后端，无需 Python 脚本。
+- **固定分辨率**：viewport 统一 1920×1080，保证截图基线在不同机器上可复现。
+- **自愈友好**：`retries: 1` + `trace/video/screenshot` 便于 AI 读取失败上下文并自动修复。
+- **可视确认**：`headless: false` + `slowMo` 便于人在终点判断。
 
 ---
 
@@ -448,13 +553,17 @@ When major structural shifts occur, the selectors/assertions in existing tests w
 
 ### PHASE 4: SELF-HEALING LOOP (AUTOMATED RUN & FIX)
 
-Run the tests and feed failures back into the development engine.
+Run the tests and feed failures back into the development engine. The goal is **end-to-end product integrity**, not just frontend correctness.
 
 1. Run the test suite.
 2. Capture any failures (locators missing, timing races, async state mismatches, wrong response shapes).
-3. **Analyze Root Cause**: Pinpoint if it's a render timing delay, a React state-update race, a data model gap, or a missing field.
-4. **Auto-correct**: Edit code directly to resolve the issue.
-5. **Repeat**: Re-run and fix until 100% of the tests pass.
+3. **Locate the source first**: Use console error / network error / assertion failure / API response shape to decide whether the root cause lives in the **frontend, backend, data layer, or API contract**. Do not assume it is always a frontend issue.
+4. **Fix at the correct location**: Edit frontend **and/or** backend code as needed. Prefer minimal upstream fixes over downstream workarounds; fix the root cause, never mask the symptom.
+5. **Bounded iteration — the 3 × 3 rule** (no infinite loops):
+   - **Max 3 attempts per direction**: Iterate up to 3 fixes along the same root-cause hypothesis.
+   - **Max 3 direction switches**: If 3 attempts fail, the hypothesis is likely wrong — switch to a new direction (new root-cause hypothesis), up to 3 switches.
+   - **Stop at the ceiling**: If the 3 × 3 limit (max 9 attempts) is reached without convergence, halt the loop, summarize each direction's attempts and failure evidence, and hand back to the developer.
+6. **Repeat**: Re-run and fix within the 3 × 3 budget until 100% of the tests pass.
 
 ### PHASE 5: FINAL CONVERGENCE & CONFIRMATION
 
