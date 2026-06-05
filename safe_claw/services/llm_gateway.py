@@ -397,6 +397,98 @@ class OllamaGateway(BaseLLMGateway):
         }
 
 
+class DeepSeekGateway(BaseLLMGateway):
+    """DeepSeek open-platform gateway (OpenAI-compatible API)"""
+
+    DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+
+    def __init__(self, config: LLMConfig):
+        self.config = config
+        model_kwargs = {
+            "model": config.model,
+            "api_key": config.api_key,
+            "base_url": config.base_url or self.DEEPSEEK_BASE_URL,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "streaming": True,
+        }
+        if config.show_thinking:
+            model_kwargs["model_kwargs"] = {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "high",
+            }
+        self.llm = ChatOpenAI(**model_kwargs)
+
+    def _convert_messages(self, messages: List[Dict[str, str]]) -> List:
+        """Convert message dicts to LangChain messages"""
+        lc_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                lc_messages.append(SystemMessage(content=msg["content"]))
+            elif msg["role"] == "user":
+                lc_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                lc_messages.append(AIMessage(content=msg["content"]))
+        return lc_messages
+
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream DeepSeek response"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            _debug_prompt(lc_messages, "Stream")
+            for chunk in self.llm.stream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+            logger.info("🔍 DEBUG: === DeepSeek Stream 完成 ===")
+        except Exception as e:
+            logger.error(f"DeepSeek streaming error: {e}")
+            yield f"Error: {str(e)}"
+
+    def invoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke DeepSeek synchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            _debug_prompt(lc_messages, "Invoke")
+            response = self.llm.invoke(lc_messages)
+            logger.info("🔍 DEBUG: === DeepSeek 调用完成 ===")
+            logger.info(f"🔍 DEBUG: 响应长度: {len(response.content)} 字符")
+            return response.content
+        except Exception as e:
+            logger.error(f"DeepSeek invoke error: {e}")
+            return f"Error: {str(e)}"
+
+    async def astream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """Stream DeepSeek response asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            async for chunk in self.llm.astream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"DeepSeek async streaming error: {e}")
+            yield f"Error: {str(e)}"
+
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> str:
+        """Invoke DeepSeek asynchronously"""
+        try:
+            lc_messages = self._convert_messages(messages)
+            response = await self.llm.ainvoke(lc_messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"DeepSeek async invoke error: {e}")
+            return f"Error: {str(e)}"
+
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get DeepSeek model info"""
+        return {
+            "provider": "deepseek",
+            "model": self.config.model,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "base_url": self.config.base_url or self.DEEPSEEK_BASE_URL,
+        }
+
+
 class LLMGatewayFactory:
     """Factory for creating LLM gateways"""
     
@@ -416,6 +508,8 @@ class LLMGatewayFactory:
                 return OllamaGateway(config)
             elif config.provider == "google":
                 return GoogleGateway(config)
+            elif config.provider == "deepseek":
+                return DeepSeekGateway(config)
             else:
                 raise ValueError(f"Unsupported LLM provider: {config.provider}")
         except Exception as e:

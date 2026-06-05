@@ -286,6 +286,7 @@ class SafeClawDeepAgent:
             "anthropic": f"anthropic:{llm_config.model}",
             "ollama": f"ollama:{llm_config.model}",
             "google": f"google:{llm_config.model}",
+            "deepseek": f"openai:{llm_config.model}",
         }
 
         model_string = provider_model_map.get(
@@ -293,13 +294,18 @@ class SafeClawDeepAgent:
             f"openai:{llm_config.model}"  # Default to OpenAI
         )
 
+        # DeepSeek uses OpenAI-compatible API at https://api.deepseek.com
+        base_url = llm_config.base_url
+        if llm_config.provider == "deepseek" and not base_url:
+            base_url = "https://api.deepseek.com"
+
         # Create model with basic configuration
         # Note: context length is handled by the LM Studio server configuration
         # The LangChain OpenAI client doesn't need explicit context length setting
         model_kwargs = {
             "model": model_string,
             "api_key": llm_config.api_key,
-            "base_url": llm_config.base_url,
+            "base_url": base_url,
             "temperature": llm_config.temperature,
             "max_tokens": llm_config.max_tokens,
         }

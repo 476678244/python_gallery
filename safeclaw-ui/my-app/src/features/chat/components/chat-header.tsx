@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from "react";
 import { Session } from "@/entities/session";
-import { AVAILABLE_MODELS, Model } from "@/entities/model";
+import { AVAILABLE_MODELS, getEnabledModels, Model } from "@/entities/model";
 import { useSessionStore } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
 import { Globe, PanelRight, ChevronDown } from "lucide-react";
@@ -71,7 +71,7 @@ export function ChatHeader({ session, messageCount }: ChatHeaderProps) {
               "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             )}
           >
-            {AVAILABLE_MODELS.map((model) => (
+            {getEnabledModels().map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name}
               </option>

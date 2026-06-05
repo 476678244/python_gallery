@@ -57,7 +57,7 @@ import { useSessionStore } from "@/stores/session-store";
 
 export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, onFileUpload }: ChatInputProps) {
   // Get session from store if not provided via props
-  const { currentSessionId } = useSessionStore();
+  const { currentSessionId, sessions } = useSessionStore();
   const sessionId = sessionIdProp ?? currentSessionId;
   const disabled = disabledProp ?? !sessionId;
   const [input, setInput] = useState("");
@@ -176,10 +176,15 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     setThinking(true);
 
     // Stream chat
+    // Resolve current model from session settings
+    const currentSession = sessions.find((s) => s.id === sessionId);
+    const currentModel = currentSession?.settings?.model;
+
     await streamChat(
       {
         messages: apiMessages,
         sessionId: sessionId,
+        model: currentModel,
       },
       {
         onThinking: (step) => {
@@ -231,6 +236,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     input,
     isStreaming,
     sessionId,
+    sessions,
     addUserMessage,
     getMessagesForSession,
     startStreaming,

@@ -6,7 +6,7 @@ from typing import Literal, Optional, List
 
 class LLMConfig(BaseModel):
     """LLM configuration"""
-    provider: Literal["openai", "anthropic", "ollama", "google"]
+    provider: Literal["openai", "anthropic", "ollama", "google", "deepseek"]
     model: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None

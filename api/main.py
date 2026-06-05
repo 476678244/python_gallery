@@ -332,9 +332,45 @@ DATA_DIR = Path.home() / "Downloads" / "safe_claw_worksapce" / "Data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 MESSAGES_DIR = DATA_DIR / "messages"
 LLM_CONFIG_FILE = DATA_DIR / "llm_config.json"
+# Secrets file lives OUTSIDE the project tree so it is never committed.
+SECRETS_FILE = Path.home() / ".safeclaw_secrets.json"
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# DeepSeek API key (loaded from ~/.safeclaw_secrets.json, never committed)
+DEEPSEEK_API_KEY: Optional[str] = os.environ.get("DEEPSEEK_API_KEY")
+
+
+def _load_secrets() -> None:
+    """Load API keys from the local secrets file (~/.safeclaw_secrets.json)."""
+    global DEEPSEEK_API_KEY
+    if SECRETS_FILE.exists():
+        try:
+            data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+            key = data.get("deepseek_api_key")
+            if key:
+                DEEPSEEK_API_KEY = key
+                logger.info("Loaded DeepSeek API key from secrets file.")
+        except Exception as e:
+            logger.warning(f"Failed to load secrets: {e}")
+
+
+def _save_secrets() -> None:
+    """Persist API keys to the local secrets file (mode 600)."""
+    data: Dict[str, Any] = {}
+    if SECRETS_FILE.exists():
+        try:
+            data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    if DEEPSEEK_API_KEY:
+        data["deepseek_api_key"] = DEEPSEEK_API_KEY
+    else:
+        data.pop("deepseek_api_key", None)
+    SECRETS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    SECRETS_FILE.chmod(0o600)
 
 
 def _load_llm_config() -> None:
@@ -357,6 +393,7 @@ def _save_llm_config() -> None:
     )
 
 
+_load_secrets()
 _load_llm_config()
 
 
@@ -537,33 +574,50 @@ async def chat_stream(request: ChatRequest):
                 _llm_call_logs_lock, _llm_call_logs
             )
 
-            # Create LLM config for LM Studio
-            llm_config = LLMConfig(
-                provider="openai",
-                model=model_id,
-                api_key="lm-studio",
-                base_url=LM_STUDIO_BASE_URL,
-                temperature=request.temperature,
-                max_tokens=512,
-            )
-            
-            # Pre-flight health check for LM Studio (avoid 503 errors)
-            import httpx
-            lm_ready = False
-            lm_studio_ready = True  # Default to True, set to False on failure
-            try:
-                async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
-                    resp = await client.get(_lm_studio_models_url())
-                    if resp.status_code == 200:
-                        models = resp.json().get("data", [])
-                        lm_ready = any(m.get("id") == model_id for m in models)
-                        if not lm_ready and models:
-                            # Model not specifically listed but server is up
-                            lm_ready = True
-            except Exception as e:
-                logger.warning(f"LM Studio health check failed: {e}")
+            # Detect provider: DeepSeek models bypass LM Studio entirely
+            _is_deepseek = model_id.startswith("deepseek")
+            if _is_deepseek:
+                if not DEEPSEEK_API_KEY:
+                    yield _sse({"type": "error",
+                                "error": "DeepSeek API key not configured. "
+                                         "Set it via Settings → DeepSeek API Key."})
+                    return
+                llm_config = LLMConfig(
+                    provider="deepseek",
+                    model=model_id,
+                    api_key=DEEPSEEK_API_KEY,
+                    base_url=None,
+                    temperature=request.temperature,
+                    max_tokens=4096,
+                )
+                lm_ready = True
+                lm_studio_ready = True
+            else:
+                # Create LLM config for LM Studio
+                llm_config = LLMConfig(
+                    provider="openai",
+                    model=model_id,
+                    api_key="lm-studio",
+                    base_url=LM_STUDIO_BASE_URL,
+                    temperature=request.temperature,
+                    max_tokens=512,
+                )
+
+                # Pre-flight health check for LM Studio (avoid 503 errors)
                 lm_ready = False
-            
+                lm_studio_ready = True  # Default to True, set to False on failure
+                try:
+                    async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+                        resp = await client.get(_lm_studio_models_url())
+                        if resp.status_code == 200:
+                            models = resp.json().get("data", [])
+                            lm_ready = any(m.get("id") == model_id for m in models)
+                            if not lm_ready and models:
+                                lm_ready = True
+                except Exception as e:
+                    logger.warning(f"LM Studio health check failed: {e}")
+                    lm_ready = False
+
             if not lm_ready:
                 logger.warning("⚠️ LM Studio not ready (503 likely), will use fallback immediately")
                 # Skip DeepAgent creation, go straight to fallback
@@ -1198,6 +1252,35 @@ async def update_selected_model(request: ModelSelectionRequest):
     _save_agent_config(_get_skills_manager())
     logger.info(f"Selected agent model updated to: {model}")
     return {"model": _selected_model}
+
+
+class DeepSeekSecretsRequest(BaseModel):
+    api_key: str
+
+
+@app.get("/settings/deepseek")
+async def get_deepseek_settings():
+    """Return DeepSeek configuration (key is masked for security)."""
+    return {
+        "configured": bool(DEEPSEEK_API_KEY),
+        "api_key_hint": f"...{DEEPSEEK_API_KEY[-6:]}" if DEEPSEEK_API_KEY else None,
+    }
+
+
+@app.put("/settings/deepseek")
+async def update_deepseek_settings(request: DeepSeekSecretsRequest):
+    """Save DeepSeek API key to ~/.safeclaw_secrets.json (never committed)."""
+    global DEEPSEEK_API_KEY
+    key = request.api_key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="api_key must not be empty")
+    DEEPSEEK_API_KEY = key
+    _save_secrets()
+    logger.info("DeepSeek API key updated and persisted to secrets file.")
+    return {
+        "configured": True,
+        "api_key_hint": f"...{DEEPSEEK_API_KEY[-6:]}",
+    }
 
 
 # File upload endpoint

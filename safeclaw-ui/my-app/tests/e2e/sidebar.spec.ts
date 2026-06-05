@@ -358,7 +358,7 @@ test.describe("Sidebar · Model section", () => {
     await goto(page);
 
     // Model cards should not be visible initially
-    const modelCard = page.getByText(/Qwen 3\.5|Gemma 4B|GPT-4o/i).first();
+    const modelCard = page.getByText(/Qwen3\.5 9B|Gemma 4 E4B|DeepSeek V4 Pro/i).first();
     await expect(modelCard).not.toBeVisible({ timeout: 3000 });
   });
 
@@ -374,9 +374,9 @@ test.describe("Sidebar · Model section", () => {
       .click();
     await page.waitForTimeout(300);
 
-    await expect(page.getByText("Qwen 3.5").first()).toBeVisible();
-    await expect(page.getByText("Gemma 4B").first()).toBeVisible();
-    await expect(page.getByText("GPT-4o").first()).toBeVisible();
+    await expect(page.getByText("Qwen3.5 9B").first()).toBeVisible();
+    await expect(page.getByText("Gemma 4 E4B").first()).toBeVisible();
+    await expect(page.getByText("DeepSeek V4 Pro").first()).toBeVisible();
   });
 
   test("Selecting a different model updates the active state", async ({ page }) => {
@@ -392,14 +392,14 @@ test.describe("Sidebar · Model section", () => {
       .click();
     await page.waitForTimeout(300);
 
-    // Click Gemma 4B
-    await page.getByText("Gemma 4B").first().click();
+    // Click Gemma 4 E4B
+    await page.getByText("Gemma 4 E4B").first().click();
     await page.waitForTimeout(300);
 
-    // Gemma 4B row should now have active styling (bg-blue-50 border border-blue-200)
+    // Gemma 4 E4B row should now have active styling (bg-blue-50 border border-blue-200)
     const gemmaBtn = page
       .locator("button")
-      .filter({ hasText: /Gemma 4B/i })
+      .filter({ hasText: /Gemma 4 E4B/i })
       .first();
     const cls = await gemmaBtn.getAttribute("class");
     expect(cls).toContain("bg-blue-50");
