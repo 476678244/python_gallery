@@ -186,6 +186,24 @@ class SafeClawDeepAgent:
             # 计算预估的token数量
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
 
+            # Inject the ground-truth list of currently-loaded skills so the model
+            # answers questions like "how many skills" directly, instead of probing
+            # the filesystem (the agent's fs backend is sandboxed to a workspace dir
+            # and cannot see the project's skills/ directory, which previously caused
+            # the model to hallucinate "0 skills / no skills available").
+            skill_names = [Path(p.rstrip("/")).name for p in skills_paths]
+            if skill_names:
+                skills_listing = "\n".join(f"- {name}" for name in skill_names)
+                system_prompt += (
+                    f"\n\n## CURRENTLY LOADED SKILLS ({len(skill_names)})\n"
+                    "These skills are already loaded and ready to use via the skills tools "
+                    "(`skill_list_available`, `skill_discover_and_execute`, `skill_get_prompt`). "
+                    "They are valid and available — do NOT use filesystem `ls`/`glob` to verify "
+                    "them, as your filesystem is sandboxed to a separate workspace directory.\n"
+                    f"{skills_listing}\n"
+                    f"\nWhen asked how many skills are available, answer {len(skill_names)}."
+                )
+
             # Estimate tokens for each component using managers
             prompt_tokens = len(system_prompt.split()) * 1.3  # System prompt
             skills_tokens = self.skills_manager.estimate_skills_tokens(skills_paths)  # Level 1 metadata only
