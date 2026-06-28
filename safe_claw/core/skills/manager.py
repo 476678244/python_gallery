@@ -147,16 +147,11 @@ class SkillsManager:
                     for skill_md in scan_path.rglob("SKILL.md"):
                         skill_dir = skill_md.parent
                         
-                        if use_absolute:
-                            # Use absolute path for external/linked skills
-                            path_str = str(skill_dir.resolve()).replace("\\", "/") + "/"
-                        else:
-                            # Use relative path for local skills
-                            try:
-                                rel_path = skill_dir.relative_to(project_root)
-                                path_str = str(rel_path).replace("\\", "/") + "/"
-                            except ValueError:
-                                path_str = str(skill_dir).replace("\\", "/") + "/"
+                        # Always use absolute paths so the agent's filesystem
+                        # tools (ls/glob) can resolve skill directories. Relative
+                        # paths were resolved against the OS root by those tools,
+                        # causing "Directory not found" and "0 skills" answers.
+                        path_str = str(skill_dir.resolve()).replace("\\", "/") + "/"
                         
                         if path_str not in paths:
                             paths.append(path_str)

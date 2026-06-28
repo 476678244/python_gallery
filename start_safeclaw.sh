@@ -12,6 +12,27 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Log files (tail -f these to monitor in realtime)
+PROJECT_DIR=/Users/nicole/workspace/github/a476678244/python_gallery
+LOG_DIR="$PROJECT_DIR/logs"
+mkdir -p "$LOG_DIR"
+SERVER_LOG="$LOG_DIR/server.log"
+ACCESS_LOG="$LOG_DIR/access.log"
+UI_LOG="$LOG_DIR/ui.log"
+: > "$SERVER_LOG"
+: > "$ACCESS_LOG"
+: > "$UI_LOG"
+
+# Force unbuffered Python stdout/stderr so logs stream in realtime
+export PYTHONUNBUFFERED=1
+
+echo "📝 Logs:"
+echo "   Backend (stdout+stderr): $SERVER_LOG"
+echo "   Backend access:          $ACCESS_LOG"
+echo "   Frontend (stdout+stderr): $UI_LOG"
+echo "   Monitor: tail -f $SERVER_LOG $ACCESS_LOG $UI_LOG"
+echo ""
+
 # Function to cleanup on exit
 cleanup() {
     echo ""

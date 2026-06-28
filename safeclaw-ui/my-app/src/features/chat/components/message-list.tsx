@@ -1,14 +1,7 @@
-/**
- * Message List - Feature Component
- * 
- * Business: Render messages with streaming support
- * Responsibility: Message rendering, animations, grouping
- */
-
-"use client";
-
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Bot } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Message } from "@/entities/message";
 import { cn } from "@/shared/utils/cn";
 import { StreamingMessage } from "./streaming-message";
@@ -79,7 +72,28 @@ function MessageItem({ message, isLast }: MessageItemProps) {
             : "bg-slate-100 text-slate-900"
         )}
       >
-        <div className="whitespace-pre-wrap">{message.content}</div>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ children }) => (
+              <table className="border-collapse border border-slate-300 w-full my-4">
+                {children}
+              </table>
+            ),
+            th: ({ children }) => (
+              <th className="border border-slate-300 px-2 py-1 text-left bg-slate-100 font-semibold">
+                {children}
+              </th>
+            ),
+            td: ({ children }) => (
+              <td className="border border-slate-300 px-2 py-1 text-left">
+                {children}
+              </td>
+            ),
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
 
         {/* Metadata */}
         {message.metadata && !isUser && (

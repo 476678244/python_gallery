@@ -14,7 +14,53 @@ from typing import AsyncGenerator, List, Dict, Any, Optional, Union
 from datetime import datetime
 from pathlib import Path
 
-# Configure logging to output to stdout
+# --- Realtime log capture -------------------------------------------------
+# Tee stdout/stderr into logs/server.log so ALL backend output (prints,
+# uvicorn default/error logs, app logs) is tailable in realtime, regardless
+# of how the server is launched (PyCharm, `python start_api.py`, scripts...).
+class _Tee:
+    def __init__(self, primary, *streams):
+        # primary is the real stdout/stderr; attribute lookups delegate to it
+        self._primary = primary
+        self._streams = (primary, *streams)
+
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data)
+                s.flush()
+            except Exception:
+                pass
+        return len(data)
+
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        try:
+            return self._primary.isatty()
+        except Exception:
+            return False
+
+    def fileno(self):
+        return self._primary.fileno()
+
+    def __getattr__(self, name):
+        # Delegate everything else (encoding, writable, etc.) to the real stream
+        return getattr(self._primary, name)
+
+
+_LOG_DIR = Path(__file__).parent.parent / "logs"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_SERVER_LOG = open(_LOG_DIR / "server.log", "a", buffering=1, encoding="utf-8")
+sys.stdout = _Tee(sys.__stdout__, _SERVER_LOG)
+sys.stderr = _Tee(sys.__stderr__, _SERVER_LOG)
+
+# Configure logging to output to stdout (now tee'd into server.log)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
