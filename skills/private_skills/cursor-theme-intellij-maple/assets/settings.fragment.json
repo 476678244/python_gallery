@@ -1,0 +1,19 @@
+{
+    "editor.fontFamily": "Maple Mono NF CN, Maple Mono NF, Maple Mono Nerd",
+    "editor.fontLigatures": true,
+    "editor.fontSize": 12,
+    "terminal.integrated.fontFamily": "Maple Mono NF CN, Maple Mono NF, Maple Mono Nerd",
+    "terminal.integrated.fontSize": 13,
+    "workbench.colorTheme": "IntelliJ Light (Maple)",
+    "workbench.iconTheme": "vscode-jetbrains-icon-theme-2023-light",
+    "window.density.editorTabHeight": "compact",
+    "workbench.editor.tabSizing": "fixed",
+    "workbench.editor.tabSizingFixedMinWidth": 120,
+    "workbench.editor.tabSizingFixedMaxWidth": 200,
+    "files.exclude": {
+        "**/.idea": true,
+        "**/.pytest_cache": true,
+        "**/.vscode": true,
+        "**/__pycache__": true
+    }
+}
