@@ -41,10 +41,7 @@ async function openSkillAutocomplete(page: Page) {
 
 /** Get dropdown locator */
 function getDropdownLocator(page: Page) {
-  // Use regex to match "Available Skills (N)" where N is a number
-  return page.locator("div").filter({
-    has: page.getByText(/Available Skills \(\d+\)/),
-  });
+  return page.getByTestId("skill-autocomplete-dropdown");
 }
 
 /** Get all skill names from the autocomplete dropdown */
@@ -164,19 +161,17 @@ test.describe("Skill Autocomplete", () => {
 
   test("autocomplete filters when typing after slash", async ({ page }) => {
     await openSkillAutocomplete(page);
-    
+
     const textarea = page.locator("textarea").first();
-    
-    // Type a filter term
-    await textarea.fill("/test");
+
+    // Use a distinctive name prefix (filter also matches descriptions)
+    await textarea.fill("/ljg-qa");
     await page.waitForTimeout(300);
-    
-    // Get filtered skills
+
     const filteredSkills = await getDropdownSkillNames(page);
-    
-    // All filtered skills should contain the filter term (case insensitive)
+    expect(filteredSkills.length).toBeGreaterThan(0);
     for (const skill of filteredSkills) {
-      expect(skill.toLowerCase()).toContain("test");
+      expect(skill.toLowerCase()).toContain("ljg-qa");
     }
   });
 

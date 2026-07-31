@@ -205,15 +205,17 @@ test.afterAll(async () => {
   console.log("🎉 Flow Coding: 基础对话功能测试完成");
   console.log("=".repeat(60));
   
-  // Auto-cleanup: shutdown temporary servers
-  console.log("\n🧹 Auto-cleanup: Shutting down temporary servers...");
-  try {
-    const { execSync } = require("child_process");
-    execSync("pkill -f 'uvicorn.*main:app' 2>/dev/null || true", { stdio: "ignore" });
-    execSync("pkill -f 'start_api.py' 2>/dev/null || true", { stdio: "ignore" });
-    execSync("pkill -f 'next dev' 2>/dev/null || true", { stdio: "ignore" });
-    console.log("✅ Temporary servers shutdown complete");
-  } catch (e) {
-    // Ignore cleanup errors
+  // Only kill servers when this suite started them (do not murder shared :8000/:3000)
+  if (process.env.SAFECLAW_E2E_OWNED_SERVERS === "1") {
+    console.log("\n🧹 Auto-cleanup: Shutting down suite-owned servers...");
+    try {
+      const { execSync } = require("child_process");
+      execSync("pkill -f 'uvicorn.*main:app' 2>/dev/null || true", { stdio: "ignore" });
+      execSync("pkill -f 'start_api.py' 2>/dev/null || true", { stdio: "ignore" });
+      execSync("pkill -f 'next dev' 2>/dev/null || true", { stdio: "ignore" });
+      console.log("✅ Temporary servers shutdown complete");
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 });

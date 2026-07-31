@@ -934,33 +934,27 @@ function VerticalResizeHandle({
 }) {
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleMouseDown = useCallback(() => {
-    setIsDragging(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    let lastY = 0;
-    const handleMouseMove = (e: MouseEvent) => {
-      if (lastY !== 0) {
-        onResize(e.clientY - lastY);
-      }
-      lastY = e.clientY;
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      onResizeEnd?.();
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp, { once: true });
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [isDragging, onResize, onResizeEnd]);
+  // Attach listeners synchronously in mousedown — useEffect-after-state loses early moves
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      let lastY = e.clientY;
+      const handleMouseMove = (ev: MouseEvent) => {
+        onResize(ev.clientY - lastY);
+        lastY = ev.clientY;
+      };
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        onResizeEnd?.();
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [onResize, onResizeEnd]
+  );
 
   return (
     <div
@@ -984,33 +978,27 @@ function HorizontalResizeHandle({
 }) {
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleMouseDown = useCallback(() => {
-    setIsDragging(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    let lastX = 0;
-    const handleMouseMove = (e: MouseEvent) => {
-      if (lastX !== 0) {
+  // Attach listeners synchronously in mousedown — useEffect-after-state loses early moves
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      let lastX = e.clientX;
+      const handleMouseMove = (ev: MouseEvent) => {
         // Dragging left (decreasing x) should increase width
-        onResize(lastX - e.clientX);
-      }
-      lastX = e.clientX;
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp, { once: true });
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [isDragging, onResize]);
+        onResize(lastX - ev.clientX);
+        lastX = ev.clientX;
+      };
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [onResize]
+  );
 
   return (
     <div
@@ -1169,37 +1157,22 @@ export function RightPanel() {
   const anyOpen = allKeys.length > 0;
   const anyExpanded = expandedKeys.length > 0;
 
-  // Auto-distribute heights when panel count changes (1-3 panels)
-  // Only auto-distribute if all expanded panels have default height (not user-adjusted)
-  const autoDistributeRef = useRef(false);
+  // Auto-distribute heights whenever expanded panel count changes (1-3 panels).
+  // Must re-run on 1→2→3 so newly opened panels share space evenly.
   useEffect(() => {
     if (expandedKeys.length === 0 || expandedKeys.length > 3) {
-      autoDistributeRef.current = false;
       return;
     }
 
-    // Skip if already auto-distributed this combination
-    if (autoDistributeRef.current) return;
-
-    const DEFAULT_HEIGHT = 200;
     const RESIZE_HANDLE_HEIGHT = 8;
     const HEADER_HEIGHT = 37;
     const TOTAL_RESERVE = expandedKeys.length * (HEADER_HEIGHT + RESIZE_HANDLE_HEIGHT);
     const availableHeight = window.innerHeight - TOTAL_RESERVE;
-
-    // Check if all expanded panels have default height
-    const allDefault = expandedKeys.every(
-      (key) => (panelHeights as Record<RightPanelKey, number>)[key] === DEFAULT_HEIGHT
-    );
-
-    if (allDefault) {
-      const autoHeight = Math.floor(availableHeight / expandedKeys.length);
-      expandedKeys.forEach((key) => {
-        setPanelHeight(key, autoHeight);
-      });
-      autoDistributeRef.current = true;
-    }
-  }, [expandedKeys.length]); // Only react to count changes
+    const autoHeight = Math.floor(availableHeight / expandedKeys.length);
+    expandedKeys.forEach((key) => {
+      setPanelHeight(key, autoHeight);
+    });
+  }, [expandedKeys.length, setPanelHeight]);
 
   // Resize handlers
   const handlePanelResize = useCallback((key: RightPanelKey, delta: number) => {

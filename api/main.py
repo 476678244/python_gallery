@@ -541,6 +541,7 @@ async def chat_stream(request: ChatRequest):
             
             if not last_message:
                 yield _sse({"type": "error", "error": "No user message found"})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
                 return
             
             # ── Step 1: Parse ─────────────────────────────────────
@@ -627,6 +628,7 @@ async def chat_stream(request: ChatRequest):
                     yield _sse({"type": "error",
                                 "error": "DeepSeek API key not configured. "
                                          "Set it via Settings → DeepSeek API Key."})
+                    yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
                     return
                 llm_config = LLMConfig(
                     provider="deepseek",
@@ -734,9 +736,13 @@ async def chat_stream(request: ChatRequest):
 
                     for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
                         if chunk.get("type") == "error":
+                            # Do not return early — Phase 4 fallback below must still emit content + done
                             has_error = True
-                            yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
-                            return
+                            logger.warning(
+                                "DeepAgent stream error chunk: %s",
+                                chunk.get("content", "Unknown error"),
+                            )
+                            break
                         elif chunk.get("thinking"):
                             # Shell/tool thinking output
                             yield _sse({"type": "thinking", "content": chunk["thinking"]})
@@ -870,7 +876,32 @@ async def chat_stream(request: ChatRequest):
                 
         except Exception as e:
             print(f"Chat stream error: {e}")
-            yield _sse({"type": "error", "error": str(e)})
+            logger.warning("Chat stream falling back after error: %s", e)
+            # Still emit a usable fallback so clients always get content + done.
+            # Do NOT emit type=error after a successful fallback — the UI cancels the stream on error.
+            fallback_ok = False
+            try:
+                last = ""
+                for msg in reversed(request.messages):
+                    if msg.role == "user":
+                        last = msg.text()
+                        break
+                mock_resp = (
+                    f"Hello! I'm SafeClaw (fallback mode). "
+                    f"I received your message: '{last[:50]}...'\n\n"
+                    f"The LLM service is currently unavailable."
+                )
+                built = ""
+                for word in mock_resp.split():
+                    built += word + " "
+                    yield _sse({"type": "content", "content": built, "delta": word + " "})
+                    await asyncio.sleep(0.01)
+                fallback_ok = True
+            except Exception as fallback_err:
+                logger.warning("Fallback content also failed: %s", fallback_err)
+            if not fallback_ok:
+                yield _sse({"type": "error", "error": str(e)})
+            yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
     
     return StreamingResponse(
         event_generator(),
@@ -1332,22 +1363,40 @@ async def update_deepseek_settings(request: DeepSeekSecretsRequest):
 # File upload endpoint
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
-    """Upload a file to the specified path (typically /tmp/uploaded/)"""
+    """Upload a file into WORKSPACE_DIR (path traversal rejected)."""
     try:
-        # Ensure the directory exists
-        target_path = Path(path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save the file
+        # Resolve under WORKSPACE_DIR — reject absolute paths outside and ".." traversal
+        raw = Path(path)
+        if raw.is_absolute():
+            candidate = raw.resolve()
+        else:
+            candidate = (WORKSPACE_DIR / raw).resolve()
+
+        try:
+            candidate.relative_to(WORKSPACE_DIR.resolve())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"[Upload] Path escapes WORKSPACE_DIR\n"
+                    f"  Requested: {path}\n"
+                    f"  Resolved: {candidate}\n"
+                    f"  Allowed root: {WORKSPACE_DIR}"
+                ),
+            )
+
+        candidate.parent.mkdir(parents=True, exist_ok=True)
         content = await file.read()
-        target_path.write_bytes(content)
-        
+        candidate.write_bytes(content)
+
         return {
             "success": True,
-            "path": str(target_path),
+            "path": str(candidate),
             "size": len(content),
             "filename": file.filename,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 

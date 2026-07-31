@@ -7,13 +7,40 @@
 
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { Send, Paperclip, Mic, Plus, Code, FileText, Sparkles, X, File, Command, Check } from "lucide-react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { Send, Paperclip, Mic, Plus, Code, FileText, Sparkles, X, File, Command, Check, Cpu } from "lucide-react";
 import { useMessageStore } from "@/stores/message-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useSkillStore } from "@/stores/skill-store";
 import { streamChat } from "@/features/chat/services/chat-api";
+import { getEnabledModels, type Model } from "@/entities/model";
 import { cn } from "@/shared/utils/cn";
+
+type SlashMode = "skill" | "model" | "command" | null;
+
+/** Parse text after `/` into slash-command mode + filter. */
+function parseSlashCommand(afterSlash: string): { mode: SlashMode; filter: string } {
+  const raw = afterSlash;
+  const lower = raw.toLowerCase();
+
+  if (lower === "model" || lower.startsWith("model ") || lower.startsWith("model:")) {
+    const filter = lower.startsWith("model:")
+      ? raw.slice("model:".length)
+      : raw.slice("model".length).trimStart();
+    return { mode: "model", filter };
+  }
+
+  // Partial "/m" "/mo" "/mod" "/mode" → suggest the model command
+  if (lower.length > 0 && !lower.includes(" ") && "model".startsWith(lower)) {
+    return { mode: "command", filter: lower };
+  }
+
+  if (!raw.includes(" ") && !raw.includes("\n")) {
+    return { mode: "skill", filter: raw };
+  }
+
+  return { mode: null, filter: "" };
+}
 
 const QUICK_ACTIONS = [
   { icon: Sparkles, label: "Research", color: "text-purple-500" },
@@ -57,19 +84,19 @@ import { useSessionStore } from "@/stores/session-store";
 
 export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, onFileUpload }: ChatInputProps) {
   // Get session from store if not provided via props
-  const { currentSessionId, sessions } = useSessionStore();
+  const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
   const sessionId = sessionIdProp ?? currentSessionId;
   const disabled = disabledProp ?? !sessionId;
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
-  const [skillFilter, setSkillFilter] = useState("");
-  const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+  const [slashMode, setSlashMode] = useState<SlashMode>(null);
+  const [slashFilter, setSlashFilter] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const skillDropdownRef = useRef<HTMLDivElement>(null);
+  const slashDropdownRef = useRef<HTMLDivElement>(null);
 
   // Get enabled skills from skill store
   const { enabledSkillIds, flatSkills, loadSkills } = useSkillStore();
@@ -89,13 +116,44 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
       category: skill.category,
     }));
 
-  // Filter skills based on input
-  const filteredSkills = skillFilter
-    ? enabledSkills.filter(skill =>
-        skill.name.toLowerCase().includes(skillFilter.toLowerCase()) ||
-        skill.description?.toLowerCase().includes(skillFilter.toLowerCase())
+  const enabledModels = useMemo(
+    () => getEnabledModels().filter((m) => !m.capabilities.supportedModes.includes("embeddings")),
+    []
+  );
+
+  const currentModelId =
+    sessions.find((s) => s.id === sessionId)?.settings?.model ?? enabledModels[0]?.id;
+
+  // Filter skills based on input (skill slash mode)
+  const filteredSkills = slashFilter
+    ? enabledSkills.filter(
+        (skill) =>
+          skill.name.toLowerCase().includes(slashFilter.toLowerCase()) ||
+          skill.description?.toLowerCase().includes(slashFilter.toLowerCase())
       )
     : enabledSkills;
+
+  const filteredModels = slashFilter
+    ? enabledModels.filter((m) => {
+        const q = slashFilter.toLowerCase();
+        return (
+          m.name.toLowerCase().includes(q) ||
+          m.id.toLowerCase().includes(q) ||
+          m.provider.toLowerCase().includes(q) ||
+          (m.description?.toLowerCase().includes(q) ?? false)
+        );
+      })
+    : enabledModels;
+
+  const showSlashDropdown = slashMode !== null;
+  const slashItemCount =
+    slashMode === "model"
+      ? filteredModels.length
+      : slashMode === "command"
+        ? 1
+        : slashMode === "skill"
+          ? filteredSkills.length
+          : 0;
 
   const {
     addUserMessage,
@@ -126,7 +184,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     // Reset state
     setInput("");
     setUploadedFiles([]);
-    setShowSkillDropdown(false);
+    setSlashMode(null);
 
     // Add user message (with file references if any)
     const messageContent = files.length > 0
@@ -250,7 +308,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     handleExecutionStepEvent,
   ]);
 
-  // File upload handlers - Uploads files to /tmp/uploaded
+  // File upload handlers — files land under WORKSPACE_DIR/uploaded/
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
     
@@ -264,24 +322,24 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     
     setUploadedFiles(prev => [...prev, ...newFiles]);
     
-    // Upload files to /tmp/uploaded
+    // Upload into workspace/uploaded/ (server confines paths to WORKSPACE_DIR)
     for (const uploadedFile of newFiles) {
       try {
         const formData = new FormData();
-        formData.append('file', uploadedFile.file);
-        formData.append('path', `/tmp/uploaded/${uploadedFile.name}`);
-        
-        const response = await fetch('/api/upload', {
-          method: 'POST',
+        formData.append("file", uploadedFile.file);
+        formData.append("path", `uploaded/${uploadedFile.name}`);
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
           body: formData,
         });
-        
+
         if (!response.ok) {
-          const errorText = await response.text().catch(() => 'Unknown error');
+          const errorText = await response.text().catch(() => "Unknown error");
           console.error(`Failed to upload ${uploadedFile.name}: HTTP ${response.status} - ${errorText}`);
         } else {
           const result = await response.json().catch(() => ({ success: true }));
-          console.log(`Uploaded ${uploadedFile.name} to /tmp/uploaded/`, result);
+          console.log(`Uploaded ${uploadedFile.name} to workspace/uploaded/`, result);
         }
       } catch (error) {
         console.error(`Error uploading ${uploadedFile.name}:`, error);
@@ -320,7 +378,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     e.stopPropagation();
     setIsDragging(false);
     
-    // Handle file drop - upload to /tmp/uploaded
+    // Handle file drop — upload to workspace/uploaded
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       await handleFileSelect(files);
@@ -331,41 +389,72 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
-    
+
     setInput(value);
-    
-    // Check for slash command trigger
+
     const beforeCursor = value.slice(0, cursorPos);
     const lastSlashIndex = beforeCursor.lastIndexOf("/");
-    
-    if (lastSlashIndex !== -1) {
-      const afterSlash = beforeCursor.slice(lastSlashIndex + 1);
-      // Show dropdown if we're at a word boundary after slash (no spaces)
-      if (!afterSlash.includes(" ") && !afterSlash.includes("\n")) {
-        setSkillFilter(afterSlash);
-        setShowSkillDropdown(true);
-        setSelectedSkillIndex(0);
-      } else {
-        setShowSkillDropdown(false);
-      }
-    } else {
-      setShowSkillDropdown(false);
+
+    if (lastSlashIndex === -1) {
+      setSlashMode(null);
+      return;
     }
+
+    // Only treat as slash command when `/` starts a token (start or after whitespace)
+    if (lastSlashIndex > 0 && !/\s/.test(beforeCursor[lastSlashIndex - 1])) {
+      setSlashMode(null);
+      return;
+    }
+
+    const afterSlash = beforeCursor.slice(lastSlashIndex + 1);
+    if (afterSlash.includes("\n")) {
+      setSlashMode(null);
+      return;
+    }
+
+    const parsed = parseSlashCommand(afterSlash);
+    setSlashMode(parsed.mode);
+    setSlashFilter(parsed.filter);
+    setSelectedIndex(0);
   }, []);
+
+  const clearSlashCommandFromInput = useCallback(() => {
+    const cursorPos = textareaRef.current?.selectionStart || input.length;
+    const beforeCursor = input.slice(0, cursorPos);
+    const lastSlashIndex = beforeCursor.lastIndexOf("/");
+    if (lastSlashIndex === -1) {
+      setInput("");
+      setSlashMode(null);
+      return;
+    }
+    const beforeSlash = input.slice(0, lastSlashIndex);
+    // Drop the rest of the slash token (through end of line / remaining filter)
+    const after = input.slice(cursorPos);
+    const rest = after.startsWith("\n") ? after : after.replace(/^[^\n]*/, "");
+    const next = `${beforeSlash}${rest}`.replace(/[ \t]+$/g, "");
+    setInput(next);
+    setSlashMode(null);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const pos = beforeSlash.length;
+        textareaRef.current.setSelectionRange(pos, pos);
+        textareaRef.current.focus();
+      }
+    }, 0);
+  }, [input]);
 
   const handleSkillSelect = useCallback((skill: SkillSuggestion) => {
     const cursorPos = textareaRef.current?.selectionStart || 0;
     const beforeCursor = input.slice(0, cursorPos);
     const lastSlashIndex = beforeCursor.lastIndexOf("/");
-    
+
     if (lastSlashIndex !== -1) {
       const beforeSlash = input.slice(0, lastSlashIndex);
       const afterCursor = input.slice(cursorPos);
       const newValue = `${beforeSlash}/${skill.name}${afterCursor}`;
       setInput(newValue);
-      setShowSkillDropdown(false);
-      
-      // Restore focus and set cursor position
+      setSlashMode(null);
+
       setTimeout(() => {
         if (textareaRef.current) {
           const newPos = lastSlashIndex + skill.name.length + 1;
@@ -376,49 +465,100 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     }
   }, [input]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Handle skill dropdown navigation
-    if (showSkillDropdown) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedSkillIndex(prev => 
-          prev < filteredSkills.length - 1 ? prev + 1 : prev
-        );
-        return;
+  const handleModelSelect = useCallback(
+    (model: Model) => {
+      if (sessionId) {
+        updateSessionSettings(sessionId, { model: model.id });
       }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedSkillIndex(prev => prev > 0 ? prev - 1 : 0);
-        return;
+      fetch("/api/settings/model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: model.id }),
+      }).catch(() => {});
+      clearSlashCommandFromInput();
+    },
+    [sessionId, updateSessionSettings, clearSlashCommandFromInput]
+  );
+
+  const handleCommandSelect = useCallback(() => {
+    // Expand "/m…" into "/model " and open model picker
+    const cursorPos = textareaRef.current?.selectionStart || input.length;
+    const beforeCursor = input.slice(0, cursorPos);
+    const lastSlashIndex = beforeCursor.lastIndexOf("/");
+    if (lastSlashIndex === -1) return;
+    const beforeSlash = input.slice(0, lastSlashIndex);
+    const afterCursor = input.slice(cursorPos);
+    const newValue = `${beforeSlash}/model ${afterCursor}`;
+    setInput(newValue);
+    setSlashMode("model");
+    setSlashFilter("");
+    setSelectedIndex(0);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const pos = lastSlashIndex + "/model ".length;
+        textareaRef.current.setSelectionRange(pos, pos);
+        textareaRef.current.focus();
       }
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        if (filteredSkills[selectedSkillIndex]) {
-          handleSkillSelect(filteredSkills[selectedSkillIndex]);
+    }, 0);
+  }, [input]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (showSlashDropdown && slashItemCount > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev < slashItemCount - 1 ? prev + 1 : prev));
+          return;
         }
-        return;
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (slashMode === "model" && filteredModels[selectedIndex]) {
+            handleModelSelect(filteredModels[selectedIndex]);
+          } else if (slashMode === "command") {
+            handleCommandSelect();
+          } else if (slashMode === "skill" && filteredSkills[selectedIndex]) {
+            handleSkillSelect(filteredSkills[selectedIndex]);
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          setSlashMode(null);
+          return;
+        }
       }
-      if (e.key === "Escape") {
-        setShowSkillDropdown(false);
-        return;
+
+      if (e.key === "Enter" && !e.shiftKey && !showSlashDropdown) {
+        e.preventDefault();
+        handleSubmit();
       }
-    }
-    
-    // Normal submit
-    if (e.key === "Enter" && !e.shiftKey && !showSkillDropdown) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  }, [showSkillDropdown, filteredSkills, selectedSkillIndex, handleSkillSelect, handleSubmit]);
+    },
+    [
+      showSlashDropdown,
+      slashItemCount,
+      slashMode,
+      filteredModels,
+      filteredSkills,
+      selectedIndex,
+      handleModelSelect,
+      handleCommandSelect,
+      handleSkillSelect,
+      handleSubmit,
+    ]
+  );
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (skillDropdownRef.current && !skillDropdownRef.current.contains(e.target as Node)) {
-        setShowSkillDropdown(false);
+      if (slashDropdownRef.current && !slashDropdownRef.current.contains(e.target as Node)) {
+        setSlashMode(null);
       }
     };
-    
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -511,7 +651,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         <button
           onClick={handlePaperclipClick}
           className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          title="Upload files to /tmp/uploaded"
+          title="Upload files to workspace/uploaded"
         >
           <Paperclip className="w-5 h-5" />
         </button>
@@ -525,7 +665,11 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder={disabled ? "Select a session to start chatting..." : "Ask anything... Use / for skills"}
+            placeholder={
+              disabled
+                ? "Select a session to start chatting..."
+                : "Ask anything... / for skills, /model to switch model"
+            }
             disabled={disabled || isStreaming}
             rows={1}
             className={cn(
@@ -535,11 +679,105 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             )}
             style={{ height: "auto" }}
           />
-          
-          {/* Skill Suggestion Dropdown */}
-          {showSkillDropdown && filteredSkills.length > 0 && (
+
+          {/* Slash: command hint (e.g. /mo → model) */}
+          {slashMode === "command" && (
             <div
-              ref={skillDropdownRef}
+              ref={slashDropdownRef}
+              data-testid="slash-command-dropdown"
+              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50"
+            >
+              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Commands
+              </div>
+              <button
+                onClick={handleCommandSelect}
+                className={cn(
+                  "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
+                  selectedIndex === 0 ? "bg-blue-50 text-blue-900" : "hover:bg-slate-50 text-slate-700"
+                )}
+              >
+                <div className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-blue-100">
+                  <Cpu className="w-3.5 h-3.5 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm truncate">/model</div>
+                  <div className="text-xs text-slate-500 truncate mt-0.5">
+                    Switch AI model for this session
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Slash: model picker */}
+          {slashMode === "model" && filteredModels.length > 0 && (
+            <div
+              ref={slashDropdownRef}
+              data-testid="model-autocomplete-dropdown"
+              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50"
+            >
+              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Switch Model ({filteredModels.length})
+              </div>
+              {filteredModels.map((model, index) => (
+                <button
+                  key={model.id}
+                  onClick={() => handleModelSelect(model)}
+                  className={cn(
+                    "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
+                    index === selectedIndex
+                      ? "bg-blue-50 text-blue-900"
+                      : "hover:bg-slate-50 text-slate-700"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-6 h-6 rounded flex items-center justify-center shrink-0",
+                      index === selectedIndex || model.id === currentModelId
+                        ? "bg-blue-100"
+                        : "bg-slate-100"
+                    )}
+                  >
+                    {model.id === currentModelId ? (
+                      <Check className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <Cpu className="w-3.5 h-3.5 text-slate-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">
+                      {model.name}
+                      {model.id === currentModelId && (
+                        <span className="ml-2 text-[10px] font-bold text-blue-500">active</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate mt-0.5">
+                      {model.provider}
+                      {model.description ? ` · ${model.description}` : ""}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {slashMode === "model" && slashFilter && filteredModels.length === 0 && (
+            <div
+              ref={slashDropdownRef}
+              className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-4 px-3 z-50"
+            >
+              <p className="text-sm text-slate-500 text-center">
+                No models matching &quot;{slashFilter}&quot;
+              </p>
+            </div>
+          )}
+
+          {/* Slash: skill suggestion dropdown */}
+          {slashMode === "skill" && filteredSkills.length > 0 && (
+            <div
+              ref={slashDropdownRef}
+              data-testid="skill-autocomplete-dropdown"
               className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50"
             >
               <div className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">
@@ -551,16 +789,18 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
                   onClick={() => handleSkillSelect(skill)}
                   className={cn(
                     "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
-                    index === selectedSkillIndex
+                    index === selectedIndex
                       ? "bg-blue-50 text-blue-900"
                       : "hover:bg-slate-50 text-slate-700"
                   )}
                 >
-                  <div className={cn(
-                    "w-6 h-6 rounded flex items-center justify-center shrink-0",
-                    index === selectedSkillIndex ? "bg-blue-100" : "bg-slate-100"
-                  )}>
-                    {index === selectedSkillIndex ? (
+                  <div
+                    className={cn(
+                      "w-6 h-6 rounded flex items-center justify-center shrink-0",
+                      index === selectedIndex ? "bg-blue-100" : "bg-slate-100"
+                    )}
+                  >
+                    {index === selectedIndex ? (
                       <Check className="w-3.5 h-3.5 text-blue-600" />
                     ) : (
                       <Command className="w-3.5 h-3.5 text-slate-500" />
@@ -578,11 +818,12 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
               ))}
             </div>
           )}
-          
-          {/* No skills found */}
-          {showSkillDropdown && skillFilter && filteredSkills.length === 0 && (
+
+          {slashMode === "skill" && slashFilter && filteredSkills.length === 0 && (
             <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-4 px-3 z-50">
-              <p className="text-sm text-slate-500 text-center">No skills found matching "{skillFilter}"</p>
+              <p className="text-sm text-slate-500 text-center">
+                No skills found matching &quot;{slashFilter}&quot;
+              </p>
             </div>
           )}
         </div>
