@@ -32,6 +32,8 @@ export interface ChatStreamEvent {
   sub?: string;
   chips?: string[];
   skills_invoked?: string[];
+  /** Actual DeepAgent load list (≠ BM25 router skills_invoked). */
+  skills_loaded?: string[];
   // common fields
   step?: string;
   name?: string;

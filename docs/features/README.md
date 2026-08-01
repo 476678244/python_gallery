@@ -31,7 +31,8 @@
 
 | Feature | 路径 | 状态 |
 |---------|------|------|
-| Memory System（含黑话词典 / 中文检索） | [memory-system/](./memory-system/) | 增强中（中文问句检索缺口） |
+| Memory System（含黑话词典 / 中文检索） | [memory-system/](./memory-system/) | Phase A–D 已落地；C2 待人工 Accept |
+| Skills Activation（可靠激活） | [skills-activation/](./skills-activation/) | **下一主题**；文档已立，实现未开始 |
 
 ## 与代码的关系
 

@@ -23,6 +23,8 @@ export interface ExecutionStep {
   chips?: string[];
   activeSkills?: string[];
   skillsInvoked?: string[];
+  /** Actual names passed to create_deep_agent (not BM25 router). */
+  skillsLoaded?: string[];
   metadata?: {
     toolName?: string;
     modelName?: string;
@@ -41,6 +43,7 @@ export interface LLMCall {
   // Skills for this specific call
   activeSkills?: string[];
   skillsInvoked?: string[];
+  skillsLoaded?: string[];
   // Token counts
   promptTokens?: number;
   completionTokens?: number;

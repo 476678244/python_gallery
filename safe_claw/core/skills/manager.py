@@ -34,9 +34,10 @@ class SkillsManager:
         if external_skills_paths:
             self.external_skills_paths = [Path(p) for p in external_skills_paths]
         else:
-            # Auto-discover linked_skills at project root
+            # Auto-discover linked_skills at project root (python_gallery/)
+            # manager.py lives at safe_claw/core/skills/ → 4× parent = repo root
             self.external_skills_paths = []
-            project_root = Path(__file__).parent.parent.parent.parent.parent
+            project_root = Path(__file__).parent.parent.parent.parent
             linked_skills_path = project_root / "linked_skills"
             if linked_skills_path.exists():
                 self.external_skills_paths.append(linked_skills_path)
@@ -243,6 +244,9 @@ class SkillsManager:
             enabled_skill_names: List of skill names to enable
         """
         self._enabled_skills = set(enabled_skill_names) if enabled_skill_names else set()
+        # Keep discovery/tools aligned with the same enabled set (Fail Fast activation).
+        if hasattr(self.skill_discovery, "set_enabled_skills"):
+            self.skill_discovery.set_enabled_skills(self._enabled_skills)
         logger.info(f"Set {len(self._enabled_skills)} enabled skills")
 
     def get_enabled_skills(self) -> List[str]:

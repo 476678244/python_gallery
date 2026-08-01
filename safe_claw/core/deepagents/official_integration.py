@@ -95,23 +95,36 @@ class SafeClawDeepAgent:
         # Get external skills paths from config
         external_paths_config = self.config.get("external_skills_paths", [])
         external_skills_paths = [Path(p) for p in external_paths_config] if external_paths_config else []
-        
-        # Initialize or reuse skills manager from session state
-        import streamlit as st
-        if "skills_manager" in st.session_state:
-            self.skills_manager = st.session_state["skills_manager"]
-            logger.info("Reusing existing SkillsManager from session state")
+
+        self._loaded_skill_names: List[str] = []
+        self._loaded_skill_paths: List[str] = []
+
+        # Prefer injected SkillsManager (API SoT). Never silently fork a second SM.
+        injected_sm = self.config.get("skills_manager")
+        if injected_sm is not None:
+            self.skills_manager = injected_sm
+            logger.info("Using injected SkillsManager (API single source of truth)")
         else:
-            self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
-            st.session_state["skills_manager"] = self.skills_manager
-            logger.info("Created new SkillsManager and stored in session state")
-        
-        # Sync enabled skills from config if provided
-        enabled_skills = self.config.get("enabled_skills", [])
-        if enabled_skills:
-            self.skills_manager.set_enabled_skills(enabled_skills)
+            # Streamlit UI path only — reuse session_state when available
+            try:
+                import streamlit as st
+                if "skills_manager" in st.session_state:
+                    self.skills_manager = st.session_state["skills_manager"]
+                    logger.info("Reusing existing SkillsManager from session state")
+                else:
+                    self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+                    st.session_state["skills_manager"] = self.skills_manager
+                    logger.info("Created new SkillsManager and stored in session state")
+            except ImportError:
+                self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+                logger.info("Created SkillsManager (no Streamlit)")
+
+        # Sync enabled skills from config if provided (explicit list, including empty)
+        if "enabled_skills" in self.config and self.config.get("enabled_skills") is not None:
+            enabled_skills = self.config.get("enabled_skills") or []
+            self.skills_manager.set_enabled_skills(list(enabled_skills))
             logger.info(f"Synced {len(enabled_skills)} enabled skills to SkillsManager")
-        
+
         # Initialize tool manager
         self.tool_manager = ToolManager(
             skill_scanner=self.skills_manager.get_skill_scanner(),
@@ -144,7 +157,8 @@ class SafeClawDeepAgent:
 
         # Context length monitoring
         self.max_context_length = config.get("max_context_length", 18192) if config else 18192
-        self.system_prompt_limit = config.get("system_prompt_limit", 8192) if config else 8192
+        # Personal Fail Fast: raise on overflow — never silent truncate (defaults fit DeepSeek).
+        self.system_prompt_limit = config.get("system_prompt_limit", 65536) if config else 65536
 
         self._initialize_agent()
 
@@ -216,27 +230,26 @@ class SafeClawDeepAgent:
             logger.info(f"🔍 DEBUG: 预估总计: {total_estimated:.0f} tokens")
             logger.info(f"🔍 DEBUG: 上下文限制: {self.max_context_length} tokens")
 
-            # Context length warning
+            # Fail Fast: never silently truncate skills/tools to "fit" context
+            max_skills = int(self.config.get("max_skills") or 100)
+            if len(skills_paths) > max_skills:
+                raise ValueError(
+                    f"[SafeClawDeepAgent] Too many enabled skills (Fail Fast)\n"
+                    f"  Enabled paths: {len(skills_paths)}\n"
+                    f"  Limit: {max_skills}\n"
+                    f"  Disable skills in the Skill Tree, then retry."
+                )
             if total_estimated > self.system_prompt_limit:
-                logger.warning(
-                    f"⚠️ CONTEXT LENGTH WARNING: Estimated {total_estimated:.0f} tokens exceeds limit {self.system_prompt_limit}")
-                logger.warning(f"⚠️ Consider reducing skills/tools loading or increasing context length")
+                raise ValueError(
+                    f"[SafeClawDeepAgent] Estimated prompt exceeds context limit (Fail Fast)\n"
+                    f"  Estimated: {total_estimated:.0f} tokens\n"
+                    f"  Limit: {self.system_prompt_limit}\n"
+                    f"  Skills: {len(skills_paths)}, tools: {len(tools)}\n"
+                    f"  Disable skills or raise system_prompt_limit explicitly."
+                )
 
-                # Implement selective skills loading
-                if len(skills_paths) > 15:  # Further reduce skills limit due to tools
-                    logger.warning(f"🔧 Limiting skills from {len(skills_paths)} to 15 to fit context (including tools)")
-                    skills_paths = skills_paths[:15]
-                    skills_tokens = self.skills_manager.estimate_skills_tokens(skills_paths)
-                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
-                    logger.info(f"🔧 New estimated total: {total_estimated:.0f} tokens")
-
-                # If still too large, consider reducing tools
-                if total_estimated > self.system_prompt_limit and len(tools) > 4:
-                    logger.warning(f"🔧 Limiting tools from {len(tools)} to 4 to fit context")
-                    tools = self.tool_manager.limit_tools(4)  # Keep only essential tools
-                    tools_tokens = self.tool_manager.estimate_tokens()
-                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
-                    logger.info(f"🔧 Final estimated total: {total_estimated:.0f} tokens")
+            self._loaded_skill_paths = list(skills_paths)
+            self._loaded_skill_names = list(skill_names)
 
             # SECURITY: Prepare backend configuration based on security-first principles
             backend = None  # Default: Use deepagents' secure default backend
@@ -502,6 +515,14 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
         """Clear the thinking content buffer"""
         self._thinking_content = []
         self._thinking_content_index = 0
+
+    def get_loaded_skills(self) -> Dict[str, Any]:
+        """Actual skill names/paths passed to create_deep_agent (not BM25 router)."""
+        return {
+            "names": list(getattr(self, "_loaded_skill_names", []) or []),
+            "paths": list(getattr(self, "_loaded_skill_paths", []) or []),
+            "count": len(getattr(self, "_loaded_skill_names", []) or []),
+        }
 
     def get_agent_info(self) -> Dict[str, Any]:
         """Get DeepAgent information including skills statistics"""

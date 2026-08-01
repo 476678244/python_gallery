@@ -79,6 +79,8 @@ class SkillDiscovery:
         self.loader = SkillLoader()
         self.executor = SkillExecutor(self.loader)
         self.scanned_paths: set = set()
+        # None = no filter (all skills); empty set = none allowed; set = allowlist
+        self._enabled_skills: Optional[set] = None
 
         self.path_hints = {
             "data": ["data", "sql", "csv", "json", "db"],
@@ -89,6 +91,23 @@ class SkillDiscovery:
             "text": ["text", "nlp", "parse", "extract", "summarize"],
             "finance": ["stock", "portfolio", "13f", "market", "finance"],
         }
+
+    def set_enabled_skills(self, enabled: Optional[set]) -> None:
+        """Restrict discovery/list/execute to this allowlist (Fail Fast activation)."""
+        self._enabled_skills = set(enabled) if enabled is not None else None
+
+    def _is_enabled(self, skill_name: str) -> bool:
+        if self._enabled_skills is None:
+            return True
+        return skill_name in self._enabled_skills
+
+    def _enabled_entries(self):
+        if not self.scanner.loaded:
+            self.scanner.scan_all_skills()
+        entries = list(self.scanner.index.values())
+        if self._enabled_skills is None:
+            return entries
+        return [e for e in entries if e.name in self._enabled_skills]
 
     def _infer_directories(self, query: str) -> List[Path]:
         """Infer which directories to scan based on query"""
@@ -110,10 +129,7 @@ class SkillDiscovery:
 
     def _check_l1_index(self, query: str, min_confidence: float = 0.3) -> Optional[DiscoveryResult]:
         """Level 1: Search L1 index and match on metadata only"""
-        if not self.scanner.loaded:
-            self.scanner.scan_all_skills()
-        
-        entries = list(self.scanner.index.values())
+        entries = self._enabled_entries()
         if not entries:
             return None
         
@@ -238,7 +254,7 @@ class SkillDiscovery:
         # Exact match by name
         if query.startswith("/"):
             skill_name = query[1:].split()[0]
-            if skill_name in self.scanner.index:
+            if skill_name in self.scanner.index and self._is_enabled(skill_name):
                 logger.info(f"🔍 DEBUG: 精确匹配skill: {skill_name}")
                 if auto_trigger:
                     logger.info(f"🔍 DEBUG: 准备加载并触发skill: {skill_name}")
@@ -321,11 +337,21 @@ class SkillDiscovery:
                      session_id: Optional[str] = None,
                      output_callback: Optional[Callable[[str], None]] = None) -> DiscoveryResult:
         """Explicitly trigger a skill by name (load L2 and execute)"""
+        if not self._is_enabled(skill_name):
+            raise ValueError(
+                f"[SkillDiscovery] Skill disabled (Fail Fast)\n"
+                f"  skill_name: {skill_name}"
+            )
         return self._load_and_trigger(skill_name, skill_name, arguments, session_id, output_callback)
 
     def get_skill_prompt(self, skill_name: str, arguments: List[str] = None,
                         session_id: Optional[str] = None) -> Optional[str]:
         """Get the prompt content for a skill (for inline execution)"""
+        if not self._is_enabled(skill_name):
+            raise ValueError(
+                f"[SkillDiscovery] Skill disabled (Fail Fast)\n"
+                f"  skill_name: {skill_name}"
+            )
         manifest = self.scanner.get_manifest(skill_name, load_l2=True)
         if not manifest:
             return None

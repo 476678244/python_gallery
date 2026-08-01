@@ -228,32 +228,33 @@ function SkillsPathPanel() {
   // Get current LLM call
   const currentLLMCall = execution?.llmCalls?.[currentCallIndex];
 
-  // Collect skills from current LLM call, or fallback to overall execution
+  // loaded = create_deep_agent SoT; router = BM25 hints (skills_invoked)
+  const loadedSet = new Set<string>();
+  const routerSet = new Set<string>();
   const readySet = new Set<string>();
-  const invokedSet = new Set<string>();
 
   if (currentLLMCall) {
-    // Use current call's skills
+    currentLLMCall.skillsLoaded?.forEach((s) => loadedSet.add(s));
     currentLLMCall.activeSkills?.forEach((s) => readySet.add(s));
-    currentLLMCall.skillsInvoked?.forEach((s) => invokedSet.add(s));
+    currentLLMCall.skillsInvoked?.forEach((s) => routerSet.add(s));
   } else if (execution) {
-    // Fallback: collect from all steps
     for (const step of execution.steps) {
-      if (step.activeSkills) {
-        step.activeSkills.forEach((s) => readySet.add(s));
-      }
-      if (step.skillsInvoked) {
-        step.skillsInvoked.forEach((s) => invokedSet.add(s));
-      }
+      step.skillsLoaded?.forEach((s) => loadedSet.add(s));
+      step.activeSkills?.forEach((s) => readySet.add(s));
+      step.skillsInvoked?.forEach((s) => routerSet.add(s));
     }
   }
 
-  // Display only the ready skills (from active_skills); fall back to flat store slice when no execution yet
-  const displayNames = readySet.size > 0
-    ? Array.from(readySet)
-    : flatSkills.filter((s) => !s.isFolder).slice(0, 8).map((s) => s.name);
+  // Prefer actual loaded list; else enabled/ready; else store slice
+  const displayNames =
+    loadedSet.size > 0
+      ? Array.from(loadedSet)
+      : readySet.size > 0
+        ? Array.from(readySet)
+        : flatSkills.filter((s) => !s.isFolder).slice(0, 8).map((s) => s.name);
 
-  const invokedCount = invokedSet.size;
+  const loadedCount = loadedSet.size;
+  const invokedCount = routerSet.size;
   const showNav = totalCalls > 1;
   const hasNext = currentCallIndex < totalCalls - 1;
   const hasPrev = currentCallIndex > 0;
@@ -301,12 +302,13 @@ function SkillsPathPanel() {
             {currentLLMCall ? `Call ${currentLLMCall.callNumber}` : (execution?.messageId?.slice(0, 20) || "—")}
           </span>
           <span className="text-[10px] text-green-600 font-semibold">
-            {invokedCount} active
+            {loadedCount > 0 ? `${loadedCount} loaded` : `${invokedCount} router`}
           </span>
         </div>
         {displayNames.length > 0 ? (
           displayNames.map((name, i) => {
-            const invoked = invokedSet.has(name);
+            const loaded = loadedSet.has(name) || (loadedSet.size === 0 && readySet.has(name));
+            const routed = routerSet.has(name);
             return (
               <div key={name} className={cn(
                 "flex items-center gap-2 px-3 py-2 text-xs",
@@ -314,15 +316,20 @@ function SkillsPathPanel() {
               )}>
                 <Wrench className={cn(
                   "w-3.5 h-3.5 flex-shrink-0",
-                  invoked ? "text-green-500" : "text-slate-300"
+                  loaded ? "text-green-500" : "text-slate-300"
                 )} />
                 <span className={cn(
                   "flex-1 font-medium truncate",
-                  invoked ? "text-slate-800" : "text-slate-400"
+                  loaded ? "text-slate-800" : "text-slate-400"
                 )}>{name}</span>
-                {invoked && (
+                {loaded && (
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                    active
+                    loaded
+                  </span>
+                )}
+                {routed && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                    router
                   </span>
                 )}
               </div>

@@ -64,6 +64,7 @@ interface ExecutionActions {
     chips?: string[];
     active_skills?: string[];
     skills_invoked?: string[];
+    skills_loaded?: string[];
   }) => void;
 
   // Queries
@@ -263,6 +264,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
               chips: event.chips,
               activeSkills: event.active_skills,
               skillsInvoked: event.skills_invoked,
+              skillsLoaded: event.skills_loaded,
             };
             graph.steps.push(newStep);
           } else {
@@ -270,6 +272,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
             existing.startedAt = new Date();
             if (event.sub) existing.sub = event.sub;
             if (event.active_skills) existing.activeSkills = event.active_skills;
+            if (event.skills_loaded) existing.skillsLoaded = event.skills_loaded;
           }
         } else if (event.status === "completed") {
           if (existing) {
@@ -280,6 +283,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
             if (event.chips) existing.chips = event.chips;
             if (event.active_skills) existing.activeSkills = event.active_skills;
             if (event.skills_invoked) existing.skillsInvoked = event.skills_invoked;
+            if (event.skills_loaded) existing.skillsLoaded = event.skills_loaded;
           } else {
             // Create completed step directly (missed the running event)
             graph.steps.push({
@@ -292,6 +296,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
               sub: event.sub,
               chips: event.chips,
               skillsInvoked: event.skills_invoked,
+              skillsLoaded: event.skills_loaded,
             });
           }
         }

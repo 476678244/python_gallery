@@ -220,8 +220,8 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 # Globally selected agent model, persisted in agent_config.json.
 _selected_model: str = DEFAULT_MODEL
 
-def _get_skills_manager() -> Optional[Any]:
-    """Get or lazily init the SkillsManager."""
+def _get_skills_manager() -> Any:
+    """Get or lazily init the SkillsManager. Fail Fast — never return None."""
     global skills_manager
     if skills_manager:
         return skills_manager
@@ -237,13 +237,55 @@ def _get_skills_manager() -> Optional[Any]:
         print(f"✅ SkillsManager loaded: {skills_manager.get_skill_count()} skills")
         _load_skill_tree_state(skills_manager)
     except Exception as e:
-        print(f"⚠️  SkillsManager init failed: {e}")
         skills_manager = None
+        raise RuntimeError(
+            f"[SkillsManager] init failed (Fail Fast)\n"
+            f"  Error: {e}"
+        ) from e
     return skills_manager
+
+
+def _require_skills_manager() -> Any:
+    """HTTP-facing SoT accessor — 503 when SkillsManager cannot load."""
+    try:
+        return _get_skills_manager()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 # In-memory folder toggle state (skills use SkillsManager.set_enabled_skills)
 _folder_enabled: Dict[str, bool] = {}
+
+
+def _skill_collection_id(skill_path: Path, project_root: Path) -> str:
+    """Derive collection id exactly as build_skill_tree (strict, no substring)."""
+    try:
+        rel = skill_path.relative_to(project_root)
+        parts = rel.parts
+        if parts[0] == "linked_skills" and len(parts) >= 3:
+            return f"linked/{parts[1]}"
+        if "private_skills" in parts:
+            return "private"
+        if len(parts) >= 2:
+            return parts[0]
+        return "other"
+    except ValueError:
+        raw = str(skill_path)
+        if "linked_skills" in raw:
+            idx = raw.find("linked_skills")
+            rest = raw[idx:].split("/")
+            return f"linked/{rest[1]}" if len(rest) > 1 else "linked"
+        if "private_skills" in raw:
+            return "private"
+        return "other"
+
+
+def _enabled_skills_mutable(sm: Any) -> set:
+    """Current enabled set for toggle mutations — never soft-reset empty → all."""
+    state = sm.get_enabled_skills_state()
+    if state is None:
+        return set(sm.get_available_skills())
+    return set(state)
 
 
 def _save_agent_config(sm: Any) -> None:
@@ -290,11 +332,19 @@ def _load_agent_config(sm: Any) -> None:
     try:
         model = config.get("model")
         if not isinstance(model, str) or not model.strip():
-            raise ValueError(
-                f"[agent_config] Missing non-empty 'model' (Fail Fast)\n"
-                f"  Path: {config_file}\n"
-                f"  Actual: {config.get('model')!r}"
-            )
+            # Legacy skill_tree_state.json never stored model — migrate with DEFAULT_MODEL.
+            if config_file is _LEGACY_SKILL_TREE_STATE_FILE:
+                model = DEFAULT_MODEL
+                print(
+                    f"ℹ️  Legacy {config_file.name} has no model; "
+                    f"migrating with DEFAULT_MODEL={model}"
+                )
+            else:
+                raise ValueError(
+                    f"[agent_config] Missing non-empty 'model' (Fail Fast)\n"
+                    f"  Path: {config_file}\n"
+                    f"  Actual: {config.get('model')!r}"
+                )
         _selected_model = model.strip()
         print(f"✅ Restored selected model: {_selected_model}")
         enabled_skills = config.get("enabled_skills")
@@ -321,10 +371,8 @@ _load_agent_config(None)
 
 
 def build_skill_tree() -> List[Dict[str, Any]]:
-    """Build skill tree from SkillsManager.skill_scanner.index."""
+    """Build skill tree from SkillsManager.skill_scanner.index. Fail Fast if SM missing."""
     sm = _get_skills_manager()
-    if not sm:
-        return []
 
     # Get enabled skill names from manager state
     enabled_skills = sm.get_enabled_skills()
@@ -336,37 +384,14 @@ def build_skill_tree() -> List[Dict[str, Any]]:
 
     for entry in sm.skill_scanner.index.values():
         skill_path = Path(entry.path)
-        # Determine collection label from path segments
-        try:
-            rel = skill_path.relative_to(project_root)
-            parts = rel.parts
-            # linked_skills/<collection>/<skill>  or  skills/<type>/<skill>
-            if parts[0] == "linked_skills" and len(parts) >= 3:
-                collection_id = f"linked/{parts[1]}"
-                collection_label = parts[1].replace("_", " ").replace("-", " ").title()
-            elif "private_skills" in parts:
-                collection_id = "private"
-                collection_label = "Private Skills"
-            elif len(parts) >= 2:
-                collection_id = parts[0]
-                collection_label = parts[0].replace("_", " ").title()
-            else:
-                collection_id = "other"
-                collection_label = "Other"
-        except ValueError:
-            # Absolute path outside project root (resolved symlink)
-            raw = str(skill_path)
-            if "linked_skills" in raw:
-                idx = raw.find("linked_skills")
-                rest = raw[idx:].split("/")
-                collection_id = f"linked/{rest[1]}" if len(rest) > 1 else "linked"
-                collection_label = rest[1].replace("_", " ").replace("-", " ").title() if len(rest) > 1 else "Linked"
-            elif "private_skills" in raw:
-                collection_id = "private"
-                collection_label = "Private Skills"
-            else:
-                collection_id = "other"
-                collection_label = "Other"
+        collection_id = _skill_collection_id(skill_path, project_root)
+        if collection_id == "private":
+            collection_label = "Private Skills"
+        elif collection_id.startswith("linked/"):
+            label_src = collection_id.split("/", 1)[1]
+            collection_label = label_src.replace("_", " ").replace("-", " ").title()
+        else:
+            collection_label = collection_id.replace("_", " ").title()
 
         skill_id = entry.name
         node = {
@@ -619,21 +644,35 @@ async def chat_stream(request: ChatRequest):
                         "sub": "Parsed intent & entities",
                         "chips": ["\u2713 done"]})
 
-            # ── Step 2: Skill router (semantic matching) ─────────
+            # ── Step 2: Skill router (semantic matching; chips ≠ loaded) ─
             t_router_start = datetime.now().timestamp()
-            sm = _get_skills_manager()
-            active_skills = sm.get_enabled_skills() if sm else (request.enabled_skills or [])
+            try:
+                sm = _get_skills_manager()
+            except RuntimeError as e:
+                yield _sse({"type": "error", "error": str(e)})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
+
+            # SoT = SkillsManager only. ChatRequest.enabled_skills is deprecated (ignored).
+            active_skills = sm.get_enabled_skills()
+            if request.enabled_skills:
+                logger.info(
+                    "[chat/stream] Ignoring deprecated request.enabled_skills "
+                    "(SoT=%s, request=%s) — toggle via POST /skills",
+                    len(active_skills),
+                    len(request.enabled_skills),
+                )
+
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
                         "step_type": "tool_call", "status": "running",
                         "active_skills": active_skills})
 
-            # Semantic match: rank enabled skills by relevance to the query
-            skill_names: list[str] = []
-            if sm and active_skills and last_message:
+            # Semantic match: rank enabled skills by relevance (router hint only)
+            router_skill_names: list[str] = []
+            if active_skills and last_message:
                 try:
                     from safe_claw.core.skills.matcher import get_semantic_matcher
                     matcher = get_semantic_matcher()
-                    # Build entries for only the enabled skills
                     enabled_set = set(active_skills)
                     entries = [
                         entry for entry in sm.skill_scanner.index.values()
@@ -641,21 +680,18 @@ async def chat_stream(request: ChatRequest):
                     ]
                     if entries:
                         matches = matcher.simple_match_l1(last_message, entries, top_k=5)
-                        skill_names = [m.skill.name for m in matches if m.score > 0]
+                        router_skill_names = [m.skill.name for m in matches if m.score > 0]
                 except Exception as e:
                     logger.warning(f"Skill router semantic match failed: {e}")
-
-            # Fallback: if no semantic match, take first 5 enabled skills
-            # if not skill_names:
-            #     skill_names = active_skills[:5] if active_skills else ["chat"]
 
             router_dur = round(datetime.now().timestamp() - t_router_start, 3)
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
                         "step_type": "tool_call", "status": "completed",
                         "duration": router_dur,
-                        "sub": f"Selected: {', '.join(skill_names[:3])}",
-                        "chips": ["\u2713 done"] + skill_names[:3] + [f"{router_dur}s"],
-                        "skills_invoked": skill_names})
+                        "sub": f"Router match: {', '.join(router_skill_names[:3]) or '(none)'}",
+                        "chips": ["\u2713 done"] + router_skill_names[:3] + [f"{router_dur}s"],
+                        "skills_invoked": router_skill_names,
+                        "note": "skills_invoked = BM25 router hints; see skills_loaded for agent load"})
 
             # ── Step 3: Memory retrieval ──────────────────────────
             from safe_claw.core.memory.manager import (
@@ -786,29 +822,55 @@ async def chat_stream(request: ChatRequest):
 
             llm_service = LLMService(config=llm_config)
 
-            # Create SafeClawGraphBuilder with DeepAgent — reuse global MemoryManager
-            graph_builder = SafeClawGraphBuilder(
-                llm_service=llm_service,
-                memory_manager=global_mm,
-                config={
-                    "enabled_skills": active_skills,
-                    "print_prompts": True,
-                    "backend": {
-                        "filesystem": {
-                            "enabled": True,
-                            "base_path": str(WORKSPACE_DIR.parent),
-                            "encrypt_files": False,
-                            "allow_write": True,
+            # Create SafeClawGraphBuilder with DeepAgent — reuse global SM + MemoryManager
+            try:
+                graph_builder = SafeClawGraphBuilder(
+                    llm_service=llm_service,
+                    memory_manager=global_mm,
+                    config={
+                        "skills_manager": sm,
+                        "enabled_skills": active_skills,
+                        "max_skills": 100,
+                        "system_prompt_limit": 65536,
+                        "print_prompts": True,
+                        "backend": {
+                            "filesystem": {
+                                "enabled": True,
+                                "base_path": str(WORKSPACE_DIR.parent),
+                                "encrypt_files": False,
+                                "allow_write": True,
+                            }
                         }
                     }
-                }
-            )
+                )
+            except Exception as e:
+                logger.error("DeepAgent/GraphBuilder init failed (Fail Fast): %s", e)
+                yield _sse({"type": "error", "error": str(e)})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
             deep_agent = graph_builder.deep_agent
+            loaded = (
+                deep_agent.get_loaded_skills()
+                if hasattr(deep_agent, "get_loaded_skills")
+                else {"names": [], "paths": [], "count": 0}
+            )
+            yield _sse({
+                "type": "execution_step",
+                "step_id": "skills_load",
+                "name": "Skills loaded into agent",
+                "step_type": "tool_call",
+                "status": "completed",
+                "sub": f"{loaded.get('count', 0)} skills passed to create_deep_agent",
+                "chips": ["\u2713 loaded"] + list(loaded.get("names") or [])[:8],
+                "skills_loaded": loaded.get("names") or [],
+                "skills_loaded_paths": loaded.get("paths") or [],
+            })
 
             yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
                         "step_type": "model_call", "status": "running",
-                        "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
+                        "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens",
+                        "skills_loaded": loaded.get("names") or []})
 
             full_response = ""
             has_error = False
@@ -990,69 +1052,86 @@ async def chat_stream(request: ChatRequest):
 # Skills endpoints
 @app.get("/skills")
 async def get_skills(flat: bool = False):
-    """Scan real skill directories and return tree"""
+    """Scan real skill directories and return tree. 503 if SkillsManager unavailable."""
     try:
         tree = build_skill_tree()
-        # Count stats
-        private_count = sum(
-            len(n["children"]) for n in tree if n["id"] == "private"
-        )
-        linked_count = sum(
-            len(n["children"]) for n in tree if n["id"].startswith("linked/")
-        )
-        total = sum(len(n["children"]) for n in tree)
-        return {
-            "tree": tree,
-            "total": total,
-            "categories": len(tree),
-            "private": private_count,
-            "linked": linked_count,
-        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         print(f"Skills scan error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    private_count = sum(
+        len(n["children"]) for n in tree if n["id"] == "private"
+    )
+    linked_count = sum(
+        len(n["children"]) for n in tree if n["id"].startswith("linked/")
+    )
+    total = sum(len(n["children"]) for n in tree)
+    return {
+        "tree": tree,
+        "total": total,
+        "categories": len(tree),
+        "private": private_count,
+        "linked": linked_count,
+    }
 
 
 @app.post("/skills")
 async def toggle_skill(request: SkillToggleRequest):
-    """Toggle skill or folder enabled state via SkillsManager"""
-    sm = _get_skills_manager()
+    """Toggle skill or folder enabled state via SkillsManager (strict folder match)."""
+    sm = _require_skills_manager()
+    project_root = Path(__file__).parent.parent
 
     if request.folder_id:
-        # Toggle entire folder: enable/disable all skills in that collection
+        # Toggle entire folder: enable/disable all skills in that collection only
         _folder_enabled[request.folder_id] = request.enabled
-        if sm:
-            current = set(sm.get_enabled_skills() or sm.get_available_skills())
-            folder_key = request.folder_id.replace("linked/", "")
-            changed = []
-            for entry in sm.skill_scanner.index.values():
-                raw = str(entry.path)
-                # Match skills belonging to this folder by path
-                if folder_key in raw:
-                    if request.enabled:
-                        current.add(entry.name)
-                    else:
-                        current.discard(entry.name)
-                    changed.append(entry.name)
-            sm.set_enabled_skills(list(current))
-            print(f"🔧 Folder toggle '{request.folder_id}': {len(changed)} skills {'enabled' if request.enabled else 'disabled'}, {len(current)} total active")
-    elif request.skill_id and sm:
-        current = set(sm.get_enabled_skills() or sm.get_available_skills())
+        current = _enabled_skills_mutable(sm)
+        changed = []
+        for entry in sm.skill_scanner.index.values():
+            cid = _skill_collection_id(Path(entry.path), project_root)
+            if cid != request.folder_id:
+                continue
+            if request.enabled:
+                current.add(entry.name)
+            else:
+                current.discard(entry.name)
+            changed.append(entry.name)
+        if not changed:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[skills/toggle] Unknown folder_id (Fail Fast)\n"
+                    f"  folder_id: {request.folder_id!r}\n"
+                    f"  Hint: use ids from GET /skills tree (e.g. private, linked/...)."
+                ),
+            )
+        sm.set_enabled_skills(list(current))
+        print(
+            f"🔧 Folder toggle '{request.folder_id}': {len(changed)} skills "
+            f"{'enabled' if request.enabled else 'disabled'}, {len(current)} total active"
+        )
+    elif request.skill_id:
+        current = _enabled_skills_mutable(sm)
         if request.enabled:
             current.add(request.skill_id)
         else:
             current.discard(request.skill_id)
         sm.set_enabled_skills(list(current))
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="[skills/toggle] Require skill_id or folder_id (Fail Fast)",
+        )
 
-    # Persist to disk so state survives server restart
-    if sm:
-        _save_skill_tree_state(sm)
+    _save_skill_tree_state(sm)
 
     return {
         "success": True,
         "skill_id": request.skill_id,
         "folder_id": request.folder_id,
         "enabled": request.enabled,
+        "enabled_count": len(sm.get_enabled_skills()),
     }
 
 

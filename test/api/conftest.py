@@ -34,10 +34,14 @@ def tmp_data_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(api_main, "MESSAGES_DIR", data / "messages")
     monkeypatch.setattr(api_main, "LLM_CONFIG_FILE", data / "llm_config.json")
     monkeypatch.setattr(api_main, "AGENT_CONFIG_FILE", data / "agent_config.json")
+    # Isolate legacy migrate path so host skill_tree_state.json cannot leak into tests.
+    monkeypatch.setattr(api_main, "_LEGACY_SKILL_TREE_STATE_FILE", data / "skill_tree_state.json")
     monkeypatch.setattr(api_main, "_DATA_DIR", data)
     monkeypatch.setattr(api_main, "_folder_enabled", {})
     # Reset global model to product default (DeepSeek); do not inherit host agent_config.
     monkeypatch.setattr(api_main, "_selected_model", api_main.DEFAULT_MODEL)
+    # Force SkillsManager re-init against isolated AGENT_CONFIG_FILE (not host SoT).
+    monkeypatch.setattr(api_main, "skills_manager", None)
     # Clear in-memory session list without replacing the binding used by endpoints
     api_main.SESSIONS.clear()
 

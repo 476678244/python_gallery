@@ -31,9 +31,9 @@ class ToolManager:
         # Output callback for real-time streaming
         self._output_callback: Optional[Callable[[str], None]] = None
 
-        # Initialize tools
+        # Initialize tools (skills tools honor SkillDiscovery enabled filter)
         self._initialize_builtin_tools()
-        # self._initialize_skills_tools()
+        self._initialize_skills_tools()
         self._combine_tools()
 
     def _initialize_builtin_tools(self):
@@ -225,7 +225,11 @@ class ToolManager:
                 if not self.skill_scanner.loaded:
                     self.skill_scanner.scan_all_skills()
 
-                entries = list(self.skill_scanner.index.values())
+                # Honor enabled allowlist (same SoT as DeepAgent skills=)
+                if hasattr(self.skill_discovery, "_enabled_entries"):
+                    entries = self.skill_discovery._enabled_entries()
+                else:
+                    entries = list(self.skill_scanner.index.values())
                 if category:
                     # Try exact category match first
                     filtered_by_category = [e for e in entries if e.category.lower() == category.lower()]
