@@ -141,7 +141,7 @@ export const useChatStore = create<ChatState>()(
       }),
       
       // Model
-      selectedModel: 'qwen/qwen3.5-35b-a3b',
+      selectedModel: 'deepseek-v4-flash',
       setSelectedModel: (model) => set({ selectedModel: model }),
     }),
     {

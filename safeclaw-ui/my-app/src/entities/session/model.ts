@@ -33,6 +33,12 @@ export function createSession(
   title: string = "New Chat",
   settings: Partial<SessionSettings> = {}
 ): Session {
+  if (!settings.model?.trim()) {
+    throw new Error(
+      "[createSession] settings.model is required (Fail Fast)\n" +
+        "  Do not invent a local default — pass the global selected model."
+    );
+  }
   const now = new Date();
   return {
     id: crypto.randomUUID(),
@@ -40,7 +46,7 @@ export function createSession(
     status: "active",
     messageCount: 0,
     settings: {
-      model: "gemma-4b",
+      model: settings.model.trim(),
       enabledSkills: [],
       temperature: 0.7,
       maxTokens: 4096,

@@ -247,21 +247,14 @@ class SafeClawGraphBuilder:
     
     def _finalizer_node(self, state: SafeClawState) -> SafeClawState:
         """Finalize the workflow"""
-        # Store conversation in memory if appropriate
         user_input = state.get("user_input", "")
         response = state.get("response", "")
-        
-        if user_input and response and len(user_input) > 10:
-            # Store the conversation exchange
-            conversation = f"User: {user_input}\nAssistant: {response}"
-            importance = self._assess_conversation_importance(user_input, response)
-            
-            self.memory_manager.add_memory(
-                content=conversation,
-                importance_score=importance,
-                metadata={"type": "conversation", "session_id": state.get("session_id")}
+        if user_input and response:
+            self.memory_manager.maybe_store_conversation(
+                user_input=user_input,
+                response=response,
+                session_id=state.get("session_id"),
             )
-        
         state["execution_path"].append("finalizer")
         return state
     

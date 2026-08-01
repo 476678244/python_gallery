@@ -41,7 +41,9 @@ async function fetchMemories(layer: MemoryLayer, search?: string): Promise<{ mem
   const params = new URLSearchParams({ layer, limit: "20" });
   if (search) params.set("search", search);
   const res = await fetch(`/api/memory?${params}`);
-  if (!res.ok) throw new Error("Failed to fetch memories");
+  if (!res.ok) {
+    throw new Error(`Failed to fetch memories (${res.status})`);
+  }
   return res.json();
 }
 
@@ -56,15 +58,19 @@ export function MemoryPanel() {
   const [stats, setStats] = useState<MemoryStats>({ active_count: 0, dormant_count: 0, deep_count: 0, forgotten_count: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const data = await fetchMemories(layer, search || undefined);
-      setMemories(data.memories);
+      setMemories(data.memories ?? []);
       if (data.stats) setStats(data.stats as MemoryStats);
-    } catch {
-      setMemories([]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load memories";
+      setError(message);
+      // Fail Fast: keep previous memories; do not pretend the layer is empty
     } finally {
       setIsLoading(false);
     }
@@ -88,7 +94,15 @@ export function MemoryPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col gap-3 p-3 overflow-y-auto">
+    <div className="h-full flex flex-col gap-3 p-3 overflow-y-auto" data-testid="memory-panel">
+      {error && (
+        <div
+          data-testid="memory-panel-error"
+          className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"
+        >
+          {error}
+        </div>
+      )}
       {/* Stats */}
       <div className="grid grid-cols-2 gap-2">
         {LAYERS.map((l) => (

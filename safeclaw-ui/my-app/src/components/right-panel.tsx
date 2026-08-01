@@ -19,6 +19,7 @@ import { useUIStore, type RightPanelKey } from "@/stores/ui-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useSkillStore } from "@/stores/skill-store";
 import { useMessageStore } from "@/stores/message-store";
+import { MemoryPanel } from "@/features/memory/components/memory-panel";
 import { cn } from "@/lib/utils";
 import type { ExecutionStep } from "@/entities/execution";
 
@@ -36,7 +37,7 @@ const RAIL_ITEMS: {
   { key: "log",     icon: ClipboardList,label: "Log",     badge: "live",  badgeVariant: "amber" },
   { key: "shell",   icon: Terminal,     label: "Shell" },
   { key: "prompts", icon: Eye,          label: "Prompts", badge: "1",     badgeVariant: "blue" },
-  { key: "memory",  icon: Brain,        label: "Memory",  badge: "3" },
+  { key: "memory",  icon: Brain,        label: "Memory" },
 ];
 
 const RAIL_DIVIDER_AFTER: RightPanelKey[] = ["budget", "shell"];
@@ -892,25 +893,6 @@ function PromptInspectPanel() {
   );
 }
 
-function MemoryPanel() {
-  const items = [
-    { icon: "🔍", title: "User prefers Michelin tires",       sub: "Mentioned in 2 previous sessions" },
-    { icon: "🚗", title: "Vehicle: Porsche Macan 2022",       sub: "Stored 3 days ago" },
-    { icon: "💰", title: "Budget preference: mid-range",      sub: "Inferred from conversation history" },
-  ];
-  return (
-    <div className="p-3 space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Active memories · this session</p>
-      {items.map((m) => (
-        <div key={m.title} className="border border-slate-200 rounded-lg p-2.5 text-xs">
-          <p className="font-semibold text-slate-800 mb-0.5">{m.icon} {m.title}</p>
-          <p className="text-slate-400">{m.sub}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ── Panel body renderer ─────────────────────────────────────────
 function PanelBody({ panelKey }: { panelKey: RightPanelKey }) {
   switch (panelKey) {
@@ -1019,10 +1001,12 @@ function PanelCard({
   panelKey,
   height,
   onResize,
+  memoryBadge,
 }: {
   panelKey: RightPanelKey;
   height: number;
   onResize: (delta: number) => void;
+  memoryBadge?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -1036,6 +1020,7 @@ function PanelCard({
   const Icon = def.icon;
   const expanded = mounted ? store.isPanelExpanded(panelKey) : false;
   const collapseToggle = store.collapseToggle;
+  const badge = panelKey === "memory" ? memoryBadge : def.badge;
 
   return (
     <div
@@ -1054,13 +1039,15 @@ function PanelCard({
         <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.5px] text-slate-500 truncate">
           {PANEL_TITLES[panelKey]}
         </span>
-        {def.badge && (
-          <span className={cn(
+        {badge && (
+          <span
+            data-testid={panelKey === "memory" ? "memory-badge" : undefined}
+            className={cn(
             "text-[9.5px] font-bold px-1.5 py-px rounded-full text-white flex-shrink-0",
             def.badgeVariant === "green" ? "bg-green-500" :
             def.badgeVariant === "amber" ? "bg-amber-400 !text-amber-900" :
             def.badgeVariant === "blue"  ? "bg-blue-500" : "bg-slate-400"
-          )}>{def.badge}</span>
+          )}>{badge}</span>
         )}
         <ChevronDown className={cn(
           "w-3 h-3 text-slate-400 flex-shrink-0 transition-transform duration-200",
@@ -1131,7 +1118,34 @@ function RailBtn({ item }: { item: (typeof RAIL_ITEMS)[number] }) {
 // ── Root export ─────────────────────────────────────────────────
 export function RightPanel() {
   const [mounted, setMounted] = useState(false);
+  const [memoryCount, setMemoryCount] = useState<number | null>(null);
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStats = async () => {
+      try {
+        const res = await fetch("/api/memory?layer=active&limit=1");
+        if (!res.ok) {
+          throw new Error(`Memory stats failed: ${res.status}`);
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setMemoryCount(typeof data?.stats?.total_count === "number"
+            ? data.stats.total_count
+            : (data?.stats?.active_count ?? 0));
+        }
+      } catch {
+        if (!cancelled) setMemoryCount(null);
+      }
+    };
+    loadStats();
+    const id = setInterval(loadStats, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   // Access entire store - use defaults during SSR/hydration
   const store = useUIStore();
@@ -1141,6 +1155,7 @@ export function RightPanel() {
   const getPanelHeight = store.getPanelHeight;
   const setPanelHeight = store.setPanelHeight;
   const panelHeights = mounted ? store.panelHeights : {};
+  const memoryBadge = memoryCount !== null ? String(memoryCount) : undefined;
 
   // Valid panel keys that exist in RAIL_ITEMS
   const validPanelKeys = new Set(RAIL_ITEMS.map((r) => r.key));
@@ -1207,6 +1222,7 @@ export function RightPanel() {
             panelKey={key}
             height={getPanelHeight(key)}
             onResize={(delta) => handlePanelResize(key, delta)}
+            memoryBadge={memoryBadge}
           />
         ))}
       </div>
@@ -1215,7 +1231,13 @@ export function RightPanel() {
       <nav className="w-11 min-w-[44px] border-l border-slate-200 bg-slate-50 flex flex-col items-center py-2 gap-0.5 overflow-y-auto h-full">
         {RAIL_ITEMS.map((item) => (
           <div key={item.key} className="flex flex-col items-center gap-0.5 w-full px-1">
-            <RailBtn item={item} />
+            <RailBtn
+              item={
+                item.key === "memory" && memoryBadge
+                  ? { ...item, badge: memoryBadge }
+                  : item
+              }
+            />
             {RAIL_DIVIDER_AFTER.includes(item.key) && (
               <div className="w-6 h-px bg-slate-200 my-1" />
             )}

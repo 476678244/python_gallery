@@ -8,39 +8,51 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { Send, Paperclip, Mic, Plus, Code, FileText, Sparkles, X, File, Command, Check, Cpu } from "lucide-react";
+import {
+  Send,
+  Paperclip,
+  Mic,
+  Plus,
+  Code,
+  FileText,
+  Sparkles,
+  X,
+  File,
+  Command,
+  Check,
+  Cpu,
+  HelpCircle,
+  Eraser,
+  MessageSquarePlus,
+  Wrench,
+  Brain,
+  type LucideIcon,
+} from "lucide-react";
 import { useMessageStore } from "@/stores/message-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useSkillStore } from "@/stores/skill-store";
+import { useUIStore } from "@/stores/ui-store";
 import { streamChat } from "@/features/chat/services/chat-api";
-import { getEnabledModels, type Model } from "@/entities/model";
+import { getEnabledModels, getModelById, type Model } from "@/entities/model";
+import { useModelStore, resolveActiveModelId } from "@/stores/model-store";
+import {
+  SLASH_COMMANDS,
+  filterCommands,
+  parseSlashCommand,
+  type SlashCommandDef,
+  type SlashMode,
+} from "@/features/chat/slash/commands";
 import { cn } from "@/shared/utils/cn";
 
-type SlashMode = "skill" | "model" | "command" | null;
-
-/** Parse text after `/` into slash-command mode + filter. */
-function parseSlashCommand(afterSlash: string): { mode: SlashMode; filter: string } {
-  const raw = afterSlash;
-  const lower = raw.toLowerCase();
-
-  if (lower === "model" || lower.startsWith("model ") || lower.startsWith("model:")) {
-    const filter = lower.startsWith("model:")
-      ? raw.slice("model:".length)
-      : raw.slice("model".length).trimStart();
-    return { mode: "model", filter };
-  }
-
-  // Partial "/m" "/mo" "/mod" "/mode" → suggest the model command
-  if (lower.length > 0 && !lower.includes(" ") && "model".startsWith(lower)) {
-    return { mode: "command", filter: lower };
-  }
-
-  if (!raw.includes(" ") && !raw.includes("\n")) {
-    return { mode: "skill", filter: raw };
-  }
-
-  return { mode: null, filter: "" };
-}
+const COMMAND_ICONS: Record<string, LucideIcon> = {
+  help: HelpCircle,
+  model: Cpu,
+  skill: Wrench,
+  remember: Brain,
+  memory: Brain,
+  clear: Eraser,
+  new: MessageSquarePlus,
+};
 
 const QUICK_ACTIONS = [
   { icon: Sparkles, label: "Research", color: "text-purple-500" },
@@ -84,19 +96,32 @@ import { useSessionStore } from "@/stores/session-store";
 
 export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, onFileUpload }: ChatInputProps) {
   // Get session from store if not provided via props
-  const { currentSessionId, sessions, updateSessionSettings } = useSessionStore();
+  const { currentSessionId, sessions, updateSessionSettings, createSession } = useSessionStore();
+  const { globalModelId, loadGlobalModel, setGlobalModel, loaded: modelLoaded, error: modelError } =
+    useModelStore();
   const sessionId = sessionIdProp ?? currentSessionId;
   const disabled = disabledProp ?? !sessionId;
+
+  useEffect(() => {
+    void loadGlobalModel().catch((err) => {
+      console.error("[ChatInput] Failed to load global model", err);
+    });
+  }, [loadGlobalModel]);
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [slashMode, setSlashMode] = useState<SlashMode>(null);
   const [slashFilter, setSlashFilter] = useState("");
+  const [slashArgs, setSlashArgs] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [slashNotice, setSlashNotice] = useState<string | null>(null);
+  const railToggle = useUIStore((s) => s.railToggle);
+  const isPanelOpen = useUIStore((s) => s.isPanelOpen);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashDropdownRef = useRef<HTMLDivElement>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Get enabled skills from skill store
   const { enabledSkillIds, flatSkills, loadSkills } = useSkillStore();
@@ -121,8 +146,19 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     []
   );
 
+  const sessionModel = sessions.find((s) => s.id === sessionId)?.settings?.model;
   const currentModelId =
-    sessions.find((s) => s.id === sessionId)?.settings?.model ?? enabledModels[0]?.id;
+    modelLoaded && !modelError && (sessionModel || globalModelId)
+      ? resolveActiveModelId(sessionModel, globalModelId)
+      : null;
+  const currentModel = currentModelId ? getModelById(currentModelId) ?? null : null;
+  if (currentModelId && !currentModel) {
+    throw new Error(
+      `[ChatInput] Unknown model id\n` +
+        `  Actual: ${currentModelId}\n` +
+        `  Expected: id in AVAILABLE_MODELS`
+    );
+  }
 
   // Filter skills based on input (skill slash mode)
   const filteredSkills = slashFilter
@@ -145,15 +181,27 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
       })
     : enabledModels;
 
+  const filteredCommands = useMemo(() => {
+    if (slashMode === "help") return SLASH_COMMANDS;
+    if (slashMode === "command") return filterCommands(slashFilter);
+    return [];
+  }, [slashMode, slashFilter]);
+
   const showSlashDropdown = slashMode !== null;
   const slashItemCount =
     slashMode === "model"
       ? filteredModels.length
-      : slashMode === "command"
-        ? 1
-        : slashMode === "skill"
-          ? filteredSkills.length
+      : slashMode === "skill"
+        ? filteredSkills.length
+        : slashMode === "command" || slashMode === "help"
+          ? filteredCommands.length
           : 0;
+
+  const showNotice = useCallback((message: string) => {
+    setSlashNotice(message);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setSlashNotice(null), 2500);
+  }, []);
 
   const {
     addUserMessage,
@@ -163,6 +211,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     cancelStreaming,
     isStreaming,
     getMessagesForSession,
+    clearMessages,
   } = useMessageStore();
 
   const {
@@ -178,6 +227,19 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
   const handleSubmit = useCallback(async () => {
     if ((!input.trim() && uploadedFiles.length === 0) || isStreaming || !sessionId) return;
 
+    // Fail Fast before mutating UI / starting stream
+    if (!currentModelId) {
+      const message =
+        `[ChatInput] Refuse to stream: model not resolved\n` +
+        `  sessionId: ${sessionId}\n` +
+        `  modelLoaded: ${modelLoaded}\n` +
+        `  modelError: ${modelError}\n` +
+        `  globalModelId: ${globalModelId}`;
+      console.error(message);
+      window.alert(message);
+      throw new Error(message);
+    }
+
     const content = input.trim();
     const files = [...uploadedFiles];
     
@@ -190,7 +252,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     const messageContent = files.length > 0
       ? `${content}\n\n[Attached files: ${files.map(f => f.name).join(", ")}]`
       : content;
-    const userMessage = addUserMessage(messageContent, sessionId);
+    addUserMessage(messageContent, sessionId);
     
     // Notify parent about file uploads
     if (files.length > 0 && onFileUpload) {
@@ -208,24 +270,20 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     // so vision-capable models (VLM) can actually "see" them.
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length > 0 && apiMessages.length > 0) {
-      try {
-        const imageParts = await Promise.all(
-          imageFiles.map(async (f) => ({
-            type: "image_url",
-            image_url: { url: await readFileAsDataUrl(f.file) },
-          }))
-        );
-        const lastIdx = apiMessages.length - 1;
-        apiMessages[lastIdx] = {
-          role: apiMessages[lastIdx].role,
-          content: [
-            ...(content ? [{ type: "text", text: content }] : []),
-            ...imageParts,
-          ],
-        };
-      } catch (err) {
-        console.error("Failed to encode image attachments:", err);
-      }
+      const imageParts = await Promise.all(
+        imageFiles.map(async (f) => ({
+          type: "image_url",
+          image_url: { url: await readFileAsDataUrl(f.file) },
+        }))
+      );
+      const lastIdx = apiMessages.length - 1;
+      apiMessages[lastIdx] = {
+        role: apiMessages[lastIdx].role,
+        content: [
+          ...(content ? [{ type: "text", text: content }] : []),
+          ...imageParts,
+        ],
+      };
     }
 
     // Start streaming
@@ -233,16 +291,11 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     startExecution(sessionId, streamingId);
     setThinking(true);
 
-    // Stream chat
-    // Resolve current model from session settings
-    const currentSession = sessions.find((s) => s.id === sessionId);
-    const currentModel = currentSession?.settings?.model;
-
     await streamChat(
       {
         messages: apiMessages,
         sessionId: sessionId,
-        model: currentModel,
+        model: currentModelId,
       },
       {
         onThinking: (step) => {
@@ -271,7 +324,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
           // Persist after state update is flushed
           setTimeout(() => {
             const allMessages = getMessagesForSession(sessionId!);
-            fetch(`/api/sessions/${sessionId}/messages`, {
+            void fetch(`/api/sessions/${sessionId}/messages`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -280,7 +333,20 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
                   timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
                 })),
               }),
-            }).catch(() => {});
+            }).then(async (r) => {
+              if (!r.ok) {
+                const detail = await r.text();
+                throw new Error(
+                  `[ChatInput] Persist messages failed (Fail Fast)\n` +
+                    `  sessionId: ${sessionId}\n` +
+                    `  Status: ${r.status}\n` +
+                    `  Body: ${detail.slice(0, 200)}`
+                );
+              }
+            }).catch((err) => {
+              console.error(err);
+              window.alert(err instanceof Error ? err.message : "Failed to persist messages");
+            });
           }, 0);
         },
         onError: (error) => {
@@ -294,7 +360,12 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     input,
     isStreaming,
     sessionId,
-    sessions,
+    uploadedFiles,
+    onFileUpload,
+    currentModelId,
+    modelLoaded,
+    modelError,
+    globalModelId,
     addUserMessage,
     getMessagesForSession,
     startStreaming,
@@ -338,11 +409,25 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
           const errorText = await response.text().catch(() => "Unknown error");
           console.error(`Failed to upload ${uploadedFile.name}: HTTP ${response.status} - ${errorText}`);
         } else {
-          const result = await response.json().catch(() => ({ success: true }));
+          let result: unknown;
+          try {
+            result = await response.json();
+          } catch (e) {
+            throw new Error(
+              `[ChatInput] Upload response non-JSON (Fail Fast)\n` +
+                `  file: ${uploadedFile.name}\n` +
+                `  Error: ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
           console.log(`Uploaded ${uploadedFile.name} to workspace/uploaded/`, result);
         }
       } catch (error) {
         console.error(`Error uploading ${uploadedFile.name}:`, error);
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : `Upload failed: ${uploadedFile.name}`
+        );
       }
     }
   }, []);
@@ -415,6 +500,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     const parsed = parseSlashCommand(afterSlash);
     setSlashMode(parsed.mode);
     setSlashFilter(parsed.filter);
+    setSlashArgs(parsed.args ?? "");
     setSelectedIndex(0);
   }, []);
 
@@ -465,42 +551,216 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     }
   }, [input]);
 
+  const expandSlashToCommand = useCallback(
+    (cmdName: string) => {
+      const cursorPos = textareaRef.current?.selectionStart || input.length;
+      const beforeCursor = input.slice(0, cursorPos);
+      const lastSlashIndex = beforeCursor.lastIndexOf("/");
+      if (lastSlashIndex === -1) return;
+      const beforeSlash = input.slice(0, lastSlashIndex);
+      const afterCursor = input.slice(cursorPos);
+      const token = `/${cmdName} `;
+      const newValue = `${beforeSlash}${token}${afterCursor}`;
+      setInput(newValue);
+      setSelectedIndex(0);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const pos = lastSlashIndex + token.length;
+          textareaRef.current.setSelectionRange(pos, pos);
+          textareaRef.current.focus();
+        }
+      }, 0);
+    },
+    [input]
+  );
+
   const handleModelSelect = useCallback(
-    (model: Model) => {
+    async (model: Model) => {
       if (sessionId) {
         updateSessionSettings(sessionId, { model: model.id });
       }
-      fetch("/api/settings/model", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: model.id }),
-      }).catch(() => {});
+      await setGlobalModel(model.id);
       clearSlashCommandFromInput();
+      showNotice(`Model → ${model.name}`);
     },
-    [sessionId, updateSessionSettings, clearSlashCommandFromInput]
+    [sessionId, updateSessionSettings, setGlobalModel, clearSlashCommandFromInput, showNotice]
   );
 
-  const handleCommandSelect = useCallback(() => {
-    // Expand "/m…" into "/model " and open model picker
-    const cursorPos = textareaRef.current?.selectionStart || input.length;
-    const beforeCursor = input.slice(0, cursorPos);
-    const lastSlashIndex = beforeCursor.lastIndexOf("/");
-    if (lastSlashIndex === -1) return;
-    const beforeSlash = input.slice(0, lastSlashIndex);
-    const afterCursor = input.slice(cursorPos);
-    const newValue = `${beforeSlash}/model ${afterCursor}`;
-    setInput(newValue);
-    setSlashMode("model");
-    setSlashFilter("");
-    setSelectedIndex(0);
-    setTimeout(() => {
-      if (textareaRef.current) {
-        const pos = lastSlashIndex + "/model ".length;
-        textareaRef.current.setSelectionRange(pos, pos);
-        textareaRef.current.focus();
+  const runClearChat = useCallback(() => {
+    if (!sessionId) return;
+    clearMessages(sessionId);
+    void fetch(`/api/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [] }),
+    }).then(async (r) => {
+      if (!r.ok) {
+        throw new Error(
+          `[ChatInput] /clear persist failed (Fail Fast)\n` +
+            `  sessionId: ${sessionId}\n` +
+            `  Status: ${r.status}`
+        );
       }
-    }, 0);
-  }, [input]);
+      clearSlashCommandFromInput();
+      showNotice("Chat cleared");
+    }).catch((err) => {
+      console.error(err);
+      window.alert(err instanceof Error ? err.message : "Failed to clear chat");
+    });
+  }, [sessionId, clearMessages, clearSlashCommandFromInput, showNotice]);
+
+  const runNewChat = useCallback(async () => {
+    clearSlashCommandFromInput();
+    if (!currentModelId) {
+      throw new Error(
+        "[ChatInput] /new refused: global model not loaded\n" +
+          `  modelLoaded: ${modelLoaded}\n` +
+          `  modelError: ${modelError}\n` +
+          `  globalModelId: ${globalModelId}`
+      );
+    }
+    await createSession(undefined, currentModelId);
+    showNotice("New chat started");
+  }, [
+    createSession,
+    currentModelId,
+    clearSlashCommandFromInput,
+    showNotice,
+    modelLoaded,
+    modelError,
+    globalModelId,
+  ]);
+
+  const openMemoryPanel = useCallback(() => {
+    if (!isPanelOpen("memory")) {
+      railToggle("memory");
+    }
+  }, [isPanelOpen, railToggle]);
+
+  const runRemember = useCallback(
+    async (text: string) => {
+      const content = text.trim();
+      if (!content) {
+        expandSlashToCommand("remember");
+        setSlashMode("command");
+        setSlashFilter("remember");
+        showNotice("Type text after /remember");
+        return;
+      }
+      const res = await fetch("/api/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          importance: 0.9,
+          keywords: content.split(/\s+/).slice(0, 6),
+          metadata: { source: "slash_remember", session_id: sessionId },
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(
+          `[ChatInput] /remember failed\n` +
+            `  Status: ${res.status}\n` +
+            `  Detail: ${detail}`
+        );
+      }
+      clearSlashCommandFromInput();
+      showNotice("Remembered");
+      openMemoryPanel();
+    },
+    [
+      sessionId,
+      expandSlashToCommand,
+      clearSlashCommandFromInput,
+      showNotice,
+      openMemoryPanel,
+    ]
+  );
+
+  const runMemorySearch = useCallback(
+    async (query: string) => {
+      openMemoryPanel();
+      const q = query.trim();
+      if (!q) {
+        clearSlashCommandFromInput();
+        showNotice("Memory panel opened");
+        return;
+      }
+      const res = await fetch(`/api/memory?search=${encodeURIComponent(q)}&limit=5`);
+      if (!res.ok) {
+        throw new Error(
+          `[ChatInput] /memory search failed\n` +
+            `  Status: ${res.status}`
+        );
+      }
+      const data = await res.json();
+      const total = data.total ?? (data.memories?.length ?? 0);
+      clearSlashCommandFromInput();
+      showNotice(`Memory: ${total} hit${total === 1 ? "" : "s"} for “${q}”`);
+    },
+    [openMemoryPanel, clearSlashCommandFromInput, showNotice]
+  );
+
+  const activateSlashCommand = useCallback(
+    (cmd: SlashCommandDef, argsOverride?: string) => {
+      const args = (argsOverride ?? slashArgs).trim();
+      if (cmd.kind === "help") {
+        expandSlashToCommand("help");
+        setSlashMode("help");
+        setSlashFilter("");
+        setSelectedIndex(0);
+        return;
+      }
+      if (cmd.kind === "picker") {
+        expandSlashToCommand(cmd.name);
+        setSlashMode(cmd.id as "model" | "skill");
+        setSlashFilter("");
+        setSelectedIndex(0);
+        return;
+      }
+      // action
+      if (cmd.id === "clear") {
+        runClearChat();
+        return;
+      }
+      if (cmd.id === "new") {
+        void runNewChat().catch((err) => {
+          console.error(err);
+          window.alert(err instanceof Error ? err.message : "Failed to create session");
+        });
+        return;
+      }
+      if (cmd.id === "remember") {
+        void runRemember(args).catch((err) => {
+          console.error(err);
+          window.alert(err instanceof Error ? err.message : "Failed to remember");
+        });
+        return;
+      }
+      if (cmd.id === "memory") {
+        void runMemorySearch(args).catch((err) => {
+          console.error(err);
+          window.alert(err instanceof Error ? err.message : "Memory search failed");
+        });
+        return;
+      }
+      throw new Error(
+        `[ChatInput] Unknown slash action\n` +
+          `  Command id: ${cmd.id}\n` +
+          `  Expected: clear | new | remember | memory`
+      );
+    },
+    [
+      slashArgs,
+      expandSlashToCommand,
+      runClearChat,
+      runNewChat,
+      runRemember,
+      runMemorySearch,
+      showNotice,
+    ]
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -518,9 +778,15 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           if (slashMode === "model" && filteredModels[selectedIndex]) {
-            handleModelSelect(filteredModels[selectedIndex]);
-          } else if (slashMode === "command") {
-            handleCommandSelect();
+            void handleModelSelect(filteredModels[selectedIndex]).catch((err) => {
+              console.error(err);
+              window.alert(err instanceof Error ? err.message : "Failed to select model");
+            });
+          } else if (
+            (slashMode === "command" || slashMode === "help") &&
+            filteredCommands[selectedIndex]
+          ) {
+            activateSlashCommand(filteredCommands[selectedIndex]);
           } else if (slashMode === "skill" && filteredSkills[selectedIndex]) {
             handleSkillSelect(filteredSkills[selectedIndex]);
           }
@@ -543,13 +809,20 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
       slashMode,
       filteredModels,
       filteredSkills,
+      filteredCommands,
       selectedIndex,
       handleModelSelect,
-      handleCommandSelect,
+      activateSlashCommand,
       handleSkillSelect,
       handleSubmit,
     ]
   );
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    };
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -574,6 +847,46 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     <div 
       className="border-t border-slate-200 bg-white p-4"
     >
+      {/* Session model + slash notice */}
+      <div className="flex items-center gap-2 mb-2 min-h-[22px]">
+        {modelError ? (
+          <span data-testid="input-model-error" className="text-[11px] text-red-600 truncate max-w-[280px]" title={modelError}>
+            Model error — check console
+          </span>
+        ) : !currentModel ? (
+          <span className="text-[11px] text-slate-400">Loading model…</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (disabled || isStreaming) return;
+              setInput("/model ");
+              setSlashMode("model");
+              setSlashFilter("");
+              setSelectedIndex(0);
+              setTimeout(() => textareaRef.current?.focus(), 0);
+            }}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px]",
+              "bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+            )}
+            data-testid="input-model-chip"
+            title="Switch model (/model)"
+          >
+            <Cpu className="w-3 h-3 text-blue-500" />
+            <span className="font-medium truncate max-w-[160px]">{currentModel.name}</span>
+          </button>
+        )}
+        {slashNotice && (
+          <span
+            data-testid="slash-notice"
+            className="text-[11px] text-emerald-600 animate-in fade-in"
+          >
+            {slashNotice}
+          </span>
+        )}
+      </div>
+
       {/* Quick Actions */}
       <div className="flex gap-2 mb-3 overflow-x-auto">
         {QUICK_ACTIONS.map((action) => (
@@ -668,7 +981,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             placeholder={
               disabled
                 ? "Select a session to start chatting..."
-                : "Ask anything... / for skills, /model to switch model"
+                : "Ask anything… type / for commands (/help, /model, /skill, /clear, /new)"
             }
             disabled={disabled || isStreaming}
             rows={1}
@@ -680,33 +993,53 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
             style={{ height: "auto" }}
           />
 
-          {/* Slash: command hint (e.g. /mo → model) */}
-          {slashMode === "command" && (
+          {/* Slash: command palette / help */}
+          {(slashMode === "command" || slashMode === "help") && filteredCommands.length > 0 && (
             <div
               ref={slashDropdownRef}
               data-testid="slash-command-dropdown"
               className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50"
             >
               <div className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Commands
+                {slashMode === "help" ? "All Commands" : "Commands"}
               </div>
-              <button
-                onClick={handleCommandSelect}
-                className={cn(
-                  "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
-                  selectedIndex === 0 ? "bg-blue-50 text-blue-900" : "hover:bg-slate-50 text-slate-700"
-                )}
-              >
-                <div className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-blue-100">
-                  <Cpu className="w-3.5 h-3.5 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">/model</div>
-                  <div className="text-xs text-slate-500 truncate mt-0.5">
-                    Switch AI model for this session
-                  </div>
-                </div>
-              </button>
+              {filteredCommands.map((cmd, index) => {
+                const Icon = COMMAND_ICONS[cmd.id] ?? Command;
+                return (
+                  <button
+                    key={cmd.id}
+                    type="button"
+                    data-testid={`slash-cmd-${cmd.id}`}
+                    onClick={() => activateSlashCommand(cmd)}
+                    className={cn(
+                      "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
+                      index === selectedIndex
+                        ? "bg-blue-50 text-blue-900"
+                        : "hover:bg-slate-50 text-slate-700"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "w-6 h-6 rounded flex items-center justify-center shrink-0",
+                        index === selectedIndex ? "bg-blue-100" : "bg-slate-100"
+                      )}
+                    >
+                      <Icon
+                        className={cn(
+                          "w-3.5 h-3.5",
+                          index === selectedIndex ? "text-blue-600" : "text-slate-500"
+                        )}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">/{cmd.name}</div>
+                      <div className="text-xs text-slate-500 truncate mt-0.5">
+                        {cmd.description}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -723,7 +1056,13 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
               {filteredModels.map((model, index) => (
                 <button
                   key={model.id}
-                  onClick={() => handleModelSelect(model)}
+                  type="button"
+                  onClick={() => {
+                    void handleModelSelect(model).catch((err) => {
+                      console.error(err);
+                      window.alert(err instanceof Error ? err.message : "Failed to select model");
+                    });
+                  }}
                   className={cn(
                     "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",
                     index === selectedIndex
@@ -786,6 +1125,7 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
               {filteredSkills.map((skill, index) => (
                 <button
                   key={skill.id}
+                  type="button"
                   onClick={() => handleSkillSelect(skill)}
                   className={cn(
                     "w-full px-3 py-2 flex items-start gap-3 text-left transition-colors",

@@ -38,8 +38,40 @@ export interface Model {
   };
 }
 
-// Predefined models — IDs must match backend /settings/models and sidebar SIDEBAR_MODELS
+// Predefined models — IDs must match backend /settings/models and sidebar SIDEBAR_MODELS.
+// DeepSeek V4 Flash is the global default model selection.
 export const AVAILABLE_MODELS: Model[] = [
+  {
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    description: "Cloud · fast · deepseek.com · global default",
+    icon: "deepseek",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 65536,
+      supportedModes: ["chat", "code", "reasoning", "function_calling"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+    isDefault: true,
+  },
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    provider: "deepseek",
+    description: "Cloud · thinking · deepseek.com",
+    icon: "deepseek",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 65536,
+      supportedModes: ["chat", "code", "reasoning", "function_calling"],
+      supportsStreaming: true,
+      supportsSystemPrompt: true,
+    },
+    isEnabled: true,
+  },
   {
     id: "qwen3.5-9b-vlm",
     name: "Qwen3.5 9B",
@@ -54,7 +86,6 @@ export const AVAILABLE_MODELS: Model[] = [
       supportsSystemPrompt: true,
     },
     isEnabled: true,
-    isDefault: true,
   },
   {
     id: "gemma-4-e4b",
@@ -117,36 +148,6 @@ export const AVAILABLE_MODELS: Model[] = [
     isEnabled: true,
   },
   {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek V4 Flash",
-    provider: "deepseek",
-    description: "Cloud · fast · deepseek.com",
-    icon: "deepseek",
-    capabilities: {
-      maxTokens: 8192,
-      contextWindow: 65536,
-      supportedModes: ["chat", "code", "reasoning", "function_calling"],
-      supportsStreaming: true,
-      supportsSystemPrompt: true,
-    },
-    isEnabled: true,
-  },
-  {
-    id: "deepseek-v4-pro",
-    name: "DeepSeek V4 Pro",
-    provider: "deepseek",
-    description: "Cloud · thinking · deepseek.com",
-    icon: "deepseek",
-    capabilities: {
-      maxTokens: 8192,
-      contextWindow: 65536,
-      supportedModes: ["chat", "code", "reasoning", "function_calling"],
-      supportsStreaming: true,
-      supportsSystemPrompt: true,
-    },
-    isEnabled: true,
-  },
-  {
     id: "nomic-embed-text-v1.5",
     name: "Nomic Embed v1.5",
     provider: "lm-studio",
@@ -165,7 +166,14 @@ export const AVAILABLE_MODELS: Model[] = [
 
 // Utilities
 export function getDefaultModel(): Model {
-  return AVAILABLE_MODELS.find((m) => m.isDefault) || AVAILABLE_MODELS[0];
+  const model = AVAILABLE_MODELS.find((m) => m.isDefault);
+  if (!model) {
+    throw new Error(
+      "[getDefaultModel] No model marked isDefault (Fail Fast)\n" +
+        "  Expected: exactly one AVAILABLE_MODELS entry with isDefault: true"
+    );
+  }
+  return model;
 }
 
 export function getModelById(id: string): Model | undefined {

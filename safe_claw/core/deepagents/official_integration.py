@@ -393,17 +393,32 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             return
 
         try:
-            # Convert messages to LangChain format
+            # Convert messages to LangChain format.
+            # Merge any caller-provided system messages (e.g. memory context) into the
+            # primary system prompt so they are not diluted by a later default system.
             langchain_messages = []
+            memory_system_blocks: List[str] = []
+            conversation_msgs: List[Dict[str, str]] = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role == "system" and content:
+                    memory_system_blocks.append(content)
+                else:
+                    conversation_msgs.append(msg)
 
-            # Add system prompt if available
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
             system_prompt = system_prompt + "\n\n" + "Be concise. No deep reasoning. /no_think"
+            if memory_system_blocks:
+                system_prompt = (
+                    system_prompt
+                    + "\n\n"
+                    + "\n\n".join(memory_system_blocks)
+                )
             if system_prompt:
                 langchain_messages.append(SystemMessage(content=system_prompt))
 
-            # Convert input messages to LangChain format
-            for msg in messages:
+            for msg in conversation_msgs:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
 
@@ -411,10 +426,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                     langchain_messages.append(HumanMessage(content=content))
                 elif role == "assistant":
                     langchain_messages.append(AIMessage(content=content))
-                elif role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
                 else:
-                    # Default to human message for unknown roles
                     langchain_messages.append(HumanMessage(content=content))
 
             # Create state for LangGraph with proper message format

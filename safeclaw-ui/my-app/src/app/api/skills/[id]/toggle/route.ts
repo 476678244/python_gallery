@@ -6,7 +6,20 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[skills toggle] Invalid JSON body (Fail Fast)\n` +
+          `  id: ${id}\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 400 }
+    );
+  }
   const res = await fetch(`${BACKEND}/skills/${id}/toggle`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

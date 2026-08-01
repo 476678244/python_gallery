@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Explicit mock LLM only for unit/API tests — never silent product fallback.
+os.environ.setdefault("SAFECLAW_ALLOW_MOCK_LLM", "1")
 
 # Ensure repo root is importable
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +36,8 @@ def tmp_data_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(api_main, "AGENT_CONFIG_FILE", data / "agent_config.json")
     monkeypatch.setattr(api_main, "_DATA_DIR", data)
     monkeypatch.setattr(api_main, "_folder_enabled", {})
+    # Reset global model to product default (DeepSeek); do not inherit host agent_config.
+    monkeypatch.setattr(api_main, "_selected_model", api_main.DEFAULT_MODEL)
     # Clear in-memory session list without replacing the binding used by endpoints
     api_main.SESSIONS.clear()
 
@@ -40,9 +46,18 @@ def tmp_data_dirs(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def client(tmp_data_dirs):
-    """TestClient bound to isolated data dirs."""
+def client(tmp_data_dirs, monkeypatch):
+    """TestClient bound to isolated data dirs + fresh MemoryManager."""
+    import api.main as api_main
     from api.main import app
+    from safe_claw.core.memory.manager import MemoryManager
+    from safe_claw.models.config import MemoryConfig
+
+    api_main.memory_manager = MemoryManager(
+        config=MemoryConfig(),
+        workspace_path=str(tmp_data_dirs["workspace"]),
+    )
+    api_main.safe_claw_loaded = True
 
     with TestClient(app) as c:
         yield c

@@ -254,105 +254,12 @@ security_config:
 
 ## 记忆系统设计
 
-### 记忆层级架构
+实现以四层文件记忆为准（`active` / `dormant` / `deep` / `forgotten`），由 `MemoryManager` 管理，
+存储于 `~/Downloads/safe_claw_worksapce/workspace/memory/`。
 
-```
-┌─────────────────────────────────────┐
-│           记忆系统                  │
-├─────────────────────────────────────┤
-│  短期记忆 (Short-term Memory)       │
-│  - 当前会话的近期对话               │
-│  - 临时上下文信息                   │
-│  - 会话结束时自动清理               │
-├─────────────────────────────────────┤
-│  长期记忆 (Long-term Memory)         │
-│  - 重要信息持久化存储               │
-│  - 用户偏好和历史模式               │
-│  - 按日期索引的 Markdown 文件       │
-├─────────────────────────────────────┤
-│  压缩记忆 (Compressed Memory)        │
-│  - 历史记忆的智能摘要               │
-│  - 定期自动压缩和整理               │
-│  - 保持记忆的可检索性               │
-└─────────────────────────────────────┘
-```
+生产聊天路径（`POST /chat/stream`）会真实检索、注入 prompt，并在 importance 达标时写入。
 
-### 记忆管理策略
-
-#### 短期记忆管理
-- **容量限制**：保持最近 N 条对话（可配置）
-- **自动清理**：会话结束或超时自动清理
-- **上下文窗口**：为 LLM 提供相关上下文
-- **快速检索**：基于相关性的快速匹配
-
-#### 长期记忆管理
-- **智能提取**：自动识别值得保存的重要信息
-- **分类存储**：按类型、日期、重要性分类
-- **索引机制**：支持关键词和语义检索
-- **版本控制**：记忆文件的版本管理
-
-#### 记忆压缩机制
-- **定期压缩**：按时间周期自动压缩历史记忆
-- **智能摘要**：使用 LLM 生成记忆摘要
-- **关键信息保留**：确保重要信息不丢失
-- **分层存储**：热数据、温数据、冷数据分层
-
-### 记忆配置示例
-
-```yaml
-# MEMORY.md 内容示例
-memory_config:
-  # 短期记忆配置
-  short_term:
-    max_messages: 50          # 最大消息数
-    context_window: 10         # 上下文窗口大小
-    auto_cleanup: true         # 自动清理
-    timeout_hours: 24          # 超时时间（小时）
-  
-  # 长期记忆配置
-  long_term:
-    storage_format: "markdown"  # 存储格式
-    auto_extract: true         # 自动提取重要信息
-    index_type: "hybrid"       # 索引类型：keyword/semantic/hybrid
-    retention_days: 365        # 保留天数
-  
-  # 压缩配置
-  compression:
-    enabled: true              # 启用压缩
-    schedule: "weekly"         # 压缩周期：daily/weekly/monthly
-    compression_ratio: 0.3     # 压缩比例（30%）
-    keep_keywords:            # 保留关键词
-      - "重要"
-      - "关键"
-      - "决策"
-      - "偏好"
-```
-
-### 记忆操作接口
-
-```python
-# 记忆管理核心接口
-class MemoryManager:
-    def add_short_term(self, content: str, metadata: dict) -> str:
-        """添加短期记忆"""
-        pass
-    
-    def extract_long_term(self, content: str) -> List[str]:
-        """提取长期记忆"""
-        pass
-    
-    def search_memories(self, query: str, memory_type: str) -> List[Memory]:
-        """搜索记忆"""
-        pass
-    
-    def compress_memories(self, date_range: tuple) -> bool:
-        """压缩记忆"""
-        pass
-    
-    def get_context(self, query: str, limit: int) -> List[Memory]:
-        """获取相关上下文"""
-        pass
-```
+详见 **[Docs/MEMORY.md](Docs/MEMORY.md)**。
 
 ---
 

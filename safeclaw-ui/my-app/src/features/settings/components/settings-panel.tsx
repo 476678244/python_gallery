@@ -23,6 +23,8 @@ const PROVIDER_COLORS: Record<string, string> = {
   openai: "bg-green-100 text-green-700",
   qwen: "bg-blue-100 text-blue-700",
   google: "bg-red-100 text-red-700",
+  deepseek: "bg-slate-900 text-white",
+  "lm-studio": "bg-violet-100 text-violet-700",
 };
 
 const THEMES: { id: Theme; label: string }[] = [
@@ -33,8 +35,10 @@ const THEMES: { id: Theme; label: string }[] = [
 
 export function SettingsPanel() {
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [selectedModel, setSelectedModel] = useState("qwen/qwen3.5-35b-a3b");
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [selectedModelError, setSelectedModelError] = useState<string | null>(null);
   const { theme, setTheme } = useUIStore();
 
   // LM Studio endpoint settings
@@ -50,31 +54,77 @@ export function SettingsPanel() {
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
 
-  const loadModels = () => {
+  const loadModels = async () => {
     setIsLoading(true);
-    fetch("/api/settings/models")
-      .then((r) => r.json())
-      .then((d) => setModels(d.models ?? []))
-      .catch(() => setModels([]))
-      .finally(() => setIsLoading(false));
+    setModelsError(null);
+    try {
+      const r = await fetch("/api/settings/models");
+      if (!r.ok) {
+        throw new Error(
+          `[SettingsPanel] Failed to load models\n  Status: ${r.status}`
+        );
+      }
+      const d = await r.json();
+      const list = d.models;
+      if (!Array.isArray(list) || list.length === 0) {
+        throw new Error(
+          `[SettingsPanel] /settings/models returned empty list\n  Actual: ${JSON.stringify(d)}`
+        );
+      }
+      setModels(list);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load models";
+      setModelsError(message);
+      setModels([]);
+      console.error(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    loadModels();
+    void loadModels();
+    void fetch("/api/settings/model")
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error(
+            `[SettingsPanel] Failed to load selected model\n  Status: ${r.status}`
+          );
+        }
+        const d = await r.json();
+        if (typeof d.model !== "string" || !d.model.trim()) {
+          throw new Error(
+            `[SettingsPanel] Selected model missing\n  Actual: ${JSON.stringify(d)}`
+          );
+        }
+        setSelectedModel(d.model.trim());
+        setSelectedModelError(null);
+      })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : "Failed to load selected model";
+        setSelectedModelError(message);
+        setSelectedModel(null);
+        console.error(message);
+      });
     fetch("/api/settings/llm")
       .then((r) => r.json())
       .then((d) => {
         setBaseUrl(d.base_url ?? "");
         setReachable(d.reachable ?? null);
       })
-      .catch(() => setReachable(null));
+      .catch((e) => {
+        setReachable(null);
+        setUrlError(e instanceof Error ? e.message : "Failed to load LLM settings");
+      });
     fetch("/api/settings/deepseek")
       .then((r) => r.json())
       .then((d) => {
         setDeepseekConfigured(d.configured ?? false);
         setDeepseekHint(d.api_key_hint ?? null);
       })
-      .catch(() => {});
+      .catch((e) => {
+        setKeyError(e instanceof Error ? e.message : "Failed to load DeepSeek settings");
+      });
   }, []);
 
   const handleSaveDeepseekKey = async () => {
@@ -180,6 +230,16 @@ export function SettingsPanel() {
       {/* Model Selection */}
       <div className="space-y-2">
         <p className="text-xs font-medium text-slate-600 uppercase tracking-wide">LLM Model</p>
+        {modelsError && (
+          <p data-testid="settings-models-error" className="text-[11px] text-red-600 whitespace-pre-wrap">
+            {modelsError}
+          </p>
+        )}
+        {selectedModelError && (
+          <p data-testid="settings-selected-model-error" className="text-[11px] text-red-600 whitespace-pre-wrap">
+            {selectedModelError}
+          </p>
+        )}
         {isLoading ? (
           <div className="flex justify-center py-4">
             <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
@@ -189,7 +249,29 @@ export function SettingsPanel() {
             {models.map((model) => (
               <button
                 key={model.id}
-                onClick={() => setSelectedModel(model.id)}
+                onClick={() => {
+                  void (async () => {
+                    setSelectedModel(model.id);
+                    const res = await fetch("/api/settings/model", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ model: model.id }),
+                    });
+                    if (!res.ok) {
+                      const message =
+                        `[SettingsPanel] Failed to persist model\n` +
+                        `  Status: ${res.status}\n` +
+                        `  Model: ${model.id}`;
+                      setSelectedModelError(message);
+                      console.error(message);
+                      window.alert(message);
+                      throw new Error(message);
+                    }
+                    setSelectedModelError(null);
+                  })().catch((err) => {
+                    console.error(err);
+                  });
+                }}
                 className={cn(
                   "w-full flex items-center justify-between p-2.5 rounded-lg border text-left transition-colors",
                   selectedModel === model.id

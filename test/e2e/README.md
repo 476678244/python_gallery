@@ -22,6 +22,10 @@
 
 | 文件 | 说明 |
 |------|------|
+| `memory-panel.spec.ts` | Memory 面板 + `/remember` |
+| `memory-safety-sessions-smoke.spec.ts` | Memory/Safety/Sessions API smoke |
+| `deepseek-chat-memory.spec.ts` | DeepSeek 实网聊天 + 记忆召回（需 key） |
+| `memory-jargon-zh.spec.ts` | 黑话中文问句黄金路径（见 `docs/features/memory-system/e2e.md`） |
 | `basic-chat-flow-coding.spec.ts` | 基础对话 5 阶段 E2E 测试 |
 | `skill-tree.spec.ts` | **Skill Tree 4 主目录 E2E 测试** |
 | `skill-recognition-flow-coding.spec.ts` | Skill 路由识别测试 |

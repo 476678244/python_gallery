@@ -3,7 +3,7 @@
  * Handles all session-related API calls
  */
 
-import { Session, createSession } from "@/entities/session";
+import { Session } from "@/entities/session";
 
 // Types
 export interface ListSessionsOptions {
@@ -159,17 +159,41 @@ export class SessionService {
 
   private parseSessionDates(raw: Record<string, unknown>): Session {
     const s = raw as Record<string, unknown>;
+    if (!s.id || typeof s.id !== "string") {
+      throw new Error(
+        `[session-api] Session missing id (Fail Fast)\n  Actual: ${JSON.stringify(raw).slice(0, 200)}`
+      );
+    }
+    const settings = s.settings as Session["settings"] | undefined;
+    if (!settings || typeof settings !== "object") {
+      throw new Error(
+        `[session-api] Session missing settings (Fail Fast)\n  id: ${s.id}`
+      );
+    }
+    if (typeof settings.model !== "string" || !settings.model.trim()) {
+      throw new Error(
+        `[session-api] Session missing settings.model (Fail Fast)\n` +
+          `  id: ${s.id}\n` +
+          `  settings: ${JSON.stringify(settings)}`
+      );
+    }
+    if (!s.created_at && !s.createdAt) {
+      throw new Error(
+        `[session-api] Session missing created_at (Fail Fast)\n  id: ${s.id}`
+      );
+    }
     return {
       ...(s as unknown as Session),
-      title: (s.title as string) ?? "New Chat",
-      status: (s.status as Session["status"]) ?? "active",
+      id: s.id,
+      title: (s.title as string) || "New Chat",
+      status: (s.status as Session["status"]) || "active",
       messageCount: (s.message_count as number) ?? (s.messageCount as number) ?? 0,
-      settings: (s.settings as Session["settings"]) ?? {},
-      createdAt: s.created_at || s.createdAt ? new Date((s.created_at ?? s.createdAt) as string) : new Date(),
-      updatedAt: s.updated_at || s.updatedAt ? new Date((s.updated_at ?? s.updatedAt) as string) : new Date(),
-      lastActivityAt: s.last_activity_at || s.lastActivityAt
-        ? new Date((s.last_activity_at ?? s.lastActivityAt) as string)
-        : new Date(),
+      settings,
+      createdAt: new Date((s.created_at ?? s.createdAt) as string),
+      updatedAt: new Date((s.updated_at ?? s.updatedAt ?? s.created_at ?? s.createdAt) as string),
+      lastActivityAt: new Date(
+        (s.last_activity_at ?? s.lastActivityAt ?? s.updated_at ?? s.created_at ?? s.createdAt) as string
+      ),
     };
   }
 }

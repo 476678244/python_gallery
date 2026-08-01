@@ -3,6 +3,36 @@
 from __future__ import annotations
 
 
+def test_new_session_uses_global_selected_model(client):
+    """New Chat without model must inherit /settings/model (not hardcoded Qwen)."""
+    selected = client.put("/settings/model", json={"model": "deepseek-v4-flash"})
+    assert selected.status_code == 200
+    assert selected.json()["model"] == "deepseek-v4-flash"
+
+    created = client.post("/sessions", json={"title": "New Chat"})
+    assert created.status_code == 200
+    session = created.json().get("session") or created.json()
+    assert session["settings"]["model"] == "deepseek-v4-flash"
+
+    client.delete(f"/sessions/{session['id']}")
+
+
+def test_default_model_and_models_list_include_deepseek(client):
+    """DeepSeek is the product global default and always listed in /settings/models."""
+    models = client.get("/settings/models")
+    assert models.status_code == 200
+    body = models.json()
+    assert body.get("default") == "deepseek-v4-flash"
+    ids = {m["id"] for m in body.get("models", [])}
+    assert "deepseek-v4-flash" in ids
+    assert "deepseek-v4-pro" in ids
+
+    selected = client.get("/settings/model")
+    assert selected.status_code == 200
+    # Fresh test client may not load agent_config; DEFAULT_MODEL must be DeepSeek.
+    assert selected.json()["model"] == "deepseek-v4-flash"
+
+
 def test_session_crud_round_trip(client):
     created = client.post("/sessions", json={"title": "API Contract Chat"})
     assert created.status_code == 200

@@ -1,11 +1,13 @@
 /**
  * Skill Autocomplete E2E Tests
  *
- * Tests that the slash command autocomplete dropdown:
- * 1. Shows when user types "/"
+ * Tests that the skill slash autocomplete dropdown:
+ * 1. Shows when user types "/skill" (or a bare skill prefix like "/ljg-qa")
  * 2. Contains skills from all categories (builtin, private, linked)
  * 3. Filters correctly when user types
  * 4. Allows keyboard navigation and selection
+ *
+ * Note: bare "/" opens the command palette, not skills — use /skill for this suite.
  */
 
 import { test, expect, Page } from "@playwright/test";
@@ -30,11 +32,11 @@ async function ensureSession(page: Page) {
   }
 }
 
-/** Type a slash and wait for autocomplete dropdown */
+/** Open skill picker via /skill and wait for autocomplete dropdown */
 async function openSkillAutocomplete(page: Page) {
   const textarea = page.locator("textarea").first();
   await textarea.click();
-  await textarea.fill("/");
+  await textarea.fill("/skill");
   // Wait longer for skills to load from API and dropdown to render
   await page.waitForTimeout(1000);
 }
@@ -107,7 +109,7 @@ test.describe("Skill Autocomplete", () => {
     await ensureSession(page);
   });
 
-  test("shows autocomplete dropdown when typing slash", async ({ page }) => {
+  test("shows autocomplete dropdown when typing /skill", async ({ page }) => {
     // Wait for skills to be loaded from API first
     await page.waitForTimeout(500);
     

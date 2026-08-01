@@ -6,7 +6,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { Session, createSession, updateSessionActivity } from "@/entities/session";
+import { Session } from "@/entities/session";
 import {
   apiListSessions,
   apiCreateSession,

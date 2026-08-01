@@ -115,15 +115,29 @@ def load_safe_claw():
         from safe_claw.core.memory.manager import MemoryManager
         from safe_claw.models.config import LLMConfig, MemoryConfig
 
-        # Create default LLM config for initialization
-        llm_config = LLMConfig(
-            provider="openai",
-            model="qwen3.5-9b-vlm",
-            api_key="mock-key",  # Will trigger MockLLMGateway fallback
-            base_url=None,
-            temperature=0.7,
-            max_tokens=2000,
-        )
+        # Init LLM from real global selection — never mock-key (Fail Fast).
+        if _selected_model.startswith("deepseek"):
+            if not DEEPSEEK_API_KEY:
+                raise ValueError(
+                    "[load_safe_claw] DeepSeek selected but API key missing (Fail Fast)"
+                )
+            llm_config = LLMConfig(
+                provider="deepseek",
+                model=_selected_model,
+                api_key=DEEPSEEK_API_KEY,
+                base_url=None,
+                temperature=0.7,
+                max_tokens=2000,
+            )
+        else:
+            llm_config = LLMConfig(
+                provider="openai",
+                model=_selected_model,
+                api_key="lm-studio",
+                base_url=LM_STUDIO_BASE_URL,
+                temperature=0.7,
+                max_tokens=2000,
+            )
         llm_service = LLMService(config=llm_config)
         if not skills_manager:
             skills_manager = SkillsManager()
@@ -143,8 +157,8 @@ def load_safe_claw():
         print("✅ SafeClaw loaded successfully")
 
     except Exception as e:
-        print(f"⚠️ SafeClaw load failed (using mock mode): {e}")
         safe_claw_loaded = False
+        raise RuntimeError(f"[load_safe_claw] Failed (Fail Fast): {e}") from e
 
 
 # Pydantic models
@@ -169,14 +183,17 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     session_id: Optional[str] = None
     enabled_skills: List[str] = Field(default_factory=list)
-    model: str = "qwen3.5-9b-vlm"
+    # None → use globally selected model from agent_config.json
+    model: Optional[str] = None
     temperature: float = 0.7
     stream: bool = True
 
 
 class SessionCreateRequest(BaseModel):
     title: Optional[str] = "New Chat"
-    model: str = "qwen3.5-9b-vlm"
+    # None → use globally selected model; do NOT hardcode Qwen here or it
+    # overrides agent_config.json (e.g. DeepSeek) on every New Chat.
+    model: Optional[str] = None
 
 
 class SessionUpdateRequest(BaseModel):
@@ -198,7 +215,8 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 AGENT_CONFIG_FILE = _DATA_DIR / "agent_config.json"
 _LEGACY_SKILL_TREE_STATE_FILE = _DATA_DIR / "skill_tree_state.json"
 
-DEFAULT_MODEL = "qwen3.5-9b-vlm"
+# Product / cold-start default: DeepSeek is the global default model selection.
+DEFAULT_MODEL = "deepseek-v4-flash"
 # Globally selected agent model, persisted in agent_config.json.
 _selected_model: str = DEFAULT_MODEL
 
@@ -229,16 +247,20 @@ _folder_enabled: Dict[str, bool] = {}
 
 
 def _save_agent_config(sm: Any) -> None:
-    """Persist agent config (enabled skills, folder toggles, model) to disk."""
+    """Persist agent config (enabled skills, folder toggles, model) to disk. Fail Fast."""
+    config = {
+        "model": _selected_model,
+        "enabled_skills": list(sm.get_enabled_skills_state() or []) if sm else [],
+        "folder_enabled": _folder_enabled,
+    }
     try:
-        config = {
-            "model": _selected_model,
-            "enabled_skills": list(sm.get_enabled_skills_state() or []) if sm else [],
-            "folder_enabled": _folder_enabled,
-        }
         AGENT_CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"⚠️  Failed to save agent config: {e}")
+        raise RuntimeError(
+            f"[agent_config] Failed to save\n"
+            f"  Path: {AGENT_CONFIG_FILE}\n"
+            f"  Error: {e}"
+        ) from e
 
 
 # Backwards-compatible alias
@@ -258,10 +280,23 @@ def _load_agent_config(sm: Any) -> None:
             return
     try:
         config = json.loads(config_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[agent_config] Corrupt or unreadable config (Fail Fast)\n"
+            f"  Path: {config_file}\n"
+            f"  Error: {e}"
+        ) from e
+
+    try:
         model = config.get("model")
-        if model:
-            _selected_model = model
-            print(f"✅ Restored selected model: {model}")
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError(
+                f"[agent_config] Missing non-empty 'model' (Fail Fast)\n"
+                f"  Path: {config_file}\n"
+                f"  Actual: {config.get('model')!r}"
+            )
+        _selected_model = model.strip()
+        print(f"✅ Restored selected model: {_selected_model}")
         enabled_skills = config.get("enabled_skills")
         if enabled_skills is not None and sm:
             sm.set_enabled_skills(enabled_skills)
@@ -274,8 +309,8 @@ def _load_agent_config(sm: Any) -> None:
         # (avoid clobbering enabled_skills when sm is None at startup).
         if config_file is _LEGACY_SKILL_TREE_STATE_FILE and sm:
             _save_agent_config(sm)
-    except Exception as e:
-        print(f"⚠️  Failed to load agent config: {e}")
+    except Exception:
+        raise
 
 
 # Backwards-compatible alias
@@ -390,17 +425,22 @@ DEEPSEEK_API_KEY: Optional[str] = os.environ.get("DEEPSEEK_API_KEY")
 
 
 def _load_secrets() -> None:
-    """Load API keys from the local secrets file (~/.safeclaw_secrets.json)."""
+    """Load API keys from the local secrets file (~/.safeclaw_secrets.json). Fail Fast on corrupt file."""
     global DEEPSEEK_API_KEY
-    if SECRETS_FILE.exists():
-        try:
-            data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
-            key = data.get("deepseek_api_key")
-            if key:
-                DEEPSEEK_API_KEY = key
-                logger.info("Loaded DeepSeek API key from secrets file.")
-        except Exception as e:
-            logger.warning(f"Failed to load secrets: {e}")
+    if not SECRETS_FILE.exists():
+        return
+    try:
+        data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[secrets] Corrupt secrets file (Fail Fast)\n"
+            f"  Path: {SECRETS_FILE}\n"
+            f"  Error: {e}"
+        ) from e
+    key = data.get("deepseek_api_key")
+    if key:
+        DEEPSEEK_API_KEY = key
+        logger.info("Loaded DeepSeek API key from secrets file.")
 
 
 def _save_secrets() -> None:
@@ -444,12 +484,23 @@ _load_llm_config()
 
 
 def _load_sessions() -> List[Dict[str, Any]]:
-    if SESSIONS_FILE.exists():
-        try:
-            return json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
+    if not SESSIONS_FILE.exists():
+        return []
+    try:
+        data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[sessions] Corrupt sessions file (Fail Fast)\n"
+            f"  Path: {SESSIONS_FILE}\n"
+            f"  Error: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"[sessions] Expected JSON array (Fail Fast)\n"
+            f"  Path: {SESSIONS_FILE}\n"
+            f"  Actual type: {type(data).__name__}"
+        )
+    return data
 
 
 def _save_sessions(sessions: List[Dict[str, Any]]) -> None:
@@ -462,12 +513,24 @@ def _messages_file(session_id: str) -> Path:
 
 def _load_messages(session_id: str) -> List[Dict[str, Any]]:
     f = _messages_file(session_id)
-    if f.exists():
-        try:
-            return json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
+    if not f.exists():
+        return []
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[messages] Corrupt messages file (Fail Fast)\n"
+            f"  Path: {f}\n"
+            f"  Session: {session_id}\n"
+            f"  Error: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"[messages] Expected JSON array (Fail Fast)\n"
+            f"  Path: {f}\n"
+            f"  Actual type: {type(data).__name__}"
+        )
+    return data
 
 
 def _save_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
@@ -595,16 +658,50 @@ async def chat_stream(request: ChatRequest):
                         "skills_invoked": skill_names})
 
             # ── Step 3: Memory retrieval ──────────────────────────
+            from safe_claw.core.memory.manager import (
+                format_memory_context,
+                serialize_memory,
+            )
+
             t_mem_start = datetime.now().timestamp()
             yield _sse({"type": "execution_step", "step_id": "memory", "name": "Memory retrieval",
                         "step_type": "context_retrieval", "status": "running"})
-            await asyncio.sleep(0.02)
+
+            # Ensure global MemoryManager (singleton) is available
+            global memory_manager
+            if memory_manager is None:
+                load_safe_claw()
+            if memory_manager is None:
+                from safe_claw.core.memory.manager import MemoryManager
+                from safe_claw.models.config import MemoryConfig
+
+                memory_manager = MemoryManager(
+                    config=MemoryConfig(),
+                    workspace_path=str(WORKSPACE_DIR),
+                )
+            global_mm = memory_manager
+
+            mem_hits = global_mm.search_memories(last_message, max_results=5)
+            mem_context = format_memory_context(mem_hits, top_k=5)
+            mem_count = len(mem_hits)
+            mem_preview = []
+            for hit in mem_hits[:3]:
+                snippet = (hit.memory.content or "").replace("\n", " ").strip()
+                mem_preview.append(snippet[:48] + ("…" if len(snippet) > 48 else ""))
+
             mem_dur = round(datetime.now().timestamp() - t_mem_start, 3)
+            mem_sub = (
+                f"{mem_count} relevant memories loaded"
+                if mem_count
+                else "0 relevant memories loaded"
+            )
+            mem_chips = ["\u2713 done", f"{mem_dur}s", f"{mem_count} memories"] + mem_preview
             yield _sse({"type": "execution_step", "step_id": "memory", "name": "Memory retrieval",
                         "step_type": "context_retrieval", "status": "completed",
                         "duration": mem_dur,
-                        "sub": "3 relevant memories loaded",
-                        "chips": ["\u2713 done", f"{mem_dur}s", "3 memories"]})
+                        "sub": mem_sub,
+                        "chips": mem_chips,
+                        "memories": [serialize_memory(h.memory) for h in mem_hits]})
 
             # ── Step 4: LLM call using SafeClawGraphBuilder ───────────────
             model_id = request.model if request.model else _selected_model
@@ -615,8 +712,6 @@ async def chat_stream(request: ChatRequest):
             # Import SafeClawGraphBuilder and related modules
             from safe_claw.services.llm_gateway import LLMService, LLMConfig
             from safe_claw.core.graph.builder import SafeClawGraphBuilder
-            from safe_claw.core.memory.manager import MemoryManager
-            from safe_claw.models.config import MemoryConfig
             from safe_claw.core.deepagents.official_integration import (
                 _llm_call_logs_lock, _llm_call_logs
             )
@@ -660,121 +755,110 @@ async def chat_stream(request: ChatRequest):
                         if resp.status_code == 200:
                             models = resp.json().get("data", [])
                             lm_ready = any(m.get("id") == model_id for m in models)
-                            if not lm_ready and models:
-                                lm_ready = True
+                            if not lm_ready:
+                                available = [m.get("id") for m in models]
+                                raise ValueError(
+                                    f"[chat/stream] Requested model not loaded in LM Studio\n"
+                                    f"  Requested: {model_id}\n"
+                                    f"  Available: {available}"
+                                )
+                        else:
+                            raise ValueError(
+                                f"[chat/stream] LM Studio /models HTTP {resp.status_code}\n"
+                                f"  Base URL: {LM_STUDIO_BASE_URL}"
+                            )
                 except Exception as e:
-                    logger.warning(f"LM Studio health check failed: {e}")
-                    lm_ready = False
+                    logger.error("LM Studio health check failed (Fail Fast): %s", e)
+                    yield _sse({"type": "error", "error": str(e)})
+                    yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                    return
 
             if not lm_ready:
-                logger.warning("⚠️ LM Studio not ready (503 likely), will use fallback immediately")
-                # Skip DeepAgent creation, go straight to fallback
-                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "running",
-                            "sub": f"{model_id} \u00b7 fallback mode \u00b7 LLM unavailable"})
-                
-                full_response = ""
-                mock_resp = f"Hello! I'm SafeClaw (fallback mode). I received your message: '{last_message[:50]}...'\n\nThe LLM service is currently unavailable (503). Please try again later."
-                words = mock_resp.split()
-                for word in words:
-                    full_response += word + " "
-                    yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                    await asyncio.sleep(0.03)
-                
-                completion_tokens = len(full_response.split())
-                llm_dur = round(datetime.now().timestamp() - t_llm_start, 3)
-                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "completed",
-                            "duration": llm_dur,
-                            "sub": f"{model_id} \u00b7 fallback \u00b7 service unavailable",
-                            "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out (fallback)"]})
-                
-                # Set flag to skip DeepAgent streaming
-                lm_studio_ready = False
-            
-            if lm_studio_ready:
-                llm_service = LLMService(config=llm_config)
-
-                # Create MemoryManager (required by GraphBuilder)
-                memory_manager = MemoryManager(
-                    config=MemoryConfig(),
-                    workspace_path=str(WORKSPACE_DIR),
+                err = (
+                    f"[chat/stream] LLM not ready (Fail Fast)\n"
+                    f"  model_id: {model_id}\n"
+                    f"  provider: {'deepseek' if _is_deepseek else 'lm-studio'}"
                 )
+                logger.error(err)
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
-                # Create SafeClawGraphBuilder with DeepAgent
-                graph_builder = SafeClawGraphBuilder(
-                    llm_service=llm_service,
-                    memory_manager=memory_manager,
-                    config={
-                        "enabled_skills": active_skills,
-                        "print_prompts": True,
-                        "backend": {
-                            "filesystem": {
-                                "enabled": True,
-                                "base_path": "/Users/nicole/Downloads/safe_claw_worksapce",
-                                "encrypt_files": False,
-                                "allow_write": True,
-                            }
+            llm_service = LLMService(config=llm_config)
+
+            # Create SafeClawGraphBuilder with DeepAgent — reuse global MemoryManager
+            graph_builder = SafeClawGraphBuilder(
+                llm_service=llm_service,
+                memory_manager=global_mm,
+                config={
+                    "enabled_skills": active_skills,
+                    "print_prompts": True,
+                    "backend": {
+                        "filesystem": {
+                            "enabled": True,
+                            "base_path": str(WORKSPACE_DIR.parent),
+                            "encrypt_files": False,
+                            "allow_write": True,
                         }
                     }
-                )
+                }
+            )
 
-                # Access the DeepAgent directly from the builder for streaming
-                deep_agent = graph_builder.deep_agent
+            deep_agent = graph_builder.deep_agent
 
+            yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
+                        "step_type": "model_call", "status": "running",
+                        "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
+
+            full_response = ""
+            has_error = False
+            stream_error: Optional[str] = None
+
+            try:
+                messages = [{"role": m.role, "content": m.content} for m in request.messages]
+                if mem_context:
+                    messages = [
+                        {"role": "system", "content": mem_context},
+                        *messages,
+                    ]
+
+                for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
+                    if chunk.get("type") == "error":
+                        stream_error = chunk.get("content") or "Unknown DeepAgent stream error"
+                        has_error = True
+                        logger.error("DeepAgent stream error chunk (Fail Fast): %s", stream_error)
+                        break
+                    elif chunk.get("thinking"):
+                        yield _sse({"type": "thinking", "content": chunk["thinking"]})
+                    elif chunk.get("tool"):
+                        yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
+                    elif chunk.get("content"):
+                        full_response = chunk["content"]
+                        yield _sse({"type": "content", "content": full_response})
+
+            except Exception as e:
+                has_error = True
+                stream_error = str(e)
+                logger.error("SafeClawGraphBuilder/DeepAgent error (Fail Fast): %s", e)
+
+            if has_error:
+                err = stream_error or "DeepAgent stream failed without detail"
                 yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "running",
-                            "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
+                            "step_type": "model_call", "status": "failed",
+                            "sub": f"{model_id} · failed"})
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
-                # Stream from SafeClawDeepAgent (via GraphBuilder)
-                full_response = ""
-                has_error = False
-                
-                try:
-                    # Convert messages to dict format for DeepAgent
-                    messages = [{"role": m.role, "content": m.content} for m in request.messages]
-
-                    for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
-                        if chunk.get("type") == "error":
-                            # Do not return early — Phase 4 fallback below must still emit content + done
-                            has_error = True
-                            logger.warning(
-                                "DeepAgent stream error chunk: %s",
-                                chunk.get("content", "Unknown error"),
-                            )
-                            break
-                        elif chunk.get("thinking"):
-                            # Shell/tool thinking output
-                            yield _sse({"type": "thinking", "content": chunk["thinking"]})
-                        elif chunk.get("tool"):
-                            # Tool execution result
-                            yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
-                        elif chunk.get("content"):
-                            # LLM content
-                            content = chunk["content"]
-                            # Phase 4: Self-healing - detect error in content (e.g., 503)
-                            if "Error" in content or "error" in content.lower():
-                                has_error = True
-                                print(f"⚠️ DeepAgent returned error content: {content[:100]}...")
-                                break
-                            full_response = content
-                            yield _sse({"type": "content", "content": full_response})
-
-                except Exception as e:
-                    print(f"SafeClawGraphBuilder/DeepAgent error: {e}")
-                    has_error = True
-                
-                # Phase 4: Self-healing - fallback to mock if error occurred during DeepAgent streaming
-                if has_error or not full_response or "Error" in full_response:
-                    print("🔄 Phase 4: Self-healing - using fallback mock response")
-                    # Clear any partial error response
-                    full_response = ""
-                    mock_resp = f"Hello! I'm SafeClaw. I received your message: '{last_message[:50]}...'\n\nI'm currently running in fallback mode because the LLM service is temporarily unavailable. Please try again later or contact support if this persists."
-                    words = mock_resp.split()
-                    for word in words:
-                        full_response += word + " "
-                        yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                        await asyncio.sleep(0.03)
+            if not full_response.strip():
+                err = (
+                    f"[chat/stream] Empty LLM response (Fail Fast)\n"
+                    f"  model_id: {model_id}\n"
+                    f"  message_id: {msg_id}"
+                )
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
             # Complete LLM step
             completion_tokens = len(full_response.split())
@@ -785,6 +869,20 @@ async def chat_stream(request: ChatRequest):
                         "duration": llm_dur,
                         "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens",
                         "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out"]})
+
+            # Persist turn to memory when importance passes threshold
+            if full_response and global_mm is not None:
+                try:
+                    stored_id = global_mm.maybe_store_conversation(
+                        user_input=last_message,
+                        response=full_response.strip(),
+                        session_id=request.session_id,
+                    )
+                    if stored_id:
+                        logger.info("[chat/stream] Stored conversation memory id=%s", stored_id)
+                except Exception as mem_err:
+                    logger.error("[chat/stream] Failed to store memory: %s", mem_err)
+                    raise
 
             # ── Done ──────────────────────────────────────────────
             total_dur = round(datetime.now().timestamp() - t0, 3)
@@ -875,32 +973,8 @@ async def chat_stream(request: ChatRequest):
             })
                 
         except Exception as e:
-            print(f"Chat stream error: {e}")
-            logger.warning("Chat stream falling back after error: %s", e)
-            # Still emit a usable fallback so clients always get content + done.
-            # Do NOT emit type=error after a successful fallback — the UI cancels the stream on error.
-            fallback_ok = False
-            try:
-                last = ""
-                for msg in reversed(request.messages):
-                    if msg.role == "user":
-                        last = msg.text()
-                        break
-                mock_resp = (
-                    f"Hello! I'm SafeClaw (fallback mode). "
-                    f"I received your message: '{last[:50]}...'\n\n"
-                    f"The LLM service is currently unavailable."
-                )
-                built = ""
-                for word in mock_resp.split():
-                    built += word + " "
-                    yield _sse({"type": "content", "content": built, "delta": word + " "})
-                    await asyncio.sleep(0.01)
-                fallback_ok = True
-            except Exception as fallback_err:
-                logger.warning("Fallback content also failed: %s", fallback_err)
-            if not fallback_ok:
-                yield _sse({"type": "error", "error": str(e)})
+            logger.error("Chat stream error (Fail Fast, no mock): %s", e)
+            yield _sse({"type": "error", "error": str(e)})
             yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
     
     return StreamingResponse(
@@ -1115,52 +1189,99 @@ async def save_session_messages(session_id: str, payload: MessagePayload):
 
 
 # Memory endpoints
+class MemoryCreateRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    importance: float = Field(default=0.8, ge=0.0, le=1.0)
+    keywords: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 @app.post("/memory/cleanup")
 async def cleanup_memories_post():
     """Run memory cleanup"""
-    try:
-        if safe_claw_loaded and memory_manager:
-            memory_manager.cleanup_old_memories()
-        return {"success": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory/cleanup] MemoryManager not available",
+        )
+    result = memory_manager.cleanup_old_memories()
+    return {"success": True, "result": result, "stats": memory_manager.get_memory_stats()}
+
+
+@app.post("/memory")
+async def create_memory(body: MemoryCreateRequest):
+    """Explicitly add a memory (e.g. /remember slash)."""
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory] MemoryManager not available",
+        )
+    from safe_claw.core.memory.manager import serialize_memory
+
+    memory_id = memory_manager.add_memory(
+        content=body.content,
+        importance_score=body.importance,
+        keywords=body.keywords,
+        metadata={**(body.metadata or {}), "source": "api"},
+    )
+    memory = memory_manager.get_memory(memory_id)
+    if memory is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"[memory] Created memory missing after write\n  id: {memory_id}",
+        )
+    return {
+        "success": True,
+        "id": memory_id,
+        "memory": serialize_memory(memory),
+        "stats": memory_manager.get_memory_stats(),
+    }
 
 
 @app.get("/memory")
 async def get_memories(layer: str = "active", limit: int = 20, search: Optional[str] = None):
     """Get memories from the memory manager"""
-    try:
-        if safe_claw_loaded and memory_manager:
-            stats = memory_manager.get_memory_stats()
-            if search:
-                items = memory_manager.search_memories(search, limit)
-            else:
-                items = memory_manager.get_memories_by_layer(layer, limit)
-            return {
-                "memories": [
-                    {
-                        "id": getattr(m, "id", str(i)),
-                        "content": getattr(m, "content", ""),
-                        "layer": getattr(m, "layer", layer),
-                        "importance": getattr(m, "importance", 0.5),
-                        "created_at": getattr(m, "created_at", datetime.now()).isoformat() if hasattr(m, "created_at") else datetime.now().isoformat(),
-                        "access_count": getattr(m, "access_count", 0),
-                        "tags": getattr(m, "tags", []),
-                    }
-                    for i, m in enumerate(items)
-                ],
-                "stats": stats,
-                "total": len(items),
-            }
-        else:
-            return {
-                "memories": [],
-                "stats": {"active_count": 0, "dormant_count": 0, "deep_count": 0, "forgotten_count": 0},
-                "total": 0,
-            }
-    except Exception as e:
-        print(f"Memory error: {e}")
-        return {"memories": [], "stats": {}, "total": 0}
+    from safe_claw.core.memory.manager import VALID_LAYERS, serialize_memory
+    from safe_claw.models.memory import MemorySearchResult
+
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory] MemoryManager not available",
+        )
+
+    if search is None and layer not in VALID_LAYERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"[memory] Invalid layer\n"
+                f"  layer: {layer!r}\n"
+                f"  Expected: {sorted(VALID_LAYERS)}"
+            ),
+        )
+
+    stats = memory_manager.get_memory_stats()
+    if search:
+        results = memory_manager.search_memories(search, limit)
+        memories = [
+            serialize_memory(r.memory if isinstance(r, MemorySearchResult) else r)
+            for r in results
+        ]
+    else:
+        items = memory_manager.get_memories_by_layer(layer, limit)
+        memories = [serialize_memory(m) for m in items]
+
+    return {
+        "memories": memories,
+        "stats": stats,
+        "total": len(memories),
+    }
 
 
 # System monitor endpoint
@@ -1234,6 +1355,8 @@ async def get_safety_stats():
 
 
 FALLBACK_MODELS = [
+    {"id": "deepseek-v4-flash",   "name": "DeepSeek V4 Flash", "provider": "deepseek"},
+    {"id": "deepseek-v4-pro",     "name": "DeepSeek V4 Pro",   "provider": "deepseek"},
     {"id": "qwen3.5-9b-vlm",       "name": "Qwen3.5 9B",      "provider": "lm-studio"},
     {"id": "gemma-4-e4b",          "name": "Gemma 4 E4B",     "provider": "lm-studio"},
     {"id": "gemma-4-31b",          "name": "Gemma 4 31B",     "provider": "lm-studio"},
@@ -1241,10 +1364,18 @@ FALLBACK_MODELS = [
     {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen3.5 35B A3B", "provider": "lm-studio"},
 ]
 
+_CLOUD_MODELS = [
+    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "provider": "deepseek"},
+    {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "provider": "deepseek"},
+]
+
+
 # Settings / model info endpoint
 @app.get("/settings/models")
 async def get_available_models():
-    """Query LM Studio for loaded models; fall back to static list."""
+    """LM Studio loaded models + always-available cloud models (DeepSeek)."""
+    models: List[Dict[str, Any]] = []
+    source = "fallback"
     try:
         async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             resp = await client.get(_lm_studio_models_url())
@@ -1260,10 +1391,27 @@ async def get_available_models():
                     for m in data.get("data", [])
                 ]
                 if models:
-                    return {"models": models, "source": "lm-studio"}
-    except Exception:
-        pass
-    return {"models": FALLBACK_MODELS, "source": "fallback"}
+                    source = "lm-studio+cloud"
+    except Exception as e:
+        # LM Studio optional for listing; DeepSeek cloud models still required.
+        logger.warning("LM Studio models fetch failed: %s — returning cloud models only", e)
+        source = "cloud-only"
+        models = []
+    if not models:
+        models = []
+        source = "cloud-only" if source != "lm-studio+cloud" else source
+    # DeepSeek is the global default selection — always list it, even when LM Studio responds.
+    existing = {m["id"] for m in models}
+    # Prepend cloud models so Flash (global default) appears before Pro.
+    for cloud in reversed(_CLOUD_MODELS):
+        if cloud["id"] not in existing:
+            models.insert(0, dict(cloud))
+    if not models:
+        raise HTTPException(
+            status_code=503,
+            detail="[settings/models] No models available (Fail Fast)",
+        )
+    return {"models": models, "source": source, "default": DEFAULT_MODEL}
 
 
 class LLMSettingsRequest(BaseModel):
@@ -1414,31 +1562,15 @@ async def get_llm_calls(message_id: str):
         logger.info("get_llm_call_logs...")
         logs = get_llm_call_logs(message_id)
 
-        # If no logs are recorded (e.g. LLM in fallback/mock mode), return a synthetic fallback log
+        # Fail Fast: never invent synthetic "fallback mode" logs
         if not logs:
-            logs = [{
-                "call_id": f"call-1-{message_id}",
-                "call_number": 1,
-                "timestamp": datetime.now().isoformat(),
-                "formatted_prompt": "🔧 SYSTEM:\nBe concise. No deep reasoning. /no_think\n\n👤 USER:\nhello",
-                "messages": [
-                    {"role": "system", "content": "Be concise. No deep reasoning. /no_think"},
-                    {"role": "user", "content": "hello"}
-                ],
-                "token_estimate": 10.0,
-                "response": "Hello! I'm SafeClaw (fallback mode). I received your message: 'hello...' The LLM service is currently unavailable.",
-                "response_timestamp": datetime.now().isoformat(),
-                "response_tokens": 20,
-                "duration_ms": 100.0,
-                "steps": [
-                    {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed", "duration": 0.05},
-                    {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed", "duration": 0.01},
-                    {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed", "duration": 0.02},
-                    {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed", "duration": 0.1, "chips": ["10 in", "20 out"]}
-                ],
-                "active_skills": [],
-                "skills_invoked": []
-            }]
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[llm-calls] No logs for message_id={message_id}\n"
+                    f"  Expected: real PromptLoggerMiddleware records"
+                ),
+            )
 
         # Enrich logs with execution steps and skills if not already present
         enriched_calls = []

@@ -1,5 +1,10 @@
 """Pytest configuration and fixtures for SafeClaw tests"""
 
+import os
+
+# Explicit mock LLM for unit tests only — product path has no silent MockLLMGateway.
+os.environ.setdefault("SAFECLAW_ALLOW_MOCK_LLM", "1")
+
 import pytest
 import tempfile
 import shutil

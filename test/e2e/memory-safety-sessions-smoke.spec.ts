@@ -15,16 +15,15 @@ async function goto(page: Page) {
 
 test.describe("API smoke · Memory & Safety", () => {
   test("GET /memory returns 200 with structural fields", async ({ request }) => {
-    const res = await request.get(`${API}/memory`);
+    const res = await request.get(`${API}/memory?layer=active`);
     expect(res.status()).toBe(200);
     const body = await res.json();
-    // Accept either list payload or stats object
-    expect(body).toBeTruthy();
-    expect(
-      Array.isArray(body.memories) ||
-        Array.isArray(body.items) ||
-        typeof body === "object"
-    ).toBeTruthy();
+    expect(Array.isArray(body.memories)).toBeTruthy();
+    expect(body.stats).toBeTruthy();
+    expect(typeof body.stats.active_count).toBe("number");
+    expect(typeof body.stats.dormant_count).toBe("number");
+    expect(typeof body.stats.deep_count).toBe("number");
+    expect(typeof body.stats.forgotten_count).toBe("number");
   });
 
   test("GET /safety returns 200 with structural fields", async ({ request }) => {
