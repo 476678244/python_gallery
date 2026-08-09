@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Iterator, List, Dict, Any, Optional
 import logging
+import os
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -494,28 +495,38 @@ class LLMGatewayFactory:
     
     @staticmethod
     def create_gateway(config: LLMConfig) -> BaseLLMGateway:
-        """Create appropriate gateway based on provider"""
-        # Check for mock configuration first
-        if config.api_key == "mock-key" or config.api_key == "lm-studio" and not config.base_url:
+        """Create appropriate gateway based on provider. Fail Fast — no silent mock."""
+        allow_mock = os.environ.get("SAFECLAW_ALLOW_MOCK_LLM") == "1"
+
+        if config.api_key == "mock-key":
+            if not allow_mock:
+                raise ValueError(
+                    "[LLMGatewayFactory] api_key=mock-key refused (Fail Fast)\n"
+                    "  Set SAFECLAW_ALLOW_MOCK_LLM=1 only for explicit test/demo runs."
+                )
             return MockLLMGateway(config)
-        
-        try:
-            if config.provider == "openai":
-                return OpenAIGateway(config)
-            elif config.provider == "anthropic":
-                return AnthropicGateway(config)
-            elif config.provider == "ollama":
-                return OllamaGateway(config)
-            elif config.provider == "google":
-                return GoogleGateway(config)
-            elif config.provider == "deepseek":
-                return DeepSeekGateway(config)
-            else:
-                raise ValueError(f"Unsupported LLM provider: {config.provider}")
-        except Exception as e:
-            # Fallback to mock gateway if real LLM fails to initialize
-            logger.warning(f"Failed to create {config.provider} gateway: {e}. Falling back to mock.")
-            return MockLLMGateway(config)
+
+        if config.api_key == "lm-studio" and not config.base_url:
+            raise ValueError(
+                "[LLMGatewayFactory] lm-studio requires base_url (Fail Fast)\n"
+                f"  provider: {config.provider}\n"
+                f"  model: {config.model}"
+            )
+
+        if config.provider == "openai":
+            return OpenAIGateway(config)
+        if config.provider == "anthropic":
+            return AnthropicGateway(config)
+        if config.provider == "ollama":
+            return OllamaGateway(config)
+        if config.provider == "google":
+            return GoogleGateway(config)
+        if config.provider == "deepseek":
+            return DeepSeekGateway(config)
+        raise ValueError(
+            f"[LLMGatewayFactory] Unsupported LLM provider (Fail Fast)\n"
+            f"  provider: {config.provider}"
+        )
 
 
 class MockLLMGateway(BaseLLMGateway):

@@ -17,7 +17,19 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[sessions POST] Invalid JSON body (Fail Fast)\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 400 }
+    );
+  }
   const res = await fetch(`${BACKEND}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -30,13 +42,31 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-  // FastAPI exposes DELETE /sessions?id=xxx (query param), not /sessions/{id}
+  if (!id) {
+    return NextResponse.json(
+      { detail: "[sessions DELETE] Missing query param id (Fail Fast)" },
+      { status: 400 }
+    );
+  }
   const res = await fetch(`${BACKEND}/sessions?id=${id}`, {
     method: "DELETE",
   });
   if (res.status === 204 || res.headers.get("content-length") === "0") {
     return new NextResponse(null, { status: 204 });
   }
-  const data = await res.json().catch(() => ({}));
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[sessions DELETE] Non-JSON response (Fail Fast)\n` +
+          `  Status: ${res.status}\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 502 }
+    );
+  }
   return NextResponse.json(data, { status: res.status });
 }

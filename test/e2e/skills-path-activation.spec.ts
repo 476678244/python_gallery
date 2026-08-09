@@ -332,24 +332,44 @@ test.describe("Skills Path Activation · Flow Coding Testing", () => {
 
     await page.screenshot({ path: `${SCREENSHOTS}/sp-t5-ljg-disabled.png`, fullPage: true });
 
-    // Send a message
+    // Capture SSE skills_loaded (actual agent load) while sending
+    const streamWait = page.waitForResponse(
+      (r) => r.url().includes("/chat/stream") && r.request().method() === "POST",
+      { timeout: 120_000 },
+    );
     await sendMessage(page, "write me a short analysis");
+    const streamRes = await streamWait;
+    const streamText = await streamRes.text();
+    const skillsLoaded: string[] = [];
+    for (const line of streamText.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      try {
+        const data = JSON.parse(line.slice(5).trim());
+        if (Array.isArray(data.skills_loaded) && data.skills_loaded.length) {
+          skillsLoaded.splice(0, skillsLoaded.length, ...data.skills_loaded);
+        }
+      } catch { /* skip */ }
+    }
 
     await page.screenshot({ path: `${SCREENSHOTS}/sp-t5-after-message.png`, fullPage: true });
 
     const data = await collectSkillsPathData(page);
     console.log(`T5: invoked(${data.invokedCount}): [${data.invokedNames.join(", ")}]`);
     console.log(`T5: router chips: [${data.routerChips.join(", ")}]`);
+    console.log(`T5: skills_loaded(${skillsLoaded.length}): [${skillsLoaded.join(", ")}]`);
 
-    // ljg-* skills should NOT be invoked when Ljg Skills folder is disabled
+    // ljg-* must not be in router-invoked OR actual loaded list
     const ljgInvoked = data.invokedNames.filter(s => s.startsWith("ljg-"));
     const ljgInRouter = data.routerChips.filter(s => s.startsWith("ljg-"));
+    const ljgLoaded = skillsLoaded.filter(s => s.startsWith("ljg-"));
     console.log(`  ljg-* in invoked: [${ljgInvoked.join(", ")}]`);
     console.log(`  ljg-* in router:  [${ljgInRouter.join(", ")}]`);
+    console.log(`  ljg-* in loaded:  [${ljgLoaded.join(", ")}]`);
 
-    // Assertion: no ljg skills should be invoked
     expect(ljgInvoked.length).toBe(0);
-    console.log("  ✓ T5 passed — ljg skills correctly excluded when disabled");
+    expect(skillsLoaded.length, "SSE skills_loaded required").toBeGreaterThan(0);
+    expect(ljgLoaded.length).toBe(0);
+    console.log("  ✓ T5 passed — ljg excluded from invoked + skills_loaded");
 
     // Restore: toggle Ljg Skills back ON
     await ljgToggle.click();

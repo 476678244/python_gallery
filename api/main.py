@@ -115,15 +115,29 @@ def load_safe_claw():
         from safe_claw.core.memory.manager import MemoryManager
         from safe_claw.models.config import LLMConfig, MemoryConfig
 
-        # Create default LLM config for initialization
-        llm_config = LLMConfig(
-            provider="openai",
-            model="qwen3.5-9b-vlm",
-            api_key="mock-key",  # Will trigger MockLLMGateway fallback
-            base_url=None,
-            temperature=0.7,
-            max_tokens=2000,
-        )
+        # Init LLM from real global selection — never mock-key (Fail Fast).
+        if _selected_model.startswith("deepseek"):
+            if not DEEPSEEK_API_KEY:
+                raise ValueError(
+                    "[load_safe_claw] DeepSeek selected but API key missing (Fail Fast)"
+                )
+            llm_config = LLMConfig(
+                provider="deepseek",
+                model=_selected_model,
+                api_key=DEEPSEEK_API_KEY,
+                base_url=None,
+                temperature=0.7,
+                max_tokens=2000,
+            )
+        else:
+            llm_config = LLMConfig(
+                provider="openai",
+                model=_selected_model,
+                api_key="lm-studio",
+                base_url=LM_STUDIO_BASE_URL,
+                temperature=0.7,
+                max_tokens=2000,
+            )
         llm_service = LLMService(config=llm_config)
         if not skills_manager:
             skills_manager = SkillsManager()
@@ -143,8 +157,8 @@ def load_safe_claw():
         print("✅ SafeClaw loaded successfully")
 
     except Exception as e:
-        print(f"⚠️ SafeClaw load failed (using mock mode): {e}")
         safe_claw_loaded = False
+        raise RuntimeError(f"[load_safe_claw] Failed (Fail Fast): {e}") from e
 
 
 # Pydantic models
@@ -169,14 +183,20 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     session_id: Optional[str] = None
     enabled_skills: List[str] = Field(default_factory=list)
-    model: str = "qwen3.5-9b-vlm"
+    # None → use globally selected model from agent_config.json
+    model: Optional[str] = None
     temperature: float = 0.7
     stream: bool = True
+    # Agent execution mode (ask|agent|plan|safe|debug|subagent|ppt). None → agent.
+    # loop is invalid here (scheduler only) → 400.
+    mode: Optional[str] = None
 
 
 class SessionCreateRequest(BaseModel):
     title: Optional[str] = "New Chat"
-    model: str = "qwen3.5-9b-vlm"
+    # None → use globally selected model; do NOT hardcode Qwen here or it
+    # overrides agent_config.json (e.g. DeepSeek) on every New Chat.
+    model: Optional[str] = None
 
 
 class SessionUpdateRequest(BaseModel):
@@ -198,12 +218,13 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 AGENT_CONFIG_FILE = _DATA_DIR / "agent_config.json"
 _LEGACY_SKILL_TREE_STATE_FILE = _DATA_DIR / "skill_tree_state.json"
 
-DEFAULT_MODEL = "qwen3.5-9b-vlm"
+# Product / cold-start default: DeepSeek is the global default model selection.
+DEFAULT_MODEL = "deepseek-v4-flash"
 # Globally selected agent model, persisted in agent_config.json.
 _selected_model: str = DEFAULT_MODEL
 
-def _get_skills_manager() -> Optional[Any]:
-    """Get or lazily init the SkillsManager."""
+def _get_skills_manager() -> Any:
+    """Get or lazily init the SkillsManager. Fail Fast — never return None."""
     global skills_manager
     if skills_manager:
         return skills_manager
@@ -219,26 +240,72 @@ def _get_skills_manager() -> Optional[Any]:
         print(f"✅ SkillsManager loaded: {skills_manager.get_skill_count()} skills")
         _load_skill_tree_state(skills_manager)
     except Exception as e:
-        print(f"⚠️  SkillsManager init failed: {e}")
         skills_manager = None
+        raise RuntimeError(
+            f"[SkillsManager] init failed (Fail Fast)\n"
+            f"  Error: {e}"
+        ) from e
     return skills_manager
+
+
+def _require_skills_manager() -> Any:
+    """HTTP-facing SoT accessor — 503 when SkillsManager cannot load."""
+    try:
+        return _get_skills_manager()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 # In-memory folder toggle state (skills use SkillsManager.set_enabled_skills)
 _folder_enabled: Dict[str, bool] = {}
 
 
-def _save_agent_config(sm: Any) -> None:
-    """Persist agent config (enabled skills, folder toggles, model) to disk."""
+def _skill_collection_id(skill_path: Path, project_root: Path) -> str:
+    """Derive collection id exactly as build_skill_tree (strict, no substring)."""
     try:
-        config = {
-            "model": _selected_model,
-            "enabled_skills": list(sm.get_enabled_skills_state() or []) if sm else [],
-            "folder_enabled": _folder_enabled,
-        }
+        rel = skill_path.relative_to(project_root)
+        parts = rel.parts
+        if parts[0] == "linked_skills" and len(parts) >= 3:
+            return f"linked/{parts[1]}"
+        if "private_skills" in parts:
+            return "private"
+        if len(parts) >= 2:
+            return parts[0]
+        return "other"
+    except ValueError:
+        raw = str(skill_path)
+        if "linked_skills" in raw:
+            idx = raw.find("linked_skills")
+            rest = raw[idx:].split("/")
+            return f"linked/{rest[1]}" if len(rest) > 1 else "linked"
+        if "private_skills" in raw:
+            return "private"
+        return "other"
+
+
+def _enabled_skills_mutable(sm: Any) -> set:
+    """Current enabled set for toggle mutations — never soft-reset empty → all."""
+    state = sm.get_enabled_skills_state()
+    if state is None:
+        return set(sm.get_available_skills())
+    return set(state)
+
+
+def _save_agent_config(sm: Any) -> None:
+    """Persist agent config (enabled skills, folder toggles, model) to disk. Fail Fast."""
+    config = {
+        "model": _selected_model,
+        "enabled_skills": list(sm.get_enabled_skills_state() or []) if sm else [],
+        "folder_enabled": _folder_enabled,
+    }
+    try:
         AGENT_CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"⚠️  Failed to save agent config: {e}")
+        raise RuntimeError(
+            f"[agent_config] Failed to save\n"
+            f"  Path: {AGENT_CONFIG_FILE}\n"
+            f"  Error: {e}"
+        ) from e
 
 
 # Backwards-compatible alias
@@ -258,10 +325,31 @@ def _load_agent_config(sm: Any) -> None:
             return
     try:
         config = json.loads(config_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[agent_config] Corrupt or unreadable config (Fail Fast)\n"
+            f"  Path: {config_file}\n"
+            f"  Error: {e}"
+        ) from e
+
+    try:
         model = config.get("model")
-        if model:
-            _selected_model = model
-            print(f"✅ Restored selected model: {model}")
+        if not isinstance(model, str) or not model.strip():
+            # Legacy skill_tree_state.json never stored model — migrate with DEFAULT_MODEL.
+            if config_file is _LEGACY_SKILL_TREE_STATE_FILE:
+                model = DEFAULT_MODEL
+                print(
+                    f"ℹ️  Legacy {config_file.name} has no model; "
+                    f"migrating with DEFAULT_MODEL={model}"
+                )
+            else:
+                raise ValueError(
+                    f"[agent_config] Missing non-empty 'model' (Fail Fast)\n"
+                    f"  Path: {config_file}\n"
+                    f"  Actual: {config.get('model')!r}"
+                )
+        _selected_model = model.strip()
+        print(f"✅ Restored selected model: {_selected_model}")
         enabled_skills = config.get("enabled_skills")
         if enabled_skills is not None and sm:
             sm.set_enabled_skills(enabled_skills)
@@ -274,8 +362,8 @@ def _load_agent_config(sm: Any) -> None:
         # (avoid clobbering enabled_skills when sm is None at startup).
         if config_file is _LEGACY_SKILL_TREE_STATE_FILE and sm:
             _save_agent_config(sm)
-    except Exception as e:
-        print(f"⚠️  Failed to load agent config: {e}")
+    except Exception:
+        raise
 
 
 # Backwards-compatible alias
@@ -286,10 +374,8 @@ _load_agent_config(None)
 
 
 def build_skill_tree() -> List[Dict[str, Any]]:
-    """Build skill tree from SkillsManager.skill_scanner.index."""
+    """Build skill tree from SkillsManager.skill_scanner.index. Fail Fast if SM missing."""
     sm = _get_skills_manager()
-    if not sm:
-        return []
 
     # Get enabled skill names from manager state
     enabled_skills = sm.get_enabled_skills()
@@ -301,37 +387,14 @@ def build_skill_tree() -> List[Dict[str, Any]]:
 
     for entry in sm.skill_scanner.index.values():
         skill_path = Path(entry.path)
-        # Determine collection label from path segments
-        try:
-            rel = skill_path.relative_to(project_root)
-            parts = rel.parts
-            # linked_skills/<collection>/<skill>  or  skills/<type>/<skill>
-            if parts[0] == "linked_skills" and len(parts) >= 3:
-                collection_id = f"linked/{parts[1]}"
-                collection_label = parts[1].replace("_", " ").replace("-", " ").title()
-            elif "private_skills" in parts:
-                collection_id = "private"
-                collection_label = "Private Skills"
-            elif len(parts) >= 2:
-                collection_id = parts[0]
-                collection_label = parts[0].replace("_", " ").title()
-            else:
-                collection_id = "other"
-                collection_label = "Other"
-        except ValueError:
-            # Absolute path outside project root (resolved symlink)
-            raw = str(skill_path)
-            if "linked_skills" in raw:
-                idx = raw.find("linked_skills")
-                rest = raw[idx:].split("/")
-                collection_id = f"linked/{rest[1]}" if len(rest) > 1 else "linked"
-                collection_label = rest[1].replace("_", " ").replace("-", " ").title() if len(rest) > 1 else "Linked"
-            elif "private_skills" in raw:
-                collection_id = "private"
-                collection_label = "Private Skills"
-            else:
-                collection_id = "other"
-                collection_label = "Other"
+        collection_id = _skill_collection_id(skill_path, project_root)
+        if collection_id == "private":
+            collection_label = "Private Skills"
+        elif collection_id.startswith("linked/"):
+            label_src = collection_id.split("/", 1)[1]
+            collection_label = label_src.replace("_", " ").replace("-", " ").title()
+        else:
+            collection_label = collection_id.replace("_", " ").title()
 
         skill_id = entry.name
         node = {
@@ -390,17 +453,22 @@ DEEPSEEK_API_KEY: Optional[str] = os.environ.get("DEEPSEEK_API_KEY")
 
 
 def _load_secrets() -> None:
-    """Load API keys from the local secrets file (~/.safeclaw_secrets.json)."""
+    """Load API keys from the local secrets file (~/.safeclaw_secrets.json). Fail Fast on corrupt file."""
     global DEEPSEEK_API_KEY
-    if SECRETS_FILE.exists():
-        try:
-            data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
-            key = data.get("deepseek_api_key")
-            if key:
-                DEEPSEEK_API_KEY = key
-                logger.info("Loaded DeepSeek API key from secrets file.")
-        except Exception as e:
-            logger.warning(f"Failed to load secrets: {e}")
+    if not SECRETS_FILE.exists():
+        return
+    try:
+        data = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[secrets] Corrupt secrets file (Fail Fast)\n"
+            f"  Path: {SECRETS_FILE}\n"
+            f"  Error: {e}"
+        ) from e
+    key = data.get("deepseek_api_key")
+    if key:
+        DEEPSEEK_API_KEY = key
+        logger.info("Loaded DeepSeek API key from secrets file.")
 
 
 def _save_secrets() -> None:
@@ -444,12 +512,23 @@ _load_llm_config()
 
 
 def _load_sessions() -> List[Dict[str, Any]]:
-    if SESSIONS_FILE.exists():
-        try:
-            return json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
+    if not SESSIONS_FILE.exists():
+        return []
+    try:
+        data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[sessions] Corrupt sessions file (Fail Fast)\n"
+            f"  Path: {SESSIONS_FILE}\n"
+            f"  Error: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"[sessions] Expected JSON array (Fail Fast)\n"
+            f"  Path: {SESSIONS_FILE}\n"
+            f"  Actual type: {type(data).__name__}"
+        )
+    return data
 
 
 def _save_sessions(sessions: List[Dict[str, Any]]) -> None:
@@ -462,18 +541,39 @@ def _messages_file(session_id: str) -> Path:
 
 def _load_messages(session_id: str) -> List[Dict[str, Any]]:
     f = _messages_file(session_id)
-    if f.exists():
-        try:
-            return json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
+    if not f.exists():
+        return []
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(
+            f"[messages] Corrupt messages file (Fail Fast)\n"
+            f"  Path: {f}\n"
+            f"  Session: {session_id}\n"
+            f"  Error: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"[messages] Expected JSON array (Fail Fast)\n"
+            f"  Path: {f}\n"
+            f"  Actual type: {type(data).__name__}"
+        )
+    return data
 
 
 def _save_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
     _messages_file(session_id).write_text(
         json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+def _delete_session_messages(session_id: str) -> bool:
+    """Remove persisted message file for a session. Returns True if a file was deleted."""
+    f = _messages_file(session_id)
+    if not f.exists():
+        return False
+    f.unlink()
+    return True
 
 
 SESSIONS: List[Dict[str, Any]] = _load_sessions()
@@ -527,7 +627,13 @@ def _sse(data: dict) -> str:
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Stream chat responses from SafeClaw"""
-    
+    from safe_claw.core.agent_modes import ModePolicyError, resolve_mode_policy
+
+    try:
+        mode_policy = resolve_mode_policy(request.mode)
+    except ModePolicyError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     async def event_generator() -> AsyncGenerator[str, None]:
         t0 = datetime.now().timestamp()
         msg_id = f"msg-{t0}"
@@ -541,7 +647,26 @@ async def chat_stream(request: ChatRequest):
             
             if not last_message:
                 yield _sse({"type": "error", "error": "No user message found"})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
                 return
+
+            yield _sse({
+                "type": "execution_step",
+                "step_id": "mode_gate",
+                "name": f"Mode gate · {mode_policy.mode}",
+                "step_type": "gate",
+                "status": "completed",
+                "sub": (
+                    f"create={mode_policy.allow_create} edit={mode_policy.allow_edit} "
+                    f"delete={mode_policy.allow_delete} skill={mode_policy.skill_execute} "
+                    f"obs={mode_policy.observability}"
+                ),
+                "chips": [
+                    f"✓ {mode_policy.mode}",
+                    "create" if mode_policy.allow_create else "no-create",
+                    "edit" if mode_policy.allow_edit else "no-edit",
+                ],
+            })
             
             # ── Step 1: Parse ─────────────────────────────────────
             t_parse_start = datetime.now().timestamp()
@@ -555,21 +680,35 @@ async def chat_stream(request: ChatRequest):
                         "sub": "Parsed intent & entities",
                         "chips": ["\u2713 done"]})
 
-            # ── Step 2: Skill router (semantic matching) ─────────
+            # ── Step 2: Skill router (semantic matching; chips ≠ loaded) ─
             t_router_start = datetime.now().timestamp()
-            sm = _get_skills_manager()
-            active_skills = sm.get_enabled_skills() if sm else (request.enabled_skills or [])
+            try:
+                sm = _get_skills_manager()
+            except RuntimeError as e:
+                yield _sse({"type": "error", "error": str(e)})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
+
+            # SoT = SkillsManager only. ChatRequest.enabled_skills is deprecated (ignored).
+            active_skills = sm.get_enabled_skills()
+            if request.enabled_skills:
+                logger.info(
+                    "[chat/stream] Ignoring deprecated request.enabled_skills "
+                    "(SoT=%s, request=%s) — toggle via POST /skills",
+                    len(active_skills),
+                    len(request.enabled_skills),
+                )
+
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
                         "step_type": "tool_call", "status": "running",
                         "active_skills": active_skills})
 
-            # Semantic match: rank enabled skills by relevance to the query
-            skill_names: list[str] = []
-            if sm and active_skills and last_message:
+            # Semantic match: rank enabled skills by relevance (router hint only)
+            router_skill_names: list[str] = []
+            if active_skills and last_message:
                 try:
                     from safe_claw.core.skills.matcher import get_semantic_matcher
                     matcher = get_semantic_matcher()
-                    # Build entries for only the enabled skills
                     enabled_set = set(active_skills)
                     entries = [
                         entry for entry in sm.skill_scanner.index.values()
@@ -577,33 +716,64 @@ async def chat_stream(request: ChatRequest):
                     ]
                     if entries:
                         matches = matcher.simple_match_l1(last_message, entries, top_k=5)
-                        skill_names = [m.skill.name for m in matches if m.score > 0]
+                        router_skill_names = [m.skill.name for m in matches if m.score > 0]
                 except Exception as e:
                     logger.warning(f"Skill router semantic match failed: {e}")
-
-            # Fallback: if no semantic match, take first 5 enabled skills
-            # if not skill_names:
-            #     skill_names = active_skills[:5] if active_skills else ["chat"]
 
             router_dur = round(datetime.now().timestamp() - t_router_start, 3)
             yield _sse({"type": "execution_step", "step_id": "router", "name": "Skill router",
                         "step_type": "tool_call", "status": "completed",
                         "duration": router_dur,
-                        "sub": f"Selected: {', '.join(skill_names[:3])}",
-                        "chips": ["\u2713 done"] + skill_names[:3] + [f"{router_dur}s"],
-                        "skills_invoked": skill_names})
+                        "sub": f"Router match: {', '.join(router_skill_names[:3]) or '(none)'}",
+                        "chips": ["\u2713 done"] + router_skill_names[:3] + [f"{router_dur}s"],
+                        "skills_invoked": router_skill_names,
+                        "note": "skills_invoked = BM25 router hints; see skills_loaded for agent load"})
 
             # ── Step 3: Memory retrieval ──────────────────────────
+            from safe_claw.core.memory.manager import (
+                format_memory_context,
+                serialize_memory,
+            )
+
             t_mem_start = datetime.now().timestamp()
             yield _sse({"type": "execution_step", "step_id": "memory", "name": "Memory retrieval",
                         "step_type": "context_retrieval", "status": "running"})
-            await asyncio.sleep(0.02)
+
+            # Ensure global MemoryManager (singleton) is available
+            global memory_manager
+            if memory_manager is None:
+                load_safe_claw()
+            if memory_manager is None:
+                from safe_claw.core.memory.manager import MemoryManager
+                from safe_claw.models.config import MemoryConfig
+
+                memory_manager = MemoryManager(
+                    config=MemoryConfig(),
+                    workspace_path=str(WORKSPACE_DIR),
+                )
+            global_mm = memory_manager
+
+            mem_hits = global_mm.search_memories(last_message, max_results=5)
+            mem_context = format_memory_context(mem_hits, top_k=5)
+            mem_count = len(mem_hits)
+            mem_preview = []
+            for hit in mem_hits[:3]:
+                snippet = (hit.memory.content or "").replace("\n", " ").strip()
+                mem_preview.append(snippet[:48] + ("…" if len(snippet) > 48 else ""))
+
             mem_dur = round(datetime.now().timestamp() - t_mem_start, 3)
+            mem_sub = (
+                f"{mem_count} relevant memories loaded"
+                if mem_count
+                else "0 relevant memories loaded"
+            )
+            mem_chips = ["\u2713 done", f"{mem_dur}s", f"{mem_count} memories"] + mem_preview
             yield _sse({"type": "execution_step", "step_id": "memory", "name": "Memory retrieval",
                         "step_type": "context_retrieval", "status": "completed",
                         "duration": mem_dur,
-                        "sub": "3 relevant memories loaded",
-                        "chips": ["\u2713 done", f"{mem_dur}s", "3 memories"]})
+                        "sub": mem_sub,
+                        "chips": mem_chips,
+                        "memories": [serialize_memory(h.memory) for h in mem_hits]})
 
             # ── Step 4: LLM call using SafeClawGraphBuilder ───────────────
             model_id = request.model if request.model else _selected_model
@@ -614,8 +784,6 @@ async def chat_stream(request: ChatRequest):
             # Import SafeClawGraphBuilder and related modules
             from safe_claw.services.llm_gateway import LLMService, LLMConfig
             from safe_claw.core.graph.builder import SafeClawGraphBuilder
-            from safe_claw.core.memory.manager import MemoryManager
-            from safe_claw.models.config import MemoryConfig
             from safe_claw.core.deepagents.official_integration import (
                 _llm_call_logs_lock, _llm_call_logs
             )
@@ -627,6 +795,7 @@ async def chat_stream(request: ChatRequest):
                     yield _sse({"type": "error",
                                 "error": "DeepSeek API key not configured. "
                                          "Set it via Settings → DeepSeek API Key."})
+                    yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
                     return
                 llm_config = LLMConfig(
                     provider="deepseek",
@@ -658,117 +827,170 @@ async def chat_stream(request: ChatRequest):
                         if resp.status_code == 200:
                             models = resp.json().get("data", [])
                             lm_ready = any(m.get("id") == model_id for m in models)
-                            if not lm_ready and models:
-                                lm_ready = True
+                            if not lm_ready:
+                                available = [m.get("id") for m in models]
+                                raise ValueError(
+                                    f"[chat/stream] Requested model not loaded in LM Studio\n"
+                                    f"  Requested: {model_id}\n"
+                                    f"  Available: {available}"
+                                )
+                        else:
+                            raise ValueError(
+                                f"[chat/stream] LM Studio /models HTTP {resp.status_code}\n"
+                                f"  Base URL: {LM_STUDIO_BASE_URL}"
+                            )
                 except Exception as e:
-                    logger.warning(f"LM Studio health check failed: {e}")
-                    lm_ready = False
+                    logger.error("LM Studio health check failed (Fail Fast): %s", e)
+                    yield _sse({"type": "error", "error": str(e)})
+                    yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                    return
 
             if not lm_ready:
-                logger.warning("⚠️ LM Studio not ready (503 likely), will use fallback immediately")
-                # Skip DeepAgent creation, go straight to fallback
-                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "running",
-                            "sub": f"{model_id} \u00b7 fallback mode \u00b7 LLM unavailable"})
-                
-                full_response = ""
-                mock_resp = f"Hello! I'm SafeClaw (fallback mode). I received your message: '{last_message[:50]}...'\n\nThe LLM service is currently unavailable (503). Please try again later."
-                words = mock_resp.split()
-                for word in words:
-                    full_response += word + " "
-                    yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                    await asyncio.sleep(0.03)
-                
-                completion_tokens = len(full_response.split())
-                llm_dur = round(datetime.now().timestamp() - t_llm_start, 3)
-                yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "completed",
-                            "duration": llm_dur,
-                            "sub": f"{model_id} \u00b7 fallback \u00b7 service unavailable",
-                            "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out (fallback)"]})
-                
-                # Set flag to skip DeepAgent streaming
-                lm_studio_ready = False
-            
-            if lm_studio_ready:
-                llm_service = LLMService(config=llm_config)
-
-                # Create MemoryManager (required by GraphBuilder)
-                memory_manager = MemoryManager(
-                    config=MemoryConfig(),
-                    workspace_path=str(WORKSPACE_DIR),
+                err = (
+                    f"[chat/stream] LLM not ready (Fail Fast)\n"
+                    f"  model_id: {model_id}\n"
+                    f"  provider: {'deepseek' if _is_deepseek else 'lm-studio'}"
                 )
+                logger.error(err)
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
-                # Create SafeClawGraphBuilder with DeepAgent
+            llm_service = LLMService(config=llm_config)
+
+            # Create SafeClawGraphBuilder with DeepAgent — reuse global SM + MemoryManager
+            ppt_preview_events: List[Dict[str, Any]] = []
+
+            def _on_ppt_preview(payload: Dict[str, Any]) -> None:
+                ppt_preview_events.append(dict(payload))
+
+            try:
                 graph_builder = SafeClawGraphBuilder(
                     llm_service=llm_service,
-                    memory_manager=memory_manager,
+                    memory_manager=global_mm,
                     config={
+                        "skills_manager": sm,
                         "enabled_skills": active_skills,
+                        "max_skills": 100,
+                        "system_prompt_limit": 65536,
                         "print_prompts": True,
+                        "mode_policy": mode_policy,
+                        "workspace_path": str(WORKSPACE_DIR),
+                        "session_id": request.session_id or "_default",
+                        "on_ppt_preview": _on_ppt_preview,
                         "backend": {
                             "filesystem": {
                                 "enabled": True,
-                                "base_path": "/Users/nicole/Downloads/safe_claw_worksapce",
+                                "base_path": str(WORKSPACE_DIR.parent),
                                 "encrypt_files": False,
-                                "allow_write": True,
+                                "allow_write": mode_policy.allow_write,
+                                "allow_edit": mode_policy.allow_edit,
+                                "allow_delete": mode_policy.allow_delete,
                             }
                         }
                     }
                 )
+            except Exception as e:
+                logger.error("DeepAgent/GraphBuilder init failed (Fail Fast): %s", e)
+                yield _sse({"type": "error", "error": str(e)})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
-                # Access the DeepAgent directly from the builder for streaming
-                deep_agent = graph_builder.deep_agent
+            deep_agent = graph_builder.deep_agent
+            loaded = (
+                deep_agent.get_loaded_skills()
+                if hasattr(deep_agent, "get_loaded_skills")
+                else {"names": [], "paths": [], "count": 0}
+            )
+            yield _sse({
+                "type": "execution_step",
+                "step_id": "skills_load",
+                "name": "Skills loaded into agent",
+                "step_type": "tool_call",
+                "status": "completed",
+                "sub": f"{loaded.get('count', 0)} skills passed to create_deep_agent",
+                "chips": ["\u2713 loaded"] + list(loaded.get("names") or [])[:8],
+                "skills_loaded": loaded.get("names") or [],
+                "skills_loaded_paths": loaded.get("paths") or [],
+            })
 
+            yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
+                        "step_type": "model_call", "status": "running",
+                        "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens",
+                        "skills_loaded": loaded.get("names") or []})
+
+            full_response = ""
+            has_error = False
+            stream_error: Optional[str] = None
+
+            try:
+                messages = [{"role": m.role, "content": m.content} for m in request.messages]
+                if mem_context:
+                    messages = [
+                        {"role": "system", "content": mem_context},
+                        *messages,
+                    ]
+
+                for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
+                    while ppt_preview_events:
+                        ev = ppt_preview_events.pop(0)
+                        yield _sse({"type": "ppt_preview", **ev})
+                    if chunk.get("type") == "error":
+                        stream_error = chunk.get("content") or "Unknown DeepAgent stream error"
+                        has_error = True
+                        logger.error("DeepAgent stream error chunk (Fail Fast): %s", stream_error)
+                        break
+                    elif chunk.get("type") == "execution_step":
+                        # Subagent / nested tool observability (authoritative tree)
+                        yield _sse(chunk)
+                    elif chunk.get("type") == "ppt_preview":
+                        yield _sse(chunk)
+                    elif chunk.get("thinking"):
+                        yield _sse({"type": "thinking", "content": chunk["thinking"]})
+                    elif chunk.get("tool"):
+                        yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
+                        # Fallback: parse ppt_preview JSON from tool result text
+                        raw = chunk.get("content") or ""
+                        if "ppt_preview" in raw and "preview_urls" in raw:
+                            try:
+                                import json as _json
+
+                                data = _json.loads(raw)
+                                if data.get("type") == "ppt_preview":
+                                    yield _sse({"type": "ppt_preview", **data})
+                            except Exception:
+                                pass
+                    elif chunk.get("content"):
+                        full_response = chunk["content"]
+                        yield _sse({"type": "content", "content": full_response})
+
+                while ppt_preview_events:
+                    ev = ppt_preview_events.pop(0)
+                    yield _sse({"type": "ppt_preview", **ev})
+
+            except Exception as e:
+                has_error = True
+                stream_error = str(e)
+                logger.error("SafeClawGraphBuilder/DeepAgent error (Fail Fast): %s", e)
+
+            if has_error:
+                err = stream_error or "DeepAgent stream failed without detail"
                 yield _sse({"type": "execution_step", "step_id": "llm", "name": "LLM call",
-                            "step_type": "model_call", "status": "running",
-                            "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens"})
+                            "step_type": "model_call", "status": "failed",
+                            "sub": f"{model_id} · failed"})
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
-                # Stream from SafeClawDeepAgent (via GraphBuilder)
-                full_response = ""
-                has_error = False
-                
-                try:
-                    # Convert messages to dict format for DeepAgent
-                    messages = [{"role": m.role, "content": m.content} for m in request.messages]
-
-                    for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
-                        if chunk.get("type") == "error":
-                            has_error = True
-                            yield _sse({"type": "error", "error": chunk.get("content", "Unknown error")})
-                            return
-                        elif chunk.get("thinking"):
-                            # Shell/tool thinking output
-                            yield _sse({"type": "thinking", "content": chunk["thinking"]})
-                        elif chunk.get("tool"):
-                            # Tool execution result
-                            yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
-                        elif chunk.get("content"):
-                            # LLM content
-                            content = chunk["content"]
-                            # Phase 4: Self-healing - detect error in content (e.g., 503)
-                            if "Error" in content or "error" in content.lower():
-                                has_error = True
-                                print(f"⚠️ DeepAgent returned error content: {content[:100]}...")
-                                break
-                            full_response = content
-                            yield _sse({"type": "content", "content": full_response})
-
-                except Exception as e:
-                    print(f"SafeClawGraphBuilder/DeepAgent error: {e}")
-                    has_error = True
-                
-                # Phase 4: Self-healing - fallback to mock if error occurred during DeepAgent streaming
-                if has_error or not full_response or "Error" in full_response:
-                    print("🔄 Phase 4: Self-healing - using fallback mock response")
-                    # Clear any partial error response
-                    full_response = ""
-                    mock_resp = f"Hello! I'm SafeClaw. I received your message: '{last_message[:50]}...'\n\nI'm currently running in fallback mode because the LLM service is temporarily unavailable. Please try again later or contact support if this persists."
-                    words = mock_resp.split()
-                    for word in words:
-                        full_response += word + " "
-                        yield _sse({"type": "content", "content": full_response, "delta": word + " "})
-                        await asyncio.sleep(0.03)
+            if not full_response.strip():
+                err = (
+                    f"[chat/stream] Empty LLM response (Fail Fast)\n"
+                    f"  model_id: {model_id}\n"
+                    f"  message_id: {msg_id}"
+                )
+                yield _sse({"type": "error", "error": err})
+                yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
+                return
 
             # Complete LLM step
             completion_tokens = len(full_response.split())
@@ -779,6 +1001,24 @@ async def chat_stream(request: ChatRequest):
                         "duration": llm_dur,
                         "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens",
                         "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out"]})
+
+            # Persist turn to memory when importance passes threshold (mode gate)
+            if full_response and global_mm is not None and mode_policy.memory_auto_write:
+                try:
+                    stored_id = global_mm.maybe_store_conversation(
+                        user_input=last_message,
+                        response=full_response.strip(),
+                        session_id=request.session_id,
+                    )
+                    if stored_id:
+                        logger.info("[chat/stream] Stored conversation memory id=%s", stored_id)
+                except Exception as mem_err:
+                    logger.error("[chat/stream] Failed to store memory: %s", mem_err)
+                    raise
+            elif full_response and not mode_policy.memory_auto_write:
+                logger.info(
+                    "[chat/stream] Skip memory auto-write (mode=%s)", mode_policy.mode
+                )
 
             # ── Done ──────────────────────────────────────────────
             total_dur = round(datetime.now().timestamp() - t0, 3)
@@ -809,7 +1049,8 @@ async def chat_stream(request: ChatRequest):
                              "chips": [f"{call.get('token_estimate', 0):.0f} in", f"{call.get('response_tokens', 0)} out"]},
                         ],
                         "active_skills": active_skills[:10] if active_skills else [],
-                        "skills_invoked": skill_names,
+                        "skills_invoked": router_skill_names,
+                        "skills_loaded": loaded.get("names") or [],
                         "prompt_tokens": int(call.get("token_estimate", prompt_tokens)),
                         "completion_tokens": call.get("response_tokens", completion_tokens),
                         "duration_ms": call.get("duration_ms", round(llm_dur * 1000, 2)),
@@ -836,7 +1077,8 @@ async def chat_stream(request: ChatRequest):
                          "duration": llm_dur, "chips": [f"{prompt_tokens} in", f"{completion_tokens} out"]},
                     ],
                     "active_skills": active_skills[:10] if active_skills else [],
-                    "skills_invoked": skill_names,
+                    "skills_invoked": router_skill_names,
+                    "skills_loaded": loaded.get("names") or [],
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "duration_ms": round(llm_dur * 1000, 2),
@@ -847,6 +1089,8 @@ async def chat_stream(request: ChatRequest):
                 "type": "done",
                 "session_id": request.session_id,
                 "message_id": msg_id,
+                "mode": mode_policy.mode,
+                "observability": mode_policy.observability,
                 "usage": {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
@@ -863,14 +1107,16 @@ async def chat_stream(request: ChatRequest):
                     {"name": "Memory retrieval",      "duration": mem_dur},
                     {"name": "LLM call",              "duration": llm_dur},
                 ],
-                "skills_used": [{"name": s, "duration": 0} for s in skill_names],
+                "skills_used": [{"name": s, "duration": 0} for s in router_skill_names],
+                "skills_loaded": loaded.get("names") or [],
                 "llm_calls": llm_calls,
                 "total_calls": len(llm_calls),
             })
                 
         except Exception as e:
-            print(f"Chat stream error: {e}")
+            logger.error("Chat stream error (Fail Fast, no mock): %s", e)
             yield _sse({"type": "error", "error": str(e)})
+            yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
     
     return StreamingResponse(
         event_generator(),
@@ -885,69 +1131,86 @@ async def chat_stream(request: ChatRequest):
 # Skills endpoints
 @app.get("/skills")
 async def get_skills(flat: bool = False):
-    """Scan real skill directories and return tree"""
+    """Scan real skill directories and return tree. 503 if SkillsManager unavailable."""
     try:
         tree = build_skill_tree()
-        # Count stats
-        private_count = sum(
-            len(n["children"]) for n in tree if n["id"] == "private"
-        )
-        linked_count = sum(
-            len(n["children"]) for n in tree if n["id"].startswith("linked/")
-        )
-        total = sum(len(n["children"]) for n in tree)
-        return {
-            "tree": tree,
-            "total": total,
-            "categories": len(tree),
-            "private": private_count,
-            "linked": linked_count,
-        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         print(f"Skills scan error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    private_count = sum(
+        len(n["children"]) for n in tree if n["id"] == "private"
+    )
+    linked_count = sum(
+        len(n["children"]) for n in tree if n["id"].startswith("linked/")
+    )
+    total = sum(len(n["children"]) for n in tree)
+    return {
+        "tree": tree,
+        "total": total,
+        "categories": len(tree),
+        "private": private_count,
+        "linked": linked_count,
+    }
 
 
 @app.post("/skills")
 async def toggle_skill(request: SkillToggleRequest):
-    """Toggle skill or folder enabled state via SkillsManager"""
-    sm = _get_skills_manager()
+    """Toggle skill or folder enabled state via SkillsManager (strict folder match)."""
+    sm = _require_skills_manager()
+    project_root = Path(__file__).parent.parent
 
     if request.folder_id:
-        # Toggle entire folder: enable/disable all skills in that collection
+        # Toggle entire folder: enable/disable all skills in that collection only
         _folder_enabled[request.folder_id] = request.enabled
-        if sm:
-            current = set(sm.get_enabled_skills() or sm.get_available_skills())
-            folder_key = request.folder_id.replace("linked/", "")
-            changed = []
-            for entry in sm.skill_scanner.index.values():
-                raw = str(entry.path)
-                # Match skills belonging to this folder by path
-                if folder_key in raw:
-                    if request.enabled:
-                        current.add(entry.name)
-                    else:
-                        current.discard(entry.name)
-                    changed.append(entry.name)
-            sm.set_enabled_skills(list(current))
-            print(f"🔧 Folder toggle '{request.folder_id}': {len(changed)} skills {'enabled' if request.enabled else 'disabled'}, {len(current)} total active")
-    elif request.skill_id and sm:
-        current = set(sm.get_enabled_skills() or sm.get_available_skills())
+        current = _enabled_skills_mutable(sm)
+        changed = []
+        for entry in sm.skill_scanner.index.values():
+            cid = _skill_collection_id(Path(entry.path), project_root)
+            if cid != request.folder_id:
+                continue
+            if request.enabled:
+                current.add(entry.name)
+            else:
+                current.discard(entry.name)
+            changed.append(entry.name)
+        if not changed:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[skills/toggle] Unknown folder_id (Fail Fast)\n"
+                    f"  folder_id: {request.folder_id!r}\n"
+                    f"  Hint: use ids from GET /skills tree (e.g. private, linked/...)."
+                ),
+            )
+        sm.set_enabled_skills(list(current))
+        print(
+            f"🔧 Folder toggle '{request.folder_id}': {len(changed)} skills "
+            f"{'enabled' if request.enabled else 'disabled'}, {len(current)} total active"
+        )
+    elif request.skill_id:
+        current = _enabled_skills_mutable(sm)
         if request.enabled:
             current.add(request.skill_id)
         else:
             current.discard(request.skill_id)
         sm.set_enabled_skills(list(current))
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="[skills/toggle] Require skill_id or folder_id (Fail Fast)",
+        )
 
-    # Persist to disk so state survives server restart
-    if sm:
-        _save_skill_tree_state(sm)
+    _save_skill_tree_state(sm)
 
     return {
         "success": True,
         "skill_id": request.skill_id,
         "folder_id": request.folder_id,
         "enabled": request.enabled,
+        "enabled_count": len(sm.get_enabled_skills()),
     }
 
 
@@ -995,7 +1258,11 @@ async def create_session(request: SessionCreateRequest):
             "title": request.title,
             "status": "active",
             "message_count": 0,
-            "settings": {"model": request.model or _selected_model, "enabled_skills": []},
+            "settings": {
+                "model": request.model or _selected_model,
+                "enabled_skills": [],
+                "mode": "agent",
+            },
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "last_activity_at": datetime.now().isoformat()
@@ -1040,17 +1307,55 @@ async def delete_session(id: str):
         global SESSIONS
         SESSIONS = [s for s in SESSIONS if s["id"] != id]
         _save_sessions(SESSIONS)
+        _delete_session_messages(id)
         return {"success": True, "deleted_id": id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/sessions/all")
+async def delete_all_sessions():
+    """One-click clear: delete every session + message files (Fail Fast, no soft archive)."""
+    global SESSIONS
+    ids = [s["id"] for s in SESSIONS]
+    message_files_removed = 0
+    if MESSAGES_DIR.exists():
+        for f in MESSAGES_DIR.glob("*.json"):
+            try:
+                f.unlink()
+                message_files_removed += 1
+            except OSError as e:
+                raise RuntimeError(
+                    f"[sessions/all] Failed to delete message file (Fail Fast)\n"
+                    f"  Path: {f}\n"
+                    f"  Error: {e}"
+                ) from e
+    count = len(ids)
+    SESSIONS = []
+    _save_sessions(SESSIONS)
+    logger.info(
+        "[sessions/all] Cleared %s sessions, message_files_removed=%s",
+        count,
+        message_files_removed,
+    )
+    return {
+        "success": True,
+        "deleted_count": count,
+        "deleted_ids": ids,
+        "message_files_removed": message_files_removed,
+    }
+
+
 @app.delete("/sessions/{session_id}")
 async def delete_session_by_path(session_id: str):
     """Delete session by path param: DELETE /sessions/{id}"""
+    if session_id == "all":
+        # Defensive: static route /sessions/all should win; never treat "all" as an id.
+        return await delete_all_sessions()
     global SESSIONS
     SESSIONS = [s for s in SESSIONS if s["id"] != session_id]
     _save_sessions(SESSIONS)
+    _delete_session_messages(session_id)
     return {"success": True, "deleted_id": session_id}
 
 
@@ -1084,52 +1389,99 @@ async def save_session_messages(session_id: str, payload: MessagePayload):
 
 
 # Memory endpoints
+class MemoryCreateRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    importance: float = Field(default=0.8, ge=0.0, le=1.0)
+    keywords: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 @app.post("/memory/cleanup")
 async def cleanup_memories_post():
     """Run memory cleanup"""
-    try:
-        if safe_claw_loaded and memory_manager:
-            memory_manager.cleanup_old_memories()
-        return {"success": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory/cleanup] MemoryManager not available",
+        )
+    result = memory_manager.cleanup_old_memories()
+    return {"success": True, "result": result, "stats": memory_manager.get_memory_stats()}
+
+
+@app.post("/memory")
+async def create_memory(body: MemoryCreateRequest):
+    """Explicitly add a memory (e.g. /remember slash)."""
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory] MemoryManager not available",
+        )
+    from safe_claw.core.memory.manager import serialize_memory
+
+    memory_id = memory_manager.add_memory(
+        content=body.content,
+        importance_score=body.importance,
+        keywords=body.keywords,
+        metadata={**(body.metadata or {}), "source": "api"},
+    )
+    memory = memory_manager.get_memory(memory_id)
+    if memory is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"[memory] Created memory missing after write\n  id: {memory_id}",
+        )
+    return {
+        "success": True,
+        "id": memory_id,
+        "memory": serialize_memory(memory),
+        "stats": memory_manager.get_memory_stats(),
+    }
 
 
 @app.get("/memory")
 async def get_memories(layer: str = "active", limit: int = 20, search: Optional[str] = None):
     """Get memories from the memory manager"""
-    try:
-        if safe_claw_loaded and memory_manager:
-            stats = memory_manager.get_memory_stats()
-            if search:
-                items = memory_manager.search_memories(search, limit)
-            else:
-                items = memory_manager.get_memories_by_layer(layer, limit)
-            return {
-                "memories": [
-                    {
-                        "id": getattr(m, "id", str(i)),
-                        "content": getattr(m, "content", ""),
-                        "layer": getattr(m, "layer", layer),
-                        "importance": getattr(m, "importance", 0.5),
-                        "created_at": getattr(m, "created_at", datetime.now()).isoformat() if hasattr(m, "created_at") else datetime.now().isoformat(),
-                        "access_count": getattr(m, "access_count", 0),
-                        "tags": getattr(m, "tags", []),
-                    }
-                    for i, m in enumerate(items)
-                ],
-                "stats": stats,
-                "total": len(items),
-            }
-        else:
-            return {
-                "memories": [],
-                "stats": {"active_count": 0, "dormant_count": 0, "deep_count": 0, "forgotten_count": 0},
-                "total": 0,
-            }
-    except Exception as e:
-        print(f"Memory error: {e}")
-        return {"memories": [], "stats": {}, "total": 0}
+    from safe_claw.core.memory.manager import VALID_LAYERS, serialize_memory
+    from safe_claw.models.memory import MemorySearchResult
+
+    if not safe_claw_loaded or memory_manager is None:
+        load_safe_claw()
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="[memory] MemoryManager not available",
+        )
+
+    if search is None and layer not in VALID_LAYERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"[memory] Invalid layer\n"
+                f"  layer: {layer!r}\n"
+                f"  Expected: {sorted(VALID_LAYERS)}"
+            ),
+        )
+
+    stats = memory_manager.get_memory_stats()
+    if search:
+        results = memory_manager.search_memories(search, limit)
+        memories = [
+            serialize_memory(r.memory if isinstance(r, MemorySearchResult) else r)
+            for r in results
+        ]
+    else:
+        items = memory_manager.get_memories_by_layer(layer, limit)
+        memories = [serialize_memory(m) for m in items]
+
+    return {
+        "memories": memories,
+        "stats": stats,
+        "total": len(memories),
+    }
 
 
 # System monitor endpoint
@@ -1203,6 +1555,8 @@ async def get_safety_stats():
 
 
 FALLBACK_MODELS = [
+    {"id": "deepseek-v4-flash",   "name": "DeepSeek V4 Flash", "provider": "deepseek"},
+    {"id": "deepseek-v4-pro",     "name": "DeepSeek V4 Pro",   "provider": "deepseek"},
     {"id": "qwen3.5-9b-vlm",       "name": "Qwen3.5 9B",      "provider": "lm-studio"},
     {"id": "gemma-4-e4b",          "name": "Gemma 4 E4B",     "provider": "lm-studio"},
     {"id": "gemma-4-31b",          "name": "Gemma 4 31B",     "provider": "lm-studio"},
@@ -1210,10 +1564,18 @@ FALLBACK_MODELS = [
     {"id": "qwen/qwen3.5-35b-a3b", "name": "Qwen3.5 35B A3B", "provider": "lm-studio"},
 ]
 
+_CLOUD_MODELS = [
+    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "provider": "deepseek"},
+    {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "provider": "deepseek"},
+]
+
+
 # Settings / model info endpoint
 @app.get("/settings/models")
 async def get_available_models():
-    """Query LM Studio for loaded models; fall back to static list."""
+    """LM Studio loaded models + always-available cloud models (DeepSeek)."""
+    models: List[Dict[str, Any]] = []
+    source = "fallback"
     try:
         async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             resp = await client.get(_lm_studio_models_url())
@@ -1229,10 +1591,27 @@ async def get_available_models():
                     for m in data.get("data", [])
                 ]
                 if models:
-                    return {"models": models, "source": "lm-studio"}
-    except Exception:
-        pass
-    return {"models": FALLBACK_MODELS, "source": "fallback"}
+                    source = "lm-studio+cloud"
+    except Exception as e:
+        # LM Studio optional for listing; DeepSeek cloud models still required.
+        logger.warning("LM Studio models fetch failed: %s — returning cloud models only", e)
+        source = "cloud-only"
+        models = []
+    if not models:
+        models = []
+        source = "cloud-only" if source != "lm-studio+cloud" else source
+    # DeepSeek is the global default selection — always list it, even when LM Studio responds.
+    existing = {m["id"] for m in models}
+    # Prepend cloud models so Flash (global default) appears before Pro.
+    for cloud in reversed(_CLOUD_MODELS):
+        if cloud["id"] not in existing:
+            models.insert(0, dict(cloud))
+    if not models:
+        raise HTTPException(
+            status_code=503,
+            detail="[settings/models] No models available (Fail Fast)",
+        )
+    return {"models": models, "source": source, "default": DEFAULT_MODEL}
 
 
 class LLMSettingsRequest(BaseModel):
@@ -1332,24 +1711,70 @@ async def update_deepseek_settings(request: DeepSeekSecretsRequest):
 # File upload endpoint
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
-    """Upload a file to the specified path (typically /tmp/uploaded/)"""
+    """Upload a file into WORKSPACE_DIR (path traversal rejected)."""
     try:
-        # Ensure the directory exists
-        target_path = Path(path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save the file
+        # Resolve under WORKSPACE_DIR — reject absolute paths outside and ".." traversal
+        raw = Path(path)
+        if raw.is_absolute():
+            candidate = raw.resolve()
+        else:
+            candidate = (WORKSPACE_DIR / raw).resolve()
+
+        try:
+            candidate.relative_to(WORKSPACE_DIR.resolve())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"[Upload] Path escapes WORKSPACE_DIR\n"
+                    f"  Requested: {path}\n"
+                    f"  Resolved: {candidate}\n"
+                    f"  Allowed root: {WORKSPACE_DIR}"
+                ),
+            )
+
+        candidate.parent.mkdir(parents=True, exist_ok=True)
         content = await file.read()
-        target_path.write_bytes(content)
-        
-        return {
-            "success": True,
-            "path": str(target_path),
-            "size": len(content),
-            "filename": file.filename,
-        }
+        candidate.write_bytes(content)
+        rel = str(candidate.relative_to(WORKSPACE_DIR.resolve()))
+        return {"ok": True, "path": rel, "bytes": len(content)}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logger.error("Upload failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/workspace-file")
+async def get_workspace_file(path: str):
+    """Serve a file under WORKSPACE_DIR only (PPT previews, etc.)."""
+    from fastapi.responses import FileResponse
+
+    raw = (path or "").strip().lstrip("/")
+    if not raw:
+        raise HTTPException(
+            status_code=400,
+            detail="[workspace-file] path is required\n  Actual: empty",
+        )
+    candidate = (WORKSPACE_DIR / raw).resolve()
+    try:
+        candidate.relative_to(WORKSPACE_DIR.resolve())
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"[workspace-file] Path escapes WORKSPACE_DIR\n"
+                f"  Requested: {path}\n"
+                f"  Resolved: {candidate}\n"
+                f"  Allowed root: {WORKSPACE_DIR}"
+            ),
+        ) from e
+    if not candidate.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"[workspace-file] Not found\n  Path: {candidate}",
+        )
+    return FileResponse(candidate)
 
 
 # LLM Call Logs endpoint
@@ -1365,31 +1790,15 @@ async def get_llm_calls(message_id: str):
         logger.info("get_llm_call_logs...")
         logs = get_llm_call_logs(message_id)
 
-        # If no logs are recorded (e.g. LLM in fallback/mock mode), return a synthetic fallback log
+        # Fail Fast: never invent synthetic "fallback mode" logs
         if not logs:
-            logs = [{
-                "call_id": f"call-1-{message_id}",
-                "call_number": 1,
-                "timestamp": datetime.now().isoformat(),
-                "formatted_prompt": "🔧 SYSTEM:\nBe concise. No deep reasoning. /no_think\n\n👤 USER:\nhello",
-                "messages": [
-                    {"role": "system", "content": "Be concise. No deep reasoning. /no_think"},
-                    {"role": "user", "content": "hello"}
-                ],
-                "token_estimate": 10.0,
-                "response": "Hello! I'm SafeClaw (fallback mode). I received your message: 'hello...' The LLM service is currently unavailable.",
-                "response_timestamp": datetime.now().isoformat(),
-                "response_tokens": 20,
-                "duration_ms": 100.0,
-                "steps": [
-                    {"id": "parse-1", "name": "Understanding request", "type": "reasoning", "status": "completed", "duration": 0.05},
-                    {"id": "router-1", "name": "Skill router", "type": "tool_call", "status": "completed", "duration": 0.01},
-                    {"id": "memory-1", "name": "Memory retrieval", "type": "context_retrieval", "status": "completed", "duration": 0.02},
-                    {"id": "llm-1", "name": "LLM call", "type": "model_call", "status": "completed", "duration": 0.1, "chips": ["10 in", "20 out"]}
-                ],
-                "active_skills": [],
-                "skills_invoked": []
-            }]
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[llm-calls] No logs for message_id={message_id}\n"
+                    f"  Expected: real PromptLoggerMiddleware records"
+                ),
+            )
 
         # Enrich logs with execution steps and skills if not already present
         enriched_calls = []

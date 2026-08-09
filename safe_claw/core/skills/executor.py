@@ -428,41 +428,73 @@ class SkillExecutor:
     
     def execute_in_subagent(self, manifest: SkillManifest,
                            context: ExecutionContext) -> Dict[str, Any]:
-        """Execute skill in isolated subagent (context: fork)
-        
-        This prepares the subagent configuration but doesn't actually
-        create the subagent (that's handled by the agent system).
+        """Execute skill in isolated subagent (context: fork).
+
+        Hard-gates spawn brief (走一步看三步) before returning config.
+        Actual spawn is still handled by the agent system / task tool.
         """
+        from safe_claw.core.deepagents.spawn_brief import validate_spawn_brief
+
         prompt = self.get_skill_prompt(manifest, context)
-        
-        # Determine agent type
         agent_type = context.agent_type or "general-purpose"
-        
-        # For fork context, the prompt becomes the task for the subagent
+
+        # Brief from arguments JSON or Fail Fast defaults from skill metadata
+        args = context.arguments or []
+        brief_payload = None
+        if args:
+            import json
+            raw = args[0] if isinstance(args[0], str) else None
+            if raw and raw.strip().startswith("{"):
+                try:
+                    brief_payload = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"[SkillExecutor] fork brief JSON invalid\n"
+                        f"  skill: {manifest.name}\n"
+                        f"  error: {e}"
+                    ) from e
+        if not isinstance(brief_payload, dict):
+            raise ValueError(
+                f"[SkillExecutor] fork requires structured spawn brief (Fail Fast)\n"
+                f"  skill: {manifest.name}\n"
+                f"  Expected: first argument JSON with step_now, look_ahead[3], "
+                f"expected_output, agent_name\n"
+                f"  Actual arguments: {args!r}"
+            )
+        if "agent_name" not in brief_payload:
+            brief_payload["agent_name"] = agent_type
+        brief = validate_spawn_brief(brief_payload)
+
         subagent_config = {
-            "type": agent_type,
+            "type": brief.agent_name,
             "task": prompt,
+            "brief": brief.to_dict(),
             "permissions": context.permission_manager.get_allowed_tools() if context.permission_manager else ["*"],
             "session_id": context.session_id,
         }
-        
-        # Record execution
+
         execution_record = {
             "skill_name": manifest.name,
             "session_id": context.session_id,
             "context": "fork",
-            "agent_type": agent_type,
+            "agent_type": brief.agent_name,
             "arguments": context.arguments,
+            "brief": brief.to_dict(),
         }
         self._execution_history.append(execution_record)
         context.execution_count += 1
         context.last_execution = manifest.name
-        
+
         return {
             "success": True,
             "type": "subagent",
             "subagent_config": subagent_config,
+            "brief": brief.to_dict(),
             "prompt": prompt,
+            "result": (
+                f"[fork queued] agent={brief.agent_name} step_now={brief.step_now}\n"
+                f"awaiting DeepAgent task spawn (not hollow — brief validated)"
+            ),
             "manifest": manifest.to_dict(
                 include_level1=True,
                 include_level2=True,

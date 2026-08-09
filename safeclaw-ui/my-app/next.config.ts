@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Playwright / agents often hit 127.0.0.1; allow HMR + assets
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   async rewrites() {
     return [
       // Proxy API routes to FastAPI backend
@@ -53,6 +55,11 @@ const nextConfig: NextConfig = {
       {
         source: '/api/upload',
         destination: 'http://localhost:8000/api/upload',
+      },
+      // PPT / workspace preview files
+      {
+        source: '/api/workspace-file',
+        destination: 'http://localhost:8000/api/workspace-file',
       },
     ];
   },

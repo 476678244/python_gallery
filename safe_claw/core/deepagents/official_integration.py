@@ -95,28 +95,42 @@ class SafeClawDeepAgent:
         # Get external skills paths from config
         external_paths_config = self.config.get("external_skills_paths", [])
         external_skills_paths = [Path(p) for p in external_paths_config] if external_paths_config else []
-        
-        # Initialize or reuse skills manager from session state
-        import streamlit as st
-        if "skills_manager" in st.session_state:
-            self.skills_manager = st.session_state["skills_manager"]
-            logger.info("Reusing existing SkillsManager from session state")
+
+        self._loaded_skill_names: List[str] = []
+        self._loaded_skill_paths: List[str] = []
+
+        # Prefer injected SkillsManager (API SoT). Never silently fork a second SM.
+        injected_sm = self.config.get("skills_manager")
+        if injected_sm is not None:
+            self.skills_manager = injected_sm
+            logger.info("Using injected SkillsManager (API single source of truth)")
         else:
-            self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
-            st.session_state["skills_manager"] = self.skills_manager
-            logger.info("Created new SkillsManager and stored in session state")
-        
-        # Sync enabled skills from config if provided
-        enabled_skills = self.config.get("enabled_skills", [])
-        if enabled_skills:
-            self.skills_manager.set_enabled_skills(enabled_skills)
+            # Streamlit UI path only — reuse session_state when available
+            try:
+                import streamlit as st
+                if "skills_manager" in st.session_state:
+                    self.skills_manager = st.session_state["skills_manager"]
+                    logger.info("Reusing existing SkillsManager from session state")
+                else:
+                    self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+                    st.session_state["skills_manager"] = self.skills_manager
+                    logger.info("Created new SkillsManager and stored in session state")
+            except ImportError:
+                self.skills_manager = SkillsManager(external_skills_paths=external_skills_paths)
+                logger.info("Created SkillsManager (no Streamlit)")
+
+        # Sync enabled skills from config if provided (explicit list, including empty)
+        if "enabled_skills" in self.config and self.config.get("enabled_skills") is not None:
+            enabled_skills = self.config.get("enabled_skills") or []
+            self.skills_manager.set_enabled_skills(list(enabled_skills))
             logger.info(f"Synced {len(enabled_skills)} enabled skills to SkillsManager")
-        
-        # Initialize tool manager
+
+        # Initialize tool manager (MemoryManager from create_with_memory / API)
         self.tool_manager = ToolManager(
             skill_scanner=self.skills_manager.get_skill_scanner(),
             skill_discovery=self.skills_manager.get_skill_discovery(),
-            skill_executor=self.skills_manager.get_skill_executor()
+            skill_executor=self.skills_manager.get_skill_executor(),
+            memory_manager=self.config.get("memory_manager"),
         )
 
         # Set output callback to log shell command execution in real-time
@@ -144,7 +158,8 @@ class SafeClawDeepAgent:
 
         # Context length monitoring
         self.max_context_length = config.get("max_context_length", 18192) if config else 18192
-        self.system_prompt_limit = config.get("system_prompt_limit", 8192) if config else 8192
+        # Personal Fail Fast: raise on overflow — never silent truncate (defaults fit DeepSeek).
+        self.system_prompt_limit = config.get("system_prompt_limit", 65536) if config else 65536
 
         self._initialize_agent()
 
@@ -154,8 +169,32 @@ class SafeClawDeepAgent:
             # Convert LLMService to LangChain model
             model = self._create_langchain_model()
 
-            # Get tools and skills paths list from managers
-            tools = self.tool_manager.get_all_tools()
+            # Get tools — filter by ModePolicy when present (agent-modes hard gate)
+            mode_policy = self.config.get("mode_policy")
+            if mode_policy is not None:
+                ppt_tools = bool(getattr(mode_policy, "ppt_tools", False))
+                if ppt_tools and not self.config.get("workspace_path"):
+                    raise ValueError(
+                        "[SafeClawDeepAgent] mode=ppt requires workspace_path\n"
+                        "  Expected: WORKSPACE_DIR in config\n"
+                        "  Actual: missing workspace_path"
+                    )
+                tools = self.tool_manager.get_tools_for_policy(
+                    skill_execute=mode_policy.skill_execute,
+                    allow_create=mode_policy.allow_create,
+                    allow_edit=mode_policy.allow_edit,
+                    memory_auto_write=mode_policy.memory_auto_write,
+                    ppt_tools=ppt_tools,
+                    workspace_dir=(
+                        Path(self.config["workspace_path"])
+                        if self.config.get("workspace_path")
+                        else None
+                    ),
+                    session_id=self.config.get("session_id"),
+                    on_ppt_preview=self.config.get("on_ppt_preview"),
+                )
+            else:
+                tools = self.tool_manager.get_all_tools()
 
             # Get enabled_skills from SkillsManager (backend owns state)
             # First check config (for direct API usage), then fall back to SkillsManager state
@@ -185,6 +224,8 @@ class SafeClawDeepAgent:
 
             # 计算预估的token数量
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            if mode_policy is not None and getattr(mode_policy, "system_prompt_addendum", None):
+                system_prompt = system_prompt + mode_policy.system_prompt_addendum
 
             # Inject the ground-truth list of currently-loaded skills so the model
             # answers questions like "how many skills" directly, instead of probing
@@ -216,27 +257,26 @@ class SafeClawDeepAgent:
             logger.info(f"🔍 DEBUG: 预估总计: {total_estimated:.0f} tokens")
             logger.info(f"🔍 DEBUG: 上下文限制: {self.max_context_length} tokens")
 
-            # Context length warning
+            # Fail Fast: never silently truncate skills/tools to "fit" context
+            max_skills = int(self.config.get("max_skills") or 100)
+            if len(skills_paths) > max_skills:
+                raise ValueError(
+                    f"[SafeClawDeepAgent] Too many enabled skills (Fail Fast)\n"
+                    f"  Enabled paths: {len(skills_paths)}\n"
+                    f"  Limit: {max_skills}\n"
+                    f"  Disable skills in the Skill Tree, then retry."
+                )
             if total_estimated > self.system_prompt_limit:
-                logger.warning(
-                    f"⚠️ CONTEXT LENGTH WARNING: Estimated {total_estimated:.0f} tokens exceeds limit {self.system_prompt_limit}")
-                logger.warning(f"⚠️ Consider reducing skills/tools loading or increasing context length")
+                raise ValueError(
+                    f"[SafeClawDeepAgent] Estimated prompt exceeds context limit (Fail Fast)\n"
+                    f"  Estimated: {total_estimated:.0f} tokens\n"
+                    f"  Limit: {self.system_prompt_limit}\n"
+                    f"  Skills: {len(skills_paths)}, tools: {len(tools)}\n"
+                    f"  Disable skills or raise system_prompt_limit explicitly."
+                )
 
-                # Implement selective skills loading
-                if len(skills_paths) > 15:  # Further reduce skills limit due to tools
-                    logger.warning(f"🔧 Limiting skills from {len(skills_paths)} to 15 to fit context (including tools)")
-                    skills_paths = skills_paths[:15]
-                    skills_tokens = self.skills_manager.estimate_skills_tokens(skills_paths)
-                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
-                    logger.info(f"🔧 New estimated total: {total_estimated:.0f} tokens")
-
-                # If still too large, consider reducing tools
-                if total_estimated > self.system_prompt_limit and len(tools) > 4:
-                    logger.warning(f"🔧 Limiting tools from {len(tools)} to 4 to fit context")
-                    tools = self.tool_manager.limit_tools(4)  # Keep only essential tools
-                    tools_tokens = self.tool_manager.estimate_tokens()
-                    total_estimated = prompt_tokens + skills_tokens + tools_tokens
-                    logger.info(f"🔧 Final estimated total: {total_estimated:.0f} tokens")
+            self._loaded_skill_paths = list(skills_paths)
+            self._loaded_skill_names = list(skill_names)
 
             # SECURITY: Prepare backend configuration based on security-first principles
             backend = None  # Default: Use deepagents' secure default backend
@@ -249,6 +289,8 @@ class SafeClawDeepAgent:
                 logger.info(f"🔧 Filesystem backend base_path: {filesystem_backend_config.get('base_path')}")
                 logger.info(f"🔧 Filesystem encryption: {filesystem_backend_config.get('encrypt_files')}")
                 logger.info(f"🔧 Filesystem allow_write: {filesystem_backend_config.get('allow_write')}")
+                logger.info(f"🔧 Filesystem allow_edit: {filesystem_backend_config.get('allow_edit')}")
+                logger.info(f"🔧 Filesystem allow_delete: {filesystem_backend_config.get('allow_delete')}")
                 
                 try:
                     workspace_path = Path(self.config.get("workspace_path", Path.cwd()))
@@ -278,13 +320,24 @@ class SafeClawDeepAgent:
 
             # Create DeepAgent with SafeClaw configuration
             logger.info(f"🔍 DEBUG: 正在调用create_deep_agent...")
+            middleware = [self.prompt_logger]
+            # DeepAgents always registers `task`; hard-gate when ModePolicy.spawn disallows it
+            if mode_policy is not None:
+                from safe_claw.core.agent_modes import SpawnGateMiddleware
+
+                middleware.append(SpawnGateMiddleware(mode_policy))
+                logger.info(
+                    "[ModePolicy] SpawnGateMiddleware attached (mode=%s spawn=%s)",
+                    mode_policy.mode,
+                    mode_policy.spawn,
+                )
             self.deep_agent = create_deep_agent(
                 model=model,
                 system_prompt=system_prompt,
                 tools=tools,
                 skills=skills_paths,  # Pass limited skills paths
                 backend=backend,  # SECURITY: Pass backend (None = secure default)
-                middleware=[self.prompt_logger]  # Add prompt logging middleware
+                middleware=middleware,
             )
 
             logger.info(
@@ -338,7 +391,10 @@ Your capabilities are organized into two categories:
 
 ## BUILTIN TOOLS (Core SafeClaw Functions)
 These are always available, optimized tools for common operations:
-- `safe_claw_memory_search`: Search memory and context
+- `safe_claw_memory_search`: Search long-term memory (jargon, preferences, notes) via MemoryManager
+- `safe_claw_memory_write`: Explicitly store a durable memory (agent/debug/subagent only)
+- `web_search`: Search the public web (Tavily/Brave if keyed; else DuckDuckGo Instant Answer)
+- `web_fetch`: Fetch a public http(s) URL as text (SSRF-safe; no localhost/private IPs)
 - `safe_claw_log_operation`: Log operations for audit
 - `safe_claw_file_read`: Read files safely (limited to 2000 chars)
 - `safe_claw_file_write`: Write files safely with path creation
@@ -364,10 +420,13 @@ Skills are discovered from folders with 3-level loading for efficiency:
 - **finance**: Stock analysis, portfolios
 
 ## Usage Guidelines:
-1. **Use builtin tools** for: basic file ops, memory search, logging
-2. **Use skills** for: complex domain-specific tasks, data processing
-3. **Always check** skill prompts with `skill_get_prompt` before execution
-4. **Use `skill_list_available`** to discover capabilities
+1. **Use builtin tools** for: basic file ops, memory search/write, web search/fetch, logging
+2. **Use `safe_claw_memory_search`** when answering from long-term memory (jargon, preferences)
+3. **Use `safe_claw_memory_write`** to deliberately persist facts the user asks you to remember
+4. **Use `web_search` then `web_fetch`** for current public-web facts (not memory)
+5. **Use skills** for: complex domain-specific tasks, data processing
+6. **Always check** skill prompts with `skill_get_prompt` before execution
+7. **Use `skill_list_available`** to discover capabilities
 
 ## Safety Principles:
 - Always prioritize user safety and data privacy
@@ -393,17 +452,32 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             return
 
         try:
-            # Convert messages to LangChain format
+            # Convert messages to LangChain format.
+            # Merge any caller-provided system messages (e.g. memory context) into the
+            # primary system prompt so they are not diluted by a later default system.
             langchain_messages = []
+            memory_system_blocks: List[str] = []
+            conversation_msgs: List[Dict[str, str]] = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role == "system" and content:
+                    memory_system_blocks.append(content)
+                else:
+                    conversation_msgs.append(msg)
 
-            # Add system prompt if available
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
             system_prompt = system_prompt + "\n\n" + "Be concise. No deep reasoning. /no_think"
+            if memory_system_blocks:
+                system_prompt = (
+                    system_prompt
+                    + "\n\n"
+                    + "\n\n".join(memory_system_blocks)
+                )
             if system_prompt:
                 langchain_messages.append(SystemMessage(content=system_prompt))
 
-            # Convert input messages to LangChain format
-            for msg in messages:
+            for msg in conversation_msgs:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
 
@@ -411,10 +485,7 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                     langchain_messages.append(HumanMessage(content=content))
                 elif role == "assistant":
                     langchain_messages.append(AIMessage(content=content))
-                elif role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
                 else:
-                    # Default to human message for unknown roles
                     langchain_messages.append(HumanMessage(content=content))
 
             # Create state for LangGraph with proper message format
@@ -427,6 +498,10 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
 
             # Configure execution
             config = {"configurable": {"thread_id": "streamlit_session"}}
+
+            # Active subagent step for nesting nested tool calls (observability only)
+            active_subagent_id: Optional[str] = None
+            mode_policy = self.config.get("mode_policy")
 
             # Stream using LangGraph's stream method
             for chunk in self.deep_agent.stream(state, config):
@@ -446,7 +521,39 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                         tool_messages = chunk.get("tools", {}).get("messages", [])
                         for tool_msg in tool_messages:
                             if hasattr(tool_msg, 'name') and hasattr(tool_msg, 'content'):
-                                yield {"tool": tool_msg.name, "content": tool_msg.content, "success": True}
+                                name = tool_msg.name("name") if isinstance(tool_msg, dict) else tool_msg.name
+                                if not isinstance(name, str):
+                                    name = getattr(tool_msg, "name", "tool")
+                                content = (
+                                    tool_msg.get("content")
+                                    if isinstance(tool_msg, dict)
+                                    else getattr(tool_msg, "content", "")
+                                )
+                                if name == "task":
+                                    step_id = active_subagent_id or f"subagent-{message_id or 'task'}"
+                                    yield {
+                                        "type": "execution_step",
+                                        "step_id": step_id,
+                                        "name": "Subagent · task result",
+                                        "step_type": "subagent",
+                                        "status": "completed",
+                                        "sub": "final report to main (nested transcript not in main content)",
+                                        "chips": ["✓ done"],
+                                    }
+                                    active_subagent_id = None
+                                elif active_subagent_id:
+                                    yield {
+                                        "type": "execution_step",
+                                        "step_id": f"tool-{name}-{id(tool_msg)}",
+                                        "parent_step_id": active_subagent_id,
+                                        "name": name,
+                                        "step_type": "tool_call",
+                                        "status": "completed",
+                                        "sub": str(content)[:240] if content else "",
+                                        "chips": ["✓ done"],
+                                    }
+                                # Flat tool event kept for compatibility (UI may ignore)
+                                yield {"tool": name, "content": content, "success": True}
                         continue
 
                     chunk_str = str(chunk)
@@ -457,6 +564,87 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                         # Extract AIMessage content from the messages
                         messages = chunk["model"]["messages"]
                         for msg in messages:
+                            # Detect task tool_calls → subagent observability + brief gate
+                            tool_calls = getattr(msg, "tool_calls", None) or (
+                                msg.get("tool_calls") if isinstance(msg, dict) else None
+                            )
+                            if tool_calls:
+                                for tc in tool_calls:
+                                    tc_name = (
+                                        tc.get("name")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "name", None)
+                                    )
+                                    tc_args = (
+                                        tc.get("args")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "args", {}) or {}
+                                    )
+                                    if tc_name != "task":
+                                        continue
+                                    from safe_claw.core.agent_modes import (
+                                        spawn_runtime_enabled,
+                                    )
+                                    from safe_claw.core.deepagents.spawn_brief import (
+                                        parse_brief_from_task_args,
+                                    )
+
+                                    tc_id = (
+                                        tc.get("id")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "id", None)
+                                    )
+                                    step_id = f"subagent-{tc_id or id(tc)}"
+                                    # ModePolicy spawn gate (ask/plan/safe) — Fail Fast UI signal
+                                    if mode_policy is not None and not spawn_runtime_enabled(
+                                        mode_policy
+                                    ):
+                                        active_subagent_id = None
+                                        spawn_err = (
+                                            f"[ModePolicy] spawn/task blocked\n"
+                                            f"  mode: {mode_policy.mode}\n"
+                                            f"  spawn: {mode_policy.spawn}"
+                                        )
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": "Subagent · blocked",
+                                            "step_type": "subagent",
+                                            "status": "failed",
+                                            "error": spawn_err,
+                                            "chips": ["blocked", "mode-spawn"],
+                                        }
+                                        logger.error(spawn_err)
+                                        continue
+                                    try:
+                                        brief = parse_brief_from_task_args(tc_args or {})
+                                        active_subagent_id = step_id
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": f"Subagent · {brief.agent_name}",
+                                            "step_type": "subagent",
+                                            "status": "running",
+                                            "agent_name": brief.agent_name,
+                                            "step_now": brief.step_now,
+                                            "look_ahead": list(brief.look_ahead),
+                                            "expected_output": brief.expected_output,
+                                            "chips": ["running", "look_ahead×3"],
+                                        }
+                                    except ValueError as gate_err:
+                                        active_subagent_id = None
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": "Subagent · blocked",
+                                            "step_type": "subagent",
+                                            "status": "failed",
+                                            "error": str(gate_err),
+                                            "chips": ["blocked", "fail-fast"],
+                                        }
+                                        logger.error(
+                                            "spawn_brief gate (Fail Fast): %s", gate_err
+                                        )
                             if hasattr(msg, 'content') and msg.content and msg.content.strip():
                                 yield {"content": msg.content, "success": True}
                         continue
@@ -491,6 +679,14 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
         self._thinking_content = []
         self._thinking_content_index = 0
 
+    def get_loaded_skills(self) -> Dict[str, Any]:
+        """Actual skill names/paths passed to create_deep_agent (not BM25 router)."""
+        return {
+            "names": list(getattr(self, "_loaded_skill_names", []) or []),
+            "paths": list(getattr(self, "_loaded_skill_paths", []) or []),
+            "count": len(getattr(self, "_loaded_skill_names", []) or []),
+        }
+
     def get_agent_info(self) -> Dict[str, Any]:
         """Get DeepAgent information including skills statistics"""
         if not self.deep_agent:
@@ -520,8 +716,8 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                 "llm_config": self.llm_service.gateway.get_model_info(),
                 "tools": {
                     "total_count": len(self._get_safe_claw_tools()),
-                    "builtin_count": 4,
-                    "skills_system_count": 3
+                    "builtin_count": len(self.tool_manager.get_builtin_tools()),
+                    "skills_system_count": len(self.tool_manager.get_skills_tools()),
                 },
                 "skills": {
                     "names_count": len(available_skills),

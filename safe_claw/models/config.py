@@ -1,7 +1,7 @@
 """Configuration models for SafeClaw"""
 
-from pydantic import BaseModel, Field
-from typing import Literal, Optional, List
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, Dict, Literal, Optional, List
 
 
 class LLMConfig(BaseModel):
@@ -34,6 +34,25 @@ class MemoryConfig(BaseModel):
     memory_retention_days: int = 30
     dormant_wakeup_threshold: float = 0.6
     deep_memory_compression: str = "maximum"
+    # Auto-write chat turns only when importance >= this threshold
+    auto_write_min_importance: float = Field(default=0.6, ge=0.0, le=1.0)
+    # Dormant → deep after this many days without access (and low importance)
+    dormant_to_deep_days: int = Field(default=14, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_active_memory_max(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "active_memory_max" in data:
+            data = dict(data)
+            if "max_active_memories" not in data:
+                data["max_active_memories"] = data["active_memory_max"]
+            data.pop("active_memory_max", None)
+        return data
+
+    @property
+    def active_memory_max(self) -> int:
+        """Alias used by older config_service / docs."""
+        return self.max_active_memories
 
 
 class BackendConfig(BaseModel):

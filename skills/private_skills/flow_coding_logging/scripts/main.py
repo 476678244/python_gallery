@@ -1,21 +1,29 @@
 """
 Flow Coding Logging Skill - Main Implementation
-心流编程「三重反馈」基础设施技能主实现
+心流编程「三重反馈」+ CDP/浏览器日志落盘基础设施
 
-此 skill 为 AI Agent 提供 Flow Coding 三重反馈（前端 + 后端 + Playwright）的
-实践工具：搭建实时可 tail 的日志、读取三路日志快照、并基于三路信号做三角定位
-（Triangulation）锁定问题根因层级。
+为 AI Agent 提供：
+- 全栈三重反馈（前端 ui.log + 后端 server/access.log + Playwright 行为）
+- Boss 直聘 / CDP 场景第四路反馈（browser-console/network/navigation + cdp-tabs）
+- 日志 tail、快照导出、CDP 状态同步
 """
+import json
 import os
+import shutil
+import urllib.error
+import urllib.request
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-# Skill 定义元数据
 SKILL_DEFINITION = {
     "name": "flow_coding_logging",
-    "description": "搭建并使用 Flow Coding 三重反馈基础设施：让前后端 stdout 实时落盘可 tail -f，结合 Playwright 行为反馈做三角定位，快速锁定根因层级。",
+    "description": (
+        "搭建并使用 Flow Coding 反馈基础设施：全栈三路日志 + CDP/浏览器日志落盘，"
+        "可 tail/export/sync，结合 Playwright 做三角/四角定位。"
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -27,6 +35,8 @@ SKILL_DEFINITION = {
                     "check_setup",
                     "tail_logs",
                     "triangulate",
+                    "sync_cdp_status",
+                    "export_snapshot",
                 ],
                 "description": "执行的操作类型",
             },
@@ -36,112 +46,179 @@ SKILL_DEFINITION = {
             },
             "log_dir": {
                 "type": "string",
-                "description": "日志目录，默认 <project_root>/logs",
+                "description": "日志目录；省略时按 profile 解析",
+            },
+            "profile": {
+                "type": "string",
+                "enum": ["fullstack", "boss_hire", "all"],
+                "description": "日志配置：fullstack=server/access/ui；boss_hire=浏览器+CDP；all=合并",
+                "default": "fullstack",
             },
             "lines": {
                 "type": "integer",
-                "description": "tail_logs 读取的行数，默认 20",
-                "default": 20,
+                "description": "tail_logs / export_snapshot 读取的行数，默认 50",
+                "default": 50,
             },
-            "frontend_request": {
-                "type": "boolean",
-                "description": "triangulate: ui.log 中是否观测到对应请求",
+            "cdp_url": {
+                "type": "string",
+                "description": "CDP HTTP 端点，默认 http://127.0.0.1:9222",
+                "default": "http://127.0.0.1:9222",
             },
-            "frontend_status": {
-                "type": "integer",
-                "description": "triangulate: 前端观测到的状态码（省略表示无记录/超时）",
+            "output_dir": {
+                "type": "string",
+                "description": "export_snapshot 输出目录，默认 <log_dir>/../reports",
             },
-            "backend_request": {
-                "type": "boolean",
-                "description": "triangulate: access.log 中是否观测到对应请求",
-            },
-            "backend_status": {
-                "type": "integer",
-                "description": "triangulate: 后端返回状态码（省略表示无记录）",
-            },
-            "backend_error": {
-                "type": "boolean",
-                "description": "triangulate: server.log 中是否出现异常堆栈/报错",
-            },
+            "frontend_request": {"type": "boolean"},
+            "frontend_status": {"type": "integer"},
+            "backend_request": {"type": "boolean"},
+            "backend_status": {"type": "integer"},
+            "backend_error": {"type": "boolean"},
         },
         "required": ["action"],
     },
 }
 
-# 三路日志的标准文件名
-LOG_FILES = {
-    "server": "server.log",   # 后端 stdout/stderr（应用日志 + print + 服务器默认/错误日志）
-    "access": "access.log",   # 后端访问日志（每个 HTTP 请求 + 状态码）
-    "ui": "ui.log",           # 前端 stdout/stderr（dev server 请求日志 + SSR 报错）
+DEFAULT_BOSS_HIRE_WORKDIR = os.environ.get(
+    "BOSS_HIRE_WORKDIR",
+    os.path.expanduser("~/Downloads/nicole/boss直聘_工作目录"),
+)
+
+FULLSTACK_LOG_FILES = {
+    "server": "server.log",
+    "access": "access.log",
+    "ui": "ui.log",
+}
+
+BROWSER_LOG_FILES = {
+    "browser_console": "browser-console.log",
+    "browser_network": "browser-network.log",
+    "browser_navigation": "browser-navigation.log",
+    "cdp_tabs": "cdp-tabs.json",
+    "cdp_version": "cdp-version.json",
 }
 
 
-def _resolve_log_dir(project_root: Optional[str], log_dir: Optional[str]) -> Path:
-    """解析日志目录。优先 log_dir，其次 <project_root>/logs。Fail fast。"""
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+
+def _resolve_log_dir(
+    project_root: Optional[str],
+    log_dir: Optional[str],
+    profile: str,
+) -> Path:
     if log_dir:
         return Path(log_dir).expanduser()
+
+    if profile in ("boss_hire", "all"):
+        return Path(DEFAULT_BOSS_HIRE_WORKDIR).expanduser() / "logs"
+
     if project_root:
         return Path(project_root).expanduser() / "logs"
+
     raise ValueError(
         "[flow_coding_logging] Cannot resolve log directory\n"
-        "  Provide either 'log_dir' or 'project_root'."
+        "  Provide 'log_dir', 'project_root', or profile='boss_hire'."
     )
 
 
+def _log_files_for_profile(profile: str) -> Dict[str, str]:
+    if profile == "fullstack":
+        return dict(FULLSTACK_LOG_FILES)
+    if profile == "boss_hire":
+        return dict(BROWSER_LOG_FILES)
+    return {**FULLSTACK_LOG_FILES, **BROWSER_LOG_FILES}
+
+
 def _tail_file(path: Path, lines: int) -> List[str]:
-    """读取文件末尾 N 行（内存友好）。文件不存在返回空列表。"""
     if not path.exists():
         return []
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         return [ln.rstrip("\n") for ln in deque(f, maxlen=max(1, lines))]
 
 
+def _read_json_file(path: Path) -> Any:
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _fetch_cdp_json(url: str) -> Any:
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        body = resp.read().decode("utf-8")
+    return json.loads(body)
+
+
 def _get_guide() -> Dict[str, Any]:
     return {
         "success": True,
         "skill_name": "flow_coding_logging",
-        "concept": "三重反馈 = ①行为(Playwright) + ②前端(ui.log) + ③后端(server.log+access.log)",
-        "causal_chain": (
-            "用户操作 → [②前端发出请求 ui.log] → [③后端处理并响应 access.log/server.log] "
-            "→ [②前端接收并渲染 ui.log] → [①用户看到结果 Playwright 截图]"
+        "concept": (
+            "全栈三重反馈 = ①行为(Playwright) + ②前端(ui.log) + ③后端(server.log+access.log)；"
+            "CDP/Boss 直聘扩展第四路 = ④浏览器(console/network/navigation) + CDP tabs"
         ),
-        "why_three": "单一反馈只知'结果不对'，三路交叉验证才能定位'为什么不对'，避免反复试错。",
-        "root_cause_table": [
-            {"behavior": "结果错", "frontend": "无请求记录", "backend": "无请求记录", "layer": "前端：事件/状态未触发请求"},
-            {"behavior": "结果错", "frontend": "请求 4xx/5xx", "backend": "有报错堆栈", "layer": "后端：逻辑/数据异常"},
-            {"behavior": "结果错", "frontend": "请求 200", "backend": "200 + 日志正常", "layer": "前端：渲染/状态错误"},
-            {"behavior": "结果错", "frontend": "请求 200", "backend": "异常但仍返回 200", "layer": "后端：吞掉异常、返回错误内容"},
-            {"behavior": "结果错", "frontend": "请求超时", "backend": "无访问记录", "layer": "接口契约：URL/端口/代理错配"},
-        ],
-        "setup": {
-            "backend": "应用入口 tee stdout/stderr 到 logs/server.log；访问日志单独写 logs/access.log（propagate=False 避免重复）。",
-            "backend_warning": "tee 包装类必须委托 isatty()/fileno() 给真实流，否则服务器日志格式化器会因 AttributeError 崩溃。",
-            "frontend": 'package.json dev 脚本: "next dev 2>&1 | tee ../../logs/ui.log"',
-            "monitor": "tail -f logs/server.log logs/access.log logs/ui.log",
+        "log_profiles": {
+            "fullstack": list(FULLSTACK_LOG_FILES.keys()),
+            "boss_hire": list(BROWSER_LOG_FILES.keys()),
+            "all": list(_log_files_for_profile("all").keys()),
         },
-        "self_healing_link": "三重反馈是自愈闭环的输入燃料：反馈越全越实时，方向假设越准，3×3 预算消耗越少。",
+        "boss_hire_log_dir": str(Path(DEFAULT_BOSS_HIRE_WORKDIR) / "logs"),
+        "causal_chain_fullstack": (
+            "用户操作 → [②前端 ui.log] → [③后端 access/server.log] "
+            "→ [②前端 ui.log] → [①Playwright 截图]"
+        ),
+        "causal_chain_boss_hire": (
+            "页面加载 → [④browser-network.log] → [④browser-console.log] "
+            "→ [④browser-navigation.log] → [①Playwright 截图/断言]"
+        ),
+        "setup": {
+            "fullstack_backend": "tee stdout/stderr → logs/server.log；access 单独 logs/access.log",
+            "fullstack_frontend": '"dev": "next dev 2>&1 | tee ../../logs/ui.log"',
+            "boss_hire_browser": (
+                "Playwright connectCdpBrowser() 自动 installBrowserLogExport → "
+                f"{DEFAULT_BOSS_HIRE_WORKDIR}/logs/browser-*.log"
+            ),
+            "boss_hire_cdp": "run(action='sync_cdp_status') → cdp-tabs.json + cdp-version.json",
+            "monitor_fullstack": "tail -f logs/server.log logs/access.log logs/ui.log",
+            "monitor_boss_hire": (
+                f"tail -f {DEFAULT_BOSS_HIRE_WORKDIR}/logs/browser-console.log "
+                f"{DEFAULT_BOSS_HIRE_WORKDIR}/logs/browser-network.log "
+                f"{DEFAULT_BOSS_HIRE_WORKDIR}/logs/browser-navigation.log"
+            ),
+        },
+        "agent_workflow": [
+            "1. Playwright 失败或页面异常",
+            "2. run(action='tail_logs', profile='boss_hire', lines=80)",
+            "3. run(action='sync_cdp_status') 刷新 CDP tab 列表",
+            "4. run(action='export_snapshot', profile='all') 生成可读 markdown 报告",
+            "5. 交叉比对 ①截图 + ④network/console + cdp-tabs 定位根因",
+        ],
     }
 
 
-def _get_tail_command(log_dir: Path) -> Dict[str, Any]:
-    paths = [str(log_dir / LOG_FILES[k]) for k in ("server", "access", "ui")]
+def _get_tail_command(log_dir: Path, profile: str) -> Dict[str, Any]:
+    files_map = _log_files_for_profile(profile)
+    paths = [str(log_dir / fname) for fname in files_map.values()]
     return {
         "success": True,
+        "profile": profile,
         "log_dir": str(log_dir),
         "command": "tail -f " + " ".join(paths),
         "files": paths,
     }
 
 
-def _check_setup(log_dir: Path) -> Dict[str, Any]:
-    report = {}
-    all_ok = True
-    for key, fname in LOG_FILES.items():
+def _check_setup(log_dir: Path, profile: str) -> Dict[str, Any]:
+    report: Dict[str, Any] = {}
+    any_present = False
+    for key, fname in _log_files_for_profile(profile).items():
         p = log_dir / fname
         exists = p.exists()
         size = p.stat().st_size if exists else 0
-        ok = exists
-        all_ok = all_ok and ok
+        if exists:
+            any_present = True
         report[key] = {
             "path": str(p),
             "exists": exists,
@@ -150,24 +227,152 @@ def _check_setup(log_dir: Path) -> Dict[str, Any]:
         }
     return {
         "success": True,
+        "profile": profile,
         "log_dir": str(log_dir),
-        "all_present": all_ok,
+        "any_present": any_present,
         "logs": report,
-        "hint": "若某路缺失，三角定位会退化为单点猜测——请先按 get_guide 的 setup 落盘该路日志。",
+        "hint": (
+            "全栈：按 get_guide.setup 落盘 server/access/ui。"
+            "Boss 直聘：跑 connectCdpBrowser() 的 Playwright spec 自动生成 browser-*.log；"
+            "sync_cdp_status 写入 cdp-*.json。"
+        ),
     }
 
 
-def _tail_logs(log_dir: Path, lines: int) -> Dict[str, Any]:
-    snapshot = {}
-    for key, fname in LOG_FILES.items():
-        snapshot[key] = _tail_file(log_dir / fname, lines)
+def _tail_logs(log_dir: Path, profile: str, lines: int) -> Dict[str, Any]:
+    snapshot: Dict[str, Any] = {}
+    for key, fname in _log_files_for_profile(profile).items():
+        path = log_dir / fname
+        if fname.endswith(".json"):
+            snapshot[key] = _read_json_file(path)
+        else:
+            snapshot[key] = _tail_file(path, lines)
     return {
         "success": True,
+        "profile": profile,
         "log_dir": str(log_dir),
         "lines": lines,
-        "server": snapshot["server"],
-        "access": snapshot["access"],
-        "ui": snapshot["ui"],
+        **snapshot,
+    }
+
+
+def _sync_cdp_status(log_dir: Path, cdp_url: str) -> Dict[str, Any]:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    base = cdp_url.rstrip("/")
+
+    errors: List[str] = []
+    version_path = log_dir / BROWSER_LOG_FILES["cdp_version"]
+    tabs_path = log_dir / BROWSER_LOG_FILES["cdp_tabs"]
+
+    version_data: Optional[Any] = None
+    tabs_data: Optional[Any] = None
+
+    try:
+        version_data = _fetch_cdp_json(f"{base}/json/version")
+        version_path.write_text(
+            json.dumps(
+                {"fetchedAt": datetime.now(timezone.utc).isoformat(), "data": version_data},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        errors.append(f"version: {e}")
+
+    try:
+        tabs_data = _fetch_cdp_json(f"{base}/json/list")
+        tabs_path.write_text(
+            json.dumps(
+                {"fetchedAt": datetime.now(timezone.utc).isoformat(), "tabs": tabs_data},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        errors.append(f"tabs: {e}")
+
+    if errors and version_data is None and tabs_data is None:
+        raise ValueError(
+            "[flow_coding_logging] sync_cdp_status failed\n"
+            f"  CDP URL: {cdp_url}\n"
+            f"  Errors: {errors}\n"
+            "  Hint: start Chrome CDP first (flow_coding_chrome_cdp / start_chrome_cdp.sh)"
+        )
+
+    return {
+        "success": True,
+        "cdp_url": cdp_url,
+        "log_dir": str(log_dir),
+        "cdp_version_path": str(version_path),
+        "cdp_tabs_path": str(tabs_path),
+        "tab_count": len(tabs_data) if isinstance(tabs_data, list) else None,
+        "errors": errors or None,
+    }
+
+
+def _export_snapshot(
+    log_dir: Path,
+    profile: str,
+    lines: int,
+    output_dir: Optional[str],
+) -> Dict[str, Any]:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stamp = _utc_stamp()
+    out_root = Path(output_dir).expanduser() if output_dir else log_dir.parent / "reports"
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    report_md = out_root / f"log-snapshot-{stamp}.md"
+    bundle_dir = out_root / f"log-snapshot-{stamp}"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    sections: List[str] = [
+        f"# Log Snapshot — {stamp}",
+        "",
+        f"- **profile**: `{profile}`",
+        f"- **log_dir**: `{log_dir}`",
+        f"- **lines per text log**: {lines}",
+        "",
+    ]
+
+    copied: List[str] = []
+    for key, fname in _log_files_for_profile(profile).items():
+        src = log_dir / fname
+        sections.append(f"## {key} (`{fname}`)")
+        sections.append("")
+
+        if not src.exists():
+            sections.append("_（文件不存在）_")
+            sections.append("")
+            continue
+
+        dest = bundle_dir / fname
+        shutil.copy2(src, dest)
+        copied.append(str(dest))
+
+        if fname.endswith(".json"):
+            data = _read_json_file(src)
+            sections.append("```json")
+            sections.append(json.dumps(data, ensure_ascii=False, indent=2)[:8000])
+            sections.append("```")
+        else:
+            tail = _tail_file(src, lines)
+            sections.append("```")
+            sections.extend(tail[-lines:])
+            sections.append("```")
+        sections.append("")
+
+    report_md.write_text("\n".join(sections), encoding="utf-8")
+
+    return {
+        "success": True,
+        "profile": profile,
+        "log_dir": str(log_dir),
+        "report_path": str(report_md),
+        "bundle_dir": str(bundle_dir),
+        "copied_files": copied,
+        "hint": f"Agent 可直接 Read `{report_md}` 分析问题",
     }
 
 
@@ -178,8 +383,6 @@ def _triangulate(
     backend_status: Optional[int],
     backend_error: Optional[bool],
 ) -> Dict[str, Any]:
-    """根据三路观测信号定位根因层级（对应 SKILL.md 的根因层对照表）。"""
-
     def _result(layer, reason, next_action):
         return {
             "success": True,
@@ -195,7 +398,6 @@ def _triangulate(
             },
         }
 
-    # 1) 前端压根没发出请求，后端也没收到 → 前端事件/状态未触发
     if frontend_request is False and not backend_request:
         return _result(
             "frontend",
@@ -203,7 +405,6 @@ def _triangulate(
             "检查前端事件绑定、条件渲染、状态机是否真正发起了请求。",
         )
 
-    # 2) 前端发了但后端没收到（超时/连不上）→ 接口契约
     if frontend_request and not backend_request:
         return _result(
             "api_contract",
@@ -211,7 +412,6 @@ def _triangulate(
             "核对 baseURL/端口/代理(NO_PROXY)、CORS、后端是否在线。",
         )
 
-    # 3) 后端有报错堆栈 → 后端逻辑/数据异常（无论状态码）
     if backend_error:
         if backend_status and backend_status < 400:
             return _result(
@@ -225,7 +425,6 @@ def _triangulate(
             "按 server.log 堆栈定位根因，在后端最小上游修复。",
         )
 
-    # 4) 后端返回错误状态码 → 后端
     if backend_status and backend_status >= 400:
         return _result(
             "backend",
@@ -233,19 +432,17 @@ def _triangulate(
             "查 server.log 对应时间点的异常与 access.log 状态码。",
         )
 
-    # 5) 链路全通（前后端均 200，无后端报错）→ 前端渲染/状态
     if (frontend_status == 200 or frontend_request) and backend_status == 200:
         return _result(
             "frontend",
-            "请求链路全通（前后端均 200，server.log 正常），但结果仍错：前端拿到正确数据却渲染/状态错误。",
-            "检查前端数据映射、状态更新、组件渲染逻辑（如 snake_case→camelCase、空数组处理）。",
+            "请求链路全通（前后端均 200，server.log 正常），但结果仍错：前端渲染/状态错误。",
+            "检查前端数据映射、状态更新、组件渲染逻辑。",
         )
 
-    # 兜底：信息不足
     return _result(
         "unknown",
         "三路信号不足以判定根因层级。",
-        "先用 tail_logs 读取三路日志快照补齐 frontend_request/status、backend_request/status、backend_error 后再 triangulate。",
+        "先用 tail_logs / export_snapshot 补齐日志，Boss 直聘场景加 profile='boss_hire' 读 browser 日志。",
     )
 
 
@@ -253,25 +450,18 @@ def run(
     action: str,
     project_root: Optional[str] = None,
     log_dir: Optional[str] = None,
-    lines: int = 20,
+    profile: str = "fullstack",
+    lines: int = 50,
+    cdp_url: str = "http://127.0.0.1:9222",
+    output_dir: Optional[str] = None,
     frontend_request: Optional[bool] = None,
     frontend_status: Optional[int] = None,
     backend_request: Optional[bool] = None,
     backend_status: Optional[int] = None,
     backend_error: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Flow Coding Logging Skill 主入口。"""
     if action == "get_guide":
         return _get_guide()
-
-    if action == "get_tail_command":
-        return _get_tail_command(_resolve_log_dir(project_root, log_dir))
-
-    if action == "check_setup":
-        return _check_setup(_resolve_log_dir(project_root, log_dir))
-
-    if action == "tail_logs":
-        return _tail_logs(_resolve_log_dir(project_root, log_dir), lines)
 
     if action == "triangulate":
         return _triangulate(
@@ -282,15 +472,38 @@ def run(
             backend_error,
         )
 
+    resolved_dir = _resolve_log_dir(project_root, log_dir, profile)
+
+    if action == "get_tail_command":
+        return _get_tail_command(resolved_dir, profile)
+
+    if action == "check_setup":
+        return _check_setup(resolved_dir, profile)
+
+    if action == "tail_logs":
+        return _tail_logs(resolved_dir, profile, lines)
+
+    if action == "sync_cdp_status":
+        return _sync_cdp_status(resolved_dir, cdp_url)
+
+    if action == "export_snapshot":
+        return _export_snapshot(resolved_dir, profile, lines, output_dir)
+
     raise ValueError(
         f"[flow_coding_logging] Unknown action: {action!r}\n"
-        f"  Expected one of: get_guide, get_tail_command, check_setup, tail_logs, triangulate"
+        "  Expected: get_guide, get_tail_command, check_setup, tail_logs, "
+        "triangulate, sync_cdp_status, export_snapshot"
     )
 
 
 if __name__ == "__main__":
-    import json
+    import sys
 
-    print(json.dumps(run(action="get_guide"), ensure_ascii=False, indent=2))
-</CodeContent>
-<parameter name="EmptyFile">false
+    if len(sys.argv) > 1:
+        act = sys.argv[1]
+        kwargs: Dict[str, Any] = {"action": act}
+        if act in ("tail_logs", "export_snapshot") and len(sys.argv) > 2:
+            kwargs["profile"] = sys.argv[2]
+        print(json.dumps(run(**kwargs), ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(run(action="get_guide"), ensure_ascii=False, indent=2))

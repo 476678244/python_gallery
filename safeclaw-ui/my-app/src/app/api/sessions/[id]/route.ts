@@ -21,7 +21,20 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[sessions PATCH] Invalid JSON body (Fail Fast)\n` +
+          `  id: ${id}\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 400 }
+    );
+  }
   const res = await fetch(`${BACKEND}/sessions/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -38,6 +51,20 @@ export async function DELETE(
   const { id } = await params;
   const res = await fetch(`${BACKEND}/sessions/${id}`, { method: "DELETE" });
   if (res.status === 204) return new NextResponse(null, { status: 204 });
-  const data = await res.json().catch(() => ({}));
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[sessions DELETE] Non-JSON response (Fail Fast)\n` +
+          `  id: ${id}\n` +
+          `  Status: ${res.status}\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 502 }
+    );
+  }
   return NextResponse.json(data, { status: res.status });
 }

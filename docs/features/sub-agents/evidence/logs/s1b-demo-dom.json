@@ -1,0 +1,7 @@
+{
+  "subagent": true,
+  "lookAhead": 3,
+  "nestedTool": true,
+  "halt": true,
+  "steer": true
+}

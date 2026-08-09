@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeClaw · Subagent Exec Demo (prod shell)</title>
+  <style>
+    /* Tokens aligned with safeclaw-ui/demo.html + right-panel Execution Path */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand-50: #eff6ff; --brand-100: #dbeafe; --brand-500: #3b82f6; --brand-600: #2563eb; --brand-700: #1d4ed8;
+      --gray-0: #fff; --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0; --gray-300: #cbd5e1;
+      --gray-400: #94a3b8; --gray-500: #64748b; --gray-600: #475569; --gray-700: #334155; --gray-800: #1e293b; --gray-900: #0f172a;
+      --green-100: #dcfce7; --green-500: #22c55e; --green-600: #16a34a; --green-700: #15803d;
+      --amber-100: #fef3c7; --amber-400: #fbbf24; --amber-800: #92400e;
+      --red-50: #fef2f2; --red-500: #ef4444; --red-600: #dc2626; --red-700: #b91c1c;
+      --surface-app: var(--gray-50); --surface-sidebar: var(--gray-0); --surface-main: var(--gray-0); --surface-panel: var(--gray-0);
+      --border: var(--gray-200); --text-primary: var(--gray-800); --text-secondary: var(--gray-500); --text-tertiary: var(--gray-400);
+      --sidebar-w: 240px; --panel-w: 320px; --radius-sm: 6px; --radius-md: 10px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px; color: var(--text-primary); background: var(--surface-app);
+      height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+    }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 2px; }
+
+    /* B · Demo harness — quiet, not a second OS chrome */
+    .demo-bar {
+      flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 6px 12px; background: var(--gray-50); color: var(--gray-600);
+      border-bottom: 1px solid var(--border); font-size: 11.5px;
+    }
+    .demo-bar .harness-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--gray-400); margin-right: 4px;
+    }
+    .demo-bar span.note { color: var(--gray-400); margin-left: auto; font-size: 11px; }
+    .demo-bar button, .panel-actions button {
+      font: inherit; font-size: 11px; font-weight: 650; border-radius: 6px;
+      padding: 4px 9px; cursor: pointer; line-height: 1.2;
+    }
+    .demo-bar button:disabled, .panel-actions button:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-ghost {
+      background: #fff; border: 1px solid var(--gray-300); color: var(--gray-600);
+    }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--brand-500); color: var(--brand-700); background: var(--brand-50); }
+    .btn-ghost.active-run {
+      border-color: var(--brand-500); color: var(--brand-700); box-shadow: inset 0 0 0 1px var(--brand-100);
+    }
+
+    /* A · Product controls (styles; layout on .panel-head below) */
+    .panel-head .panel-title { flex: 1; min-width: 0; }
+    .panel-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .btn-steer {
+      background: #fff; border: 1px solid #fde68a; color: var(--amber-800);
+    }
+    .btn-steer:hover:not(:disabled) { background: #fffbeb; }
+    .btn-halt {
+      background: var(--red-600); border: 1px solid var(--red-600); color: #fff;
+      letter-spacing: .02em;
+    }
+    .btn-halt:hover:not(:disabled) { filter: brightness(1.06); }
+    body.world-stopped .btn-halt { background: var(--red-700); }
+
+    .app {
+      flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--gray-0);
+    }
+    body.world-stopped .app { outline: 3px solid var(--red-500); outline-offset: -3px; }
+    body.steering .app { outline: 3px solid var(--amber-400); outline-offset: -3px; }
+
+    .banner {
+      display: none; flex-shrink: 0; padding: 8px 14px; font-size: 12px; font-weight: 600;
+      align-items: center; gap: 8px;
+    }
+    body.world-stopped .banner.stop { display: flex; background: #fef2f2; color: var(--red-700); border-bottom: 1px solid #fecaca; }
+    body.steering .banner.steer { display: flex; background: #fffbeb; color: var(--amber-800); border-bottom: 1px solid #fde68a; }
+
+    /* ── Sidebar (prod) ── */
+    .sidebar {
+      width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--surface-sidebar);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .sidebar-logo {
+      display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border);
+    }
+    .logo-icon {
+      width: 28px; height: 28px; border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+      color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+    }
+    .logo-text { font-size: 14px; font-weight: 700; letter-spacing: -.3px; }
+    .sb-meta { padding: 10px 14px; font-size: 11px; color: var(--text-tertiary); line-height: 1.45; border-bottom: 1px solid var(--border); }
+    .sb-meta code { font-size: 10.5px; color: var(--brand-600); }
+    .sb-section-h {
+      padding: 10px 14px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .session-row {
+      margin: 0 8px 6px; padding: 8px 10px; border-radius: 8px; background: var(--brand-50);
+      border: 1px solid var(--brand-100); font-size: 12px; font-weight: 600; color: var(--brand-700);
+    }
+    .channel-card {
+      margin: 0 8px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--gray-50);
+      font-size: 11px; color: var(--text-secondary); line-height: 1.4;
+    }
+    .channel-card h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; color: var(--text-tertiary); }
+    .channel-card ul { padding-left: 14px; margin: 0; }
+    .channel-card .ok { color: var(--green-700); }
+    .channel-card .no { color: var(--red-600); }
+
+    /* ── Main chat (prod) ── */
+    .main {
+      flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--surface-main);
+    }
+    .chat-header {
+      height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+      padding: 0 16px; border-bottom: 1px solid var(--border);
+    }
+    .chat-header h1 { font-size: 13.5px; font-weight: 650; }
+    .chat-header .tag {
+      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      background: var(--brand-50); color: var(--brand-600);
+    }
+    .messages {
+      flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .msg { max-width: 720px; }
+    .msg .role { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+    .msg .bubble {
+      display: inline-block; padding: 10px 12px; border-radius: 12px; font-size: 13.5px;
+      line-height: 1.5; white-space: pre-wrap; border: 1px solid var(--border); background: var(--gray-50);
+    }
+    .msg.user { align-self: flex-end; text-align: right; }
+    .msg.user .bubble { background: var(--brand-50); border-color: var(--brand-100); text-align: left; }
+    .msg.assistant .bubble { background: var(--gray-0); }
+    .msg.control .bubble { background: #fffbeb; border-color: #fde68a; color: var(--amber-800); }
+    .msg.system .bubble { background: #fef2f2; border-color: #fecaca; color: var(--red-700); }
+    .composer {
+      flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px; background: var(--gray-0);
+    }
+    .composer-box {
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; color: var(--text-tertiary);
+      font-size: 13px; background: var(--gray-50);
+    }
+
+    /* ── Right zone (prod IntelliJ rail) ── */
+    .right-zone {
+      display: flex; flex-direction: row-reverse; border-left: 1px solid var(--border); background: var(--surface-panel);
+      min-width: 48px;
+    }
+    .rp-rail {
+      width: 48px; border-left: 1px solid var(--border); display: flex; flex-direction: column;
+      align-items: center; padding: 8px 0; gap: 4px; background: var(--gray-50);
+    }
+    .rail-btn {
+      width: 40px; border: none; background: transparent; border-radius: 8px; padding: 6px 0 4px;
+      cursor: pointer; color: var(--text-secondary); display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .rail-btn:hover { background: var(--gray-200); color: var(--text-primary); }
+    .rail-btn.active { background: var(--brand-50); color: var(--brand-600); }
+    .rail-btn.active::before {
+      content: ""; position: absolute; margin-left: -20px; width: 2px; height: 22px; background: var(--brand-600); border-radius: 2px;
+    }
+    .rail-btn { position: relative; }
+    .rail-icon { font-size: 14px; line-height: 1; }
+    .rail-label { font-size: 9px; font-weight: 600; }
+    .rp-stack {
+      width: var(--panel-w); display: flex; flex-direction: column; border-left: 1px solid var(--border);
+      background: var(--gray-0); min-height: 0;
+    }
+    .panel-card { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); flex: 1; min-height: 0; }
+    .panel-head {
+      height: 37px; flex-shrink: 0; padding: 0 10px 0 12px;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--gray-50); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700;
+      letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary);
+    }
+    .panel-head .badge {
+      font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+      background: var(--green-500); color: #fff; text-transform: none; letter-spacing: 0;
+    }
+    .panel-actions button { text-transform: none; letter-spacing: 0; height: 26px; }
+    .panel-body { flex: 1; overflow-y: auto; min-height: 0; padding: 12px; }
+
+    /* ── Execution Path (prod) + subagent refactor ── */
+    .exec-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--text-tertiary); margin-bottom: 12px;
+    }
+    .exec-path { display: flex; flex-direction: column; }
+    .exec-node { display: flex; gap: 10px; position: relative; }
+    .exec-node.nested { margin-left: 18px; }
+    .exec-node-left { display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0; }
+    .exec-dot {
+      width: 10px; height: 10px; border-radius: 50%; background: var(--brand-500);
+      border: 2px solid var(--brand-100); margin-top: 3px; flex-shrink: 0;
+    }
+    .exec-dot.done { background: var(--green-500); border-color: #d1fae5; }
+    .exec-dot.run { background: var(--amber-400); border-color: #fef3c7; animation: pulse 1.2s infinite; }
+    .exec-dot.fail { background: var(--red-500); border-color: #fecaca; }
+    .exec-dot.cancelled { background: var(--red-600); border-color: #fecaca; }
+    .exec-dot.redirected { background: var(--amber-400); border-color: #fde68a; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .exec-vline { flex: 1; width: 2px; background: var(--border); margin: 2px 0; min-height: 10px; }
+    .exec-node.nested .exec-vline { background: #99f6e4; }
+    .exec-content { flex: 1; padding-bottom: 12px; min-width: 0; }
+    .exec-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .exec-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+    .type-badge {
+      font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; text-transform: lowercase;
+    }
+    .type-badge.reasoning { background: var(--amber-100); color: var(--amber-800); }
+    .type-badge.tool_call { background: #ede9fe; color: #7c3aed; }
+    .type-badge.subagent { background: #ccfbf1; color: #0f766e; }
+    .type-badge.model_call { background: var(--brand-50); color: var(--brand-600); }
+    .exec-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; line-height: 1.4; }
+    .exec-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+    .exec-chip {
+      padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 500;
+      background: var(--brand-50); color: var(--brand-600);
+    }
+    .chip-green { background: #d1fae5; color: var(--green-600); }
+    .chip-gray { background: var(--gray-100); color: var(--text-secondary); }
+    .chip-amber { background: var(--amber-100); color: var(--amber-800); }
+    .chip-red { background: #fee2e2; color: var(--red-700); }
+
+    /* Subagent block — prod-aligned expansion inside Exec node */
+    .sub-block {
+      margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius-md);
+      background: var(--gray-50); overflow: hidden;
+    }
+    .sub-block-h {
+      display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #f0fdfa;
+      border-bottom: 1px solid #99f6e4; font-size: 10px; font-weight: 700; color: #0f766e;
+      letter-spacing: .04em; text-transform: uppercase;
+    }
+    .sub-kv { padding: 8px; display: grid; gap: 4px; font-size: 11px; }
+    .sub-kv div { display: grid; grid-template-columns: 72px 1fr; gap: 6px; }
+    .sub-kv .k { color: var(--text-tertiary); font-weight: 600; }
+    .look-ol {
+      margin: 0 8px 8px; padding: 6px 8px 6px 22px; background: #fff; border: 1px solid #99f6e4;
+      border-radius: 6px; color: #0f766e; font-size: 11.5px; line-height: 1.45;
+    }
+    .err-box {
+      margin: 0 8px 8px; padding: 6px 8px; background: var(--red-50); border: 1px solid #fecaca;
+      border-radius: 6px; color: var(--red-700); font-size: 11px; font-family: ui-monospace, monospace; white-space: pre-wrap;
+    }
+    .children-wrap {
+      margin: 4px 0 0 8px; padding-left: 8px; border-left: 2px solid #99f6e4;
+    }
+
+    .empty-exec { font-size: 12px; color: var(--text-tertiary); padding: 4px 0; }
+
+    /* Modal */
+    .modal-bg {
+      display: none; position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 50;
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      width: min(420px, 100%); background: #fff; border-radius: 12px; border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm), 0 16px 40px rgba(0,0,0,.12); padding: 16px;
+    }
+    .modal h2 { font-size: 15px; margin-bottom: 6px; }
+    .modal p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; margin-bottom: 10px; }
+    .modal textarea {
+      width: 100%; min-height: 88px; border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 10px; font: inherit; font-size: 13px; resize: vertical;
+    }
+    .modal textarea:focus { outline: 2px solid var(--brand-100); border-color: var(--brand-500); }
+    .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    .modal .actions button {
+      font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--gray-0); cursor: pointer;
+    }
+    .modal .actions .go { background: #b45309; border-color: #b45309; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="demo-bar">
+    <span class="harness-label">Harness · 非产品</span>
+    <button class="btn-ghost" id="btnHappy" type="button" title="场景 S1">S1 合法</button>
+    <button class="btn-ghost" id="btnGate" type="button" title="场景 S2">S2 闸门</button>
+    <button class="btn-ghost" id="btnRework" type="button" title="场景 S3">S3 返工</button>
+    <button class="btn-ghost" id="btnReset" type="button">重置</button>
+    <span class="note">场景回放 · Halt / 纠正方向在右侧 Exec 头（产品控件）</span>
+  </div>
+  <div class="banner stop">STOP THE WORLD — 主/子代理已冻结，Exec 保留现场。点「重置」解除。</div>
+  <div class="banner steer" id="steerBanner">REDIRECT — 已取消当前 subagent，并提示 main 换个方向。</div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">S</div>
+        <div class="logo-text">SafeClaw</div>
+      </div>
+      <div class="sb-meta">
+        Feature demo · <code>docs/features/sub-agents</code><br />
+        壳层 = prod；改的是右侧 <b>Execution Path</b> 的 subagent 展示。
+      </div>
+      <div class="sb-section-h">Sessions</div>
+      <div class="session-row">Subagent observability</div>
+      <div class="sb-section-h">Channels</div>
+      <div class="channel-card">
+        <h4>观测 · SSE / Exec</h4>
+        <ul id="obsList"><li>等待场景…</li></ul>
+      </div>
+      <div class="channel-card">
+        <h4>主 messages · 禁回灌</h4>
+        <ul id="mainList"><li class="ok">空 · 无 nested 污染</li></ul>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="chat-header">
+        <h1>Subagent observability</h1>
+        <span class="tag">DeepSeek · demo</span>
+      </header>
+      <div class="messages" id="chat"></div>
+      <div class="composer"><div class="composer-box">用顶部 Demo harness 回放场景（非真实发送）</div></div>
+    </section>
+
+    <div class="right-zone">
+      <nav class="rp-rail">
+        <button class="rail-btn active" type="button" title="Execution Path">
+          <span class="rail-icon">📈</span><span class="rail-label">Exec</span>
+        </button>
+        <button class="rail-btn" type="button" title="Skills Path" disabled style="opacity:.45">
+          <span class="rail-icon">🛠</span><span class="rail-label">Skills</span>
+        </button>
+        <button class="rail-btn" type="button" title="Prompt Inspect" disabled style="opacity:.45">
+          <span class="rail-icon">👁</span><span class="rail-label">Prompts</span>
+        </button>
+      </nav>
+      <div class="rp-stack">
+        <div class="panel-card">
+          <div class="panel-head">
+            <span class="panel-title">Execution Path</span>
+            <div class="panel-actions">
+              <button class="btn-steer" id="btnSteer" type="button" data-testid="exec-btn-steer" title="纠正方向 (R)">纠正方向</button>
+              <button class="btn-halt" id="btnStop" type="button" data-testid="exec-btn-halt" title="STOP THE WORLD (Esc)">Halt</button>
+              <span class="badge" id="execBadge">✓</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <p class="exec-label">Current run</p>
+            <div class="exec-path" id="exec">
+              <p class="empty-exec">Send a message to see execution plan.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="steerModal">
+    <div class="modal">
+      <h2>纠正 Subagent 方向</h2>
+      <p>取消进行中的 subagent，并向 main 注入短控制信号「要换个方向」。不回灌中间 transcript。</p>
+      <textarea id="steerInput"></textarea>
+      <div class="actions">
+        <button type="button" id="steerCancel">取消</button>
+        <button type="button" class="go" id="steerConfirm">确认纠正并提示 Main</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const chat = $("chat");
+    const exec = $("exec");
+    const obsList = $("obsList");
+    const mainList = $("mainList");
+
+    let timer = null;
+    let playing = false;
+    let worldStopped = false;
+    let playState = null;
+    /** @type {Map<string, object>} */
+    let stepsById = new Map();
+    /** @type {string[]} flat order of root-ish render keys */
+    let stepOrder = [];
+
+    const DEFAULT_STEER =
+      "别再深挖主题 A 的历史背景；改查「近 30 天可验证数据」，并只交 3 条要点。";
+
+    function escapeHtml(s) {
+      return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    }
+
+    function resetUI() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      playing = false;
+      worldStopped = false;
+      playState = null;
+      stepsById = new Map();
+      stepOrder = [];
+      document.body.classList.remove("world-stopped", "steering");
+      closeSteerModal();
+      chat.innerHTML = "";
+      obsList.innerHTML = "<li>等待场景…</li>";
+      mainList.innerHTML = '<li class="ok">空 · 无 nested 污染</li>';
+      renderExec();
+      setButtons(false);
+      markScenario(null);
+      addMsg("assistant", "点顶部 harness 回放场景。右侧 Exec 头 = 产品控件（纠正方向 / Halt）。", "assistant");
+    }
+
+    function setButtons(busy) {
+      ["btnHappy", "btnGate", "btnRework"].forEach((id) => {
+        $(id).disabled = busy || worldStopped;
+      });
+      $("btnSteer").disabled = worldStopped;
+      $("btnStop").disabled = false;
+    }
+
+    function markScenario(id) {
+      ["btnHappy", "btnGate", "btnRework"].forEach((sid) => {
+        $(sid).classList.toggle("active-run", sid === id);
+      });
+    }
+
+    function pushObs(text, cls) {
+      if (obsList.querySelector("li")?.textContent === "等待场景…") obsList.innerHTML = "";
+      const li = document.createElement("li");
+      if (cls) li.className = cls;
+      li.textContent = text;
+      obsList.appendChild(li);
+    }
+
+    function pushMain(text, cls) {
+      if (mainList.textContent.includes("空 ·")) mainList.innerHTML = "";
+      const li = document.createElement("li");
+      if (cls) li.className = cls;
+      li.textContent = text;
+      mainList.appendChild(li);
+    }
+
+    function addMsg(role, text, kind) {
+      const el = document.createElement("div");
+      el.className = `msg ${kind || role}`;
+      el.innerHTML = `<div class="role">${role}</div><div class="bubble">${escapeHtml(text)}</div>`;
+      chat.appendChild(el);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function chipClass(text) {
+      if (String(text).startsWith("✓")) return "chip-green";
+      if (/fail|halt|block/i.test(text)) return "chip-red";
+      if (/redirect|steer|look/i.test(text)) return "chip-amber";
+      if (/^\d/.test(text)) return "chip-gray";
+      return "";
+    }
+
+    function dotClass(status) {
+      if (status === "completed") return "done";
+      if (status === "running") return "run";
+      if (status === "failed" || status === "error") return "fail";
+      if (status === "cancelled") return "cancelled";
+      if (status === "redirected") return "redirected";
+      return "wait";
+    }
+
+    function upsertStep(step) {
+      const prev = stepsById.get(step.id);
+      const merged = { ...prev, ...step, childrenIds: prev?.childrenIds || [] };
+      if (step.parent_step_id) {
+        const parent = stepsById.get(step.parent_step_id);
+        if (parent) {
+          if (!parent.childrenIds.includes(step.id)) parent.childrenIds.push(step.id);
+          stepsById.set(parent.id, parent);
+        }
+        if (!stepsById.has(step.id)) {
+          // nested: not in root order
+        }
+      } else if (!stepsById.has(step.id)) {
+        stepOrder.push(step.id);
+      }
+      stepsById.set(step.id, merged);
+      renderExec();
+    }
+
+    function renderExec() {
+      if (stepOrder.length === 0 && stepsById.size === 0) {
+        exec.innerHTML = '<p class="empty-exec">Send a message to see execution plan.</p>';
+        $("execBadge").textContent = "·";
+        return;
+      }
+      const roots = stepOrder.filter((id) => {
+        const s = stepsById.get(id);
+        return s && !s.parent_step_id;
+      });
+      // also include orphans that are roots
+      for (const [id, s] of stepsById) {
+        if (!s.parent_step_id && !roots.includes(id)) roots.push(id);
+      }
+
+      const html = [];
+      const walk = (id, isLast, nested) => {
+        const step = stepsById.get(id);
+        if (!step) return;
+        const children = (step.childrenIds || []).filter((cid) => stepsById.has(cid));
+        html.push(renderNode(step, { isLast: isLast && children.length === 0, nested, hasChildren: children.length > 0 }));
+        if (children.length) {
+          html.push('<div class="children-wrap">');
+          children.forEach((cid, i) => walk(cid, i === children.length - 1, true));
+          html.push("</div>");
+        }
+      };
+      roots.forEach((id, i) => walk(id, i === roots.length - 1, false));
+
+      const allDone = [...stepsById.values()].every((s) =>
+        ["completed", "failed", "cancelled", "redirected"].includes(s.status)
+      );
+      if (allDone && stepsById.size) {
+        html.push(`
+          <div class="exec-node">
+            <div class="exec-node-left"><div class="exec-dot done"></div></div>
+            <div class="exec-content"><p class="exec-name" style="color:var(--green-600)">✓ Complete</p></div>
+          </div>`);
+        $("execBadge").textContent = "✓";
+      } else {
+        $("execBadge").textContent = "…";
+      }
+      exec.innerHTML = html.join("") || '<p class="empty-exec">Execution starting...</p>';
+    }
+
+    function renderNode(step, { nested, hasChildren }) {
+      const chips = (step.chips || []).map(
+        (c) => `<span class="exec-chip ${chipClass(c)}">${escapeHtml(c)}</span>`
+      ).join("");
+
+      let extra = "";
+      if (step.type === "subagent") {
+        const looks = (step.look_ahead || [])
+          .map((x) => `<li data-testid="look-ahead-item">${escapeHtml(x)}</li>`)
+          .join("");
+        extra = `
+          <div class="sub-block" data-testid="subagent-block">
+            <div class="sub-block-h">Subagent · 默认展开</div>
+            <div class="sub-kv">
+              <div><span class="k">agent</span><span>${escapeHtml(step.agent_name || "")}</span></div>
+              <div><span class="k">step_now</span><span>${escapeHtml(step.step_now || "")}</span></div>
+              <div><span class="k">expected</span><span>${escapeHtml(step.expected_output || "")}</span></div>
+            </div>
+            ${looks ? `<ol class="look-ol">${looks}</ol>` : ""}
+            ${step.error ? `<div class="err-box">${escapeHtml(step.error)}</div>` : ""}
+          </div>`;
+      } else if (step.error) {
+        extra = `<div class="err-box">${escapeHtml(step.error)}</div>`;
+      }
+
+      const testid =
+        step.type === "subagent"
+          ? ' data-testid="exec-step-subagent"'
+          : nested && step.type === "tool_call"
+            ? ' data-testid="exec-step-nested-tool"'
+            : "";
+
+      return `
+        <div class="exec-node ${nested ? "nested" : ""}" data-id="${escapeHtml(step.id)}"${testid}>
+          <div class="exec-node-left">
+            <div class="exec-dot ${dotClass(step.status)}"></div>
+            ${hasChildren || !nested ? '<div class="exec-vline"></div>' : '<div class="exec-vline"></div>'}
+          </div>
+          <div class="exec-content">
+            <div class="exec-name-row">
+              <p class="exec-name">${escapeHtml(step.name)}</p>
+              <span class="type-badge ${escapeHtml(step.type)}">${escapeHtml(step.type)}</span>
+            </div>
+            ${step.sub || step.detail ? `<p class="exec-sub">${escapeHtml(step.sub || step.detail)}</p>` : ""}
+            ${chips ? `<div class="exec-chips">${chips}</div>` : ""}
+            ${extra}
+          </div>
+        </div>`;
+    }
+
+    function cancelRunning(toStatus) {
+      for (const [id, s] of stepsById) {
+        if (s.status === "running") {
+          stepsById.set(id, { ...s, status: toStatus });
+        }
+      }
+      renderExec();
+    }
+
+    function play(events, { userText, finalAssistant, scenarioBtn }) {
+      resetUI();
+      chat.innerHTML = "";
+      obsList.innerHTML = "";
+      mainList.innerHTML = "";
+      playing = true;
+      playState = { events, index: 0, finalAssistant };
+      if (scenarioBtn) markScenario(scenarioBtn);
+      setButtons(true);
+      addMsg("user", userText, "user");
+      pushMain("+ user message", "ok");
+      pushMain("nested tool transcript → 禁止写入", "no");
+      pushObs("订阅 execution_step → Exec", "ok");
+
+      const tick = () => {
+        if (worldStopped || !playState) return;
+        if (playState.index >= playState.events.length) {
+          if (playState.finalAssistant) {
+            addMsg("assistant", playState.finalAssistant, "assistant");
+            pushMain("+ final ToolMessage / reconcile", "ok");
+          }
+          playing = false;
+          playState = null;
+          setButtons(false);
+          renderExec();
+          return;
+        }
+        const ev = playState.events[playState.index++];
+        applyEvent(ev);
+        if (worldStopped) return;
+        timer = setTimeout(tick, ev._delay ?? 420);
+      };
+      tick();
+    }
+
+    function applyEvent(ev) {
+      if (ev.type !== "execution_step") return;
+      upsertStep({
+        id: ev.step_id,
+        name: ev.name,
+        type: ev.step_type,
+        status: ev.status,
+        parent_step_id: ev.parent_step_id,
+        agent_name: ev.agent_name,
+        step_now: ev.step_now,
+        look_ahead: ev.look_ahead,
+        expected_output: ev.expected_output,
+        sub: ev.sub,
+        detail: ev.detail,
+        error: ev.error,
+        chips: ev.chips || (ev.status === "completed" ? ["✓ done"] : ev.status === "running" ? ["running"] : []),
+      });
+      pushObs(`${ev.status} · ${ev.step_type} · ${ev.step_id}`, ev.status === "failed" ? "no" : "");
+      if (ev.step_type === "tool_call" && ev.parent_step_id) {
+        pushMain(`拒收 nested ${ev.name}`, "no");
+        pushObs(`nested ${ev.name} 在 Exec 默认展开`, "ok");
+      }
+      if (ev.look_ahead) pushObs(`look_ahead × ${ev.look_ahead.length} 默认展开`, "ok");
+    }
+
+    function stopTheWorld() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      playing = false;
+      playState = null;
+      worldStopped = true;
+      document.body.classList.add("world-stopped");
+      document.body.classList.remove("steering");
+      cancelRunning("cancelled");
+      upsertStep({
+        id: "stop-the-world",
+        name: "STOP THE WORLD",
+        type: "reasoning",
+        status: "cancelled",
+        sub: "用户一键冻结：主线程与全部 subagent 停止；Exec 保留现场",
+        chips: ["halt", "inspect-in-place"],
+      });
+      pushObs("STOP THE WORLD", "no");
+      pushMain("主线程 halt", "no");
+      addMsg("system", "STOP THE WORLD：已冻结。Exec 保留现场。点「重置」解除。", "system");
+      setButtons(false);
+      ["btnHappy", "btnGate", "btnRework", "btnSteer"].forEach((id) => { $(id).disabled = true; });
+    }
+
+    function openSteerModal() {
+      if (worldStopped) return;
+      $("steerInput").value = DEFAULT_STEER;
+      $("steerModal").classList.add("open");
+      $("steerInput").focus();
+    }
+    function closeSteerModal() {
+      $("steerModal").classList.remove("open");
+    }
+
+    function applyRedirect(direction) {
+      const hint = (direction || "").trim();
+      if (!hint) return;
+      if (timer) { clearTimeout(timer); timer = null; }
+      playing = false;
+      playState = null;
+      worldStopped = false;
+      document.body.classList.add("steering");
+      document.body.classList.remove("world-stopped");
+      closeSteerModal();
+      $("steerBanner").innerHTML =
+        `<strong>REDIRECT</strong> <span>已提示 main 换个方向：${escapeHtml(hint)}</span>`;
+
+      cancelRunning("redirected");
+      upsertStep({
+        id: "user-redirect",
+        name: "USER REDIRECT · 纠正方向",
+        type: "reasoning",
+        status: "completed",
+        sub: "取消进行中 subagent；向 main 注入控制信号（非中间 transcript）",
+        chips: ["redirect", "steer-main"],
+      });
+
+      const controlMsg =
+        `[USER_STEER] 要换个方向。\n新方向：${hint}\n要求：取消当前 subagent；重新看三步后 spawn；勿合并旧子轨迹。`;
+      pushObs("REDIRECT · subagent redirected", "no");
+      pushMain("+ [USER_STEER] 换个方向（允许）", "ok");
+      pushMain("旧 nested 仍禁止回灌", "no");
+      addMsg("user", controlMsg, "control");
+      addMsg("assistant", "收到。当前 subagent 已停。我换个方向：重新看三步后再委派。", "assistant");
+
+      const subId = "sub-gp-redirected";
+      playState = {
+        events: [
+          {
+            type: "execution_step", step_id: "replan-after-steer", name: "主线程 · 换向后再看三步",
+            step_type: "reasoning", status: "completed",
+            sub: "根据 USER_STEER 重写 brief，不继承旧子轨迹", chips: ["✓ replan"], _delay: 380,
+          },
+          {
+            type: "execution_step", step_id: subId, name: "Subagent · general-purpose（换向后）",
+            step_type: "subagent", status: "running", agent_name: "general-purpose",
+            step_now: hint.slice(0, 48) + (hint.length > 48 ? "…" : ""),
+            look_ahead: ["按新方向收集可验证数据", "压缩为约定条数要点", "按 expected_output 交回"],
+            expected_output: "string[3] bullets + sources", chips: ["running"], _delay: 480,
+          },
+          {
+            type: "execution_step", step_id: "tool-after-steer", parent_step_id: subId,
+            name: "web_search", step_type: "tool_call", status: "completed",
+            sub: "query=近30天可验证数据（新方向）", chips: ["✓ done"], _delay: 420,
+          },
+          {
+            type: "execution_step", step_id: subId, name: "Subagent · general-purpose（换向后）",
+            step_type: "subagent", status: "completed", agent_name: "general-purpose",
+            step_now: hint.slice(0, 48) + (hint.length > 48 ? "…" : ""),
+            look_ahead: ["按新方向收集可验证数据", "压缩为约定条数要点", "按 expected_output 交回"],
+            expected_output: "string[3] bullets + sources", chips: ["✓ done"], _delay: 360,
+          },
+        ],
+        index: 0,
+        finalAssistant: "已按新方向汇总（换向后 subagent 最终回报）。旧方向中间步只在 Exec。",
+      };
+      playing = true;
+      setButtons(true);
+      const tick = () => {
+        if (worldStopped || !playState) return;
+        if (playState.index >= playState.events.length) {
+          if (playState.finalAssistant) {
+            addMsg("assistant", playState.finalAssistant, "assistant");
+            pushMain("+ final ToolMessage（换向后）", "ok");
+          }
+          playing = false;
+          playState = null;
+          setButtons(false);
+          renderExec();
+          return;
+        }
+        applyEvent(playState.events[playState.index++]);
+        const delay = playState.events[playState.index - 1]?._delay ?? 420;
+        if (!worldStopped) timer = setTimeout(tick, delay);
+      };
+      tick();
+    }
+
+    function scenarioHappy() {
+      const subId = "sub-gp-1";
+      play(
+        [
+          {
+            type: "execution_step", step_id: "parse", name: "Understanding request",
+            step_type: "reasoning", status: "completed", sub: "Parsed intent & entities", chips: ["✓ done"], _delay: 280,
+          },
+          {
+            type: "execution_step", step_id: "skills_load", name: "Skills loaded into agent",
+            step_type: "tool_call", status: "completed", sub: "2 skills passed to create_deep_agent",
+            chips: ["✓ loaded", "flow_coding_testing"], _delay: 300,
+          },
+          {
+            type: "execution_step", step_id: "plan", name: "看三步 · 编排",
+            step_type: "reasoning", status: "completed", sub: "拆成独立调研再汇总", chips: ["✓ done"], _delay: 320,
+          },
+          {
+            type: "execution_step", step_id: subId, name: "Subagent · general-purpose",
+            step_type: "subagent", status: "running", agent_name: "general-purpose",
+            step_now: "调研主题 A 的关键事实",
+            look_ahead: ["收集 A 的来源与时间线", "压缩成 5 条要点", "按 expected_output 交回主线程"],
+            expected_output: "JSON: {facts: string[5], sources: string[]}",
+            chips: ["running", "look_ahead×3"], _delay: 500,
+          },
+          {
+            type: "execution_step", step_id: "tool-search-1", parent_step_id: subId,
+            name: "web_search", step_type: "tool_call", status: "running",
+            sub: "query=主题A 关键事实", chips: ["running"], _delay: 400,
+          },
+          {
+            type: "execution_step", step_id: "tool-search-1", parent_step_id: subId,
+            name: "web_search", step_type: "tool_call", status: "completed",
+            sub: "命中 3 条来源（正文只在观测通道）", chips: ["✓ done", "0.42s"], _delay: 420,
+          },
+          {
+            type: "execution_step", step_id: "tool-retry-1", parent_step_id: subId,
+            name: "self_correct", step_type: "reasoning", status: "completed",
+            sub: "返工：补时间线（子上下文，默认展开）", chips: ["✓ done"], _delay: 400,
+          },
+          {
+            type: "execution_step", step_id: subId, name: "Subagent · general-purpose",
+            step_type: "subagent", status: "completed", agent_name: "general-purpose",
+            step_now: "调研主题 A 的关键事实",
+            look_ahead: ["收集 A 的来源与时间线", "压缩成 5 条要点", "按 expected_output 交回主线程"],
+            expected_output: "JSON: {facts: string[5], sources: string[]}",
+            chips: ["✓ done", "1.8s"], _delay: 360,
+          },
+          {
+            type: "execution_step", step_id: "llm", name: "LLM call",
+            step_type: "model_call", status: "completed",
+            sub: "deepseek · stream · reconcile", chips: ["✓ done", "0.6s"], _delay: 300,
+          },
+        ],
+        {
+          userText: "分别调研 A，再汇总给我。",
+          finalAssistant: "主题 A 摘要（仅最终回报）：\n1) …\n2) …\n来源 3 个。",
+          scenarioBtn: "btnHappy",
+        }
+      );
+    }
+
+    function scenarioGate() {
+      play(
+        [
+          {
+            type: "execution_step", step_id: "plan", name: "看三步 · 编排",
+            step_type: "reasoning", status: "completed", sub: "模型试图 spawn，brief 不完整", chips: ["✓ done"], _delay: 300,
+          },
+          {
+            type: "execution_step", step_id: "sub-reject-1", name: "Subagent · blocked",
+            step_type: "subagent", status: "failed", agent_name: "general-purpose",
+            step_now: "随便查一下",
+            look_ahead: ["只写了两步", "缺少第三步"],
+            expected_output: "",
+            error: "[spawn_brief] Rejected (Fail Fast)\n  look_ahead must have exactly 3 non-empty items\n  expected_output empty\n  Spawn aborted",
+            chips: ["blocked", "fail-fast"], _delay: 500,
+          },
+        ],
+        {
+          userText: "帮我 task 一下（无完整三步 brief）。",
+          finalAssistant: "委派被硬闸门拦截：look_ahead 必须恰好 3 条非空。未启动 subagent。",
+          scenarioBtn: "btnGate",
+        }
+      );
+    }
+
+    function scenarioRework() {
+      const sub1 = "sub-gp-fail";
+      const sub2 = "sub-gp-retry";
+      play(
+        [
+          {
+            type: "execution_step", step_id: sub1, name: "Subagent #1 · general-purpose",
+            step_type: "subagent", status: "completed", agent_name: "general-purpose",
+            step_now: "提取配置键",
+            look_ahead: ["扫目录", "解析 yaml", "返回键列表"],
+            expected_output: "string[] keys", chips: ["✓ done"], _delay: 380,
+          },
+          {
+            type: "execution_step", step_id: "t1", parent_step_id: sub1,
+            name: "read_file", step_type: "tool_call", status: "completed",
+            sub: "读错路径 → 子上下文纠正（用户可见）", chips: ["✓ done"], _delay: 380,
+          },
+          {
+            type: "execution_step", step_id: "reconcile", name: "主线程 · 回报不合格 → 再看三步",
+            step_type: "reasoning", status: "completed",
+            sub: "不把 #1 失败轨迹塞进主 messages；重新 spawn", chips: ["✓ done"], _delay: 420,
+          },
+          {
+            type: "execution_step", step_id: sub2, name: "Subagent #2 · general-purpose（新实例）",
+            step_type: "subagent", status: "running", agent_name: "general-purpose",
+            step_now: "用正确路径提取配置键",
+            look_ahead: ["打开 agent_config.json", "列出 enabled_skills", "按数组交回"],
+            expected_output: "string[] enabled_skills", chips: ["running"], _delay: 480,
+          },
+          {
+            type: "execution_step", step_id: "t2", parent_step_id: sub2,
+            name: "read_file", step_type: "tool_call", status: "completed",
+            sub: "path=.../agent_config.json OK", chips: ["✓ done"], _delay: 400,
+          },
+          {
+            type: "execution_step", step_id: sub2, name: "Subagent #2 · general-purpose（新实例）",
+            step_type: "subagent", status: "completed", agent_name: "general-purpose",
+            step_now: "用正确路径提取配置键",
+            look_ahead: ["打开 agent_config.json", "列出 enabled_skills", "按数组交回"],
+            expected_output: "string[] enabled_skills", chips: ["✓ done"], _delay: 340,
+          },
+        ],
+        {
+          userText: "列出当前 enabled_skills。",
+          finalAssistant: "enabled_skills（#2 最终回报）：flow_coding_testing, …\n（#1 错误细节只在 Exec。）",
+          scenarioBtn: "btnRework",
+        }
+      );
+    }
+
+    $("btnHappy").onclick = scenarioHappy;
+    $("btnGate").onclick = scenarioGate;
+    $("btnRework").onclick = scenarioRework;
+    $("btnSteer").onclick = openSteerModal;
+    $("btnStop").onclick = stopTheWorld;
+    $("btnReset").onclick = resetUI;
+    $("steerCancel").onclick = closeSteerModal;
+    $("steerConfirm").onclick = () => applyRedirect($("steerInput").value);
+    $("steerModal").onclick = (e) => { if (e.target === $("steerModal")) closeSteerModal(); };
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if ($("steerModal").classList.contains("open")) { closeSteerModal(); return; }
+        stopTheWorld();
+      }
+      if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey) {
+        const tag = e.target?.tagName || "";
+        if (tag === "TEXTAREA" || tag === "INPUT") return;
+        e.preventDefault();
+        openSteerModal();
+      }
+    });
+
+    resetUI();
+  </script>
+</body>
+</html>

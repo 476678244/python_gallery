@@ -22,23 +22,39 @@ export interface ChatStreamRequest {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** Execution mode — sent as `mode` to API (snake SoT). */
+  mode?: string;
 }
 
 export interface ChatStreamEvent {
-  type: "thinking" | "content" | "done" | "error" | "execution_step";
+  type: "thinking" | "content" | "done" | "error" | "execution_step" | "tool" | "ppt_preview";
   // execution_step fields
   step_id?: string;
+  parent_step_id?: string;
   step_type?: string;
   sub?: string;
   chips?: string[];
   skills_invoked?: string[];
+  /** Actual DeepAgent load list (≠ BM25 router skills_invoked). */
+  skills_loaded?: string[];
+  agent_name?: string;
+  step_now?: string;
+  look_ahead?: string[];
+  expected_output?: string;
+  // ppt_preview
+  deck_id?: string;
+  version?: number;
+  pptx_path?: string;
+  preview_urls?: string[];
+  slide_count?: number;
   // common fields
   step?: string;
   name?: string;
-  status?: "running" | "completed";
+  status?: "running" | "completed" | "failed" | "cancelled" | "redirected" | "error";
   duration?: number;
   content?: string;
   delta?: string;
+  tool?: string;
   sessionId?: string;
   messageId?: string;
   usage?: {
@@ -59,6 +75,7 @@ export interface ChatStreamEvent {
 export interface ChatStreamCallbacks {
   onThinking?: (step: string, status: "running" | "completed", duration?: number) => void;
   onExecutionStep?: (event: ChatStreamEvent) => void;
+  onPptPreview?: (event: ChatStreamEvent) => void;
   onContent?: (content: string, delta: string) => void;
   onExecutionUpdate?: (graph: ExecutionGraph) => void;
   onComplete?: (data: {
@@ -95,12 +112,23 @@ export class ChatService {
     let messageId = "";
 
     try {
+      // API expects snake_case session_id / mode (Fail Fast — no silent drop).
+      const body = {
+        messages: request.messages,
+        session_id: request.sessionId,
+        enabled_skills: request.enabledSkills,
+        model: request.model,
+        temperature: request.temperature,
+        max_tokens: request.maxTokens,
+        mode: request.mode ?? "agent",
+        stream: true,
+      };
       const response = await fetch(`${this.baseUrl}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify(body),
         signal: this.abortController.signal,
       });
 
@@ -229,6 +257,11 @@ export class ChatService {
         if (event.status === "running") {
           callbacks.onThinking?.(event.name || event.step_id || "", "running");
         }
+        break;
+      }
+
+      case "ppt_preview": {
+        callbacks.onPptPreview?.(event);
         break;
       }
 

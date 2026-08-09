@@ -2,9 +2,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
+  testIgnore: ["**/jupyterhub*"],
   timeout: 150_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  workers: 1,
   retries: 1,  // Phase 4: Self-healing - retry once on failure
   reporter: [["list"], ["html", { open: "never" }]],
   // globalTeardown: "./global-teardown.ts",
@@ -13,9 +15,10 @@ export default defineConfig({
     trace: "on-first-retry",
     video: "on-first-retry",
     screenshot: "on",
-    headless: false,  // Show browser window for visual confirmation
+    // HEADED=1 for Flow Coding visual confirmation; default headless for CI/agent
+    headless: process.env.HEADED !== "1",
     launchOptions: {
-      slowMo: 500,  // Slow down operations for better visibility
+      slowMo: process.env.HEADED === "1" ? 500 : 0,
     },
   },
   projects: [

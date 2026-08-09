@@ -4,6 +4,8 @@
  */
 
 import { Message } from "@/entities/message";
+import type { AgentMode } from "@/entities/agent-mode";
+import { DEFAULT_AGENT_MODE } from "@/entities/agent-mode";
 
 export type SessionStatus = "active" | "archived" | "deleted";
 
@@ -13,6 +15,8 @@ export interface SessionSettings {
   temperature?: number;
   maxTokens?: number;
   systemPrompt?: string;
+  /** Session-sticky agent mode (ask|agent|plan|safe|debug|subagent|ppt). */
+  mode?: AgentMode;
 }
 
 export interface Session {
@@ -33,6 +37,12 @@ export function createSession(
   title: string = "New Chat",
   settings: Partial<SessionSettings> = {}
 ): Session {
+  if (!settings.model?.trim()) {
+    throw new Error(
+      "[createSession] settings.model is required (Fail Fast)\n" +
+        "  Do not invent a local default — pass the global selected model."
+    );
+  }
   const now = new Date();
   return {
     id: crypto.randomUUID(),
@@ -40,10 +50,11 @@ export function createSession(
     status: "active",
     messageCount: 0,
     settings: {
-      model: "gemma-4b",
+      model: settings.model.trim(),
       enabledSkills: [],
       temperature: 0.7,
       maxTokens: 4096,
+      mode: DEFAULT_AGENT_MODE,
       ...settings,
     },
     createdAt: now,

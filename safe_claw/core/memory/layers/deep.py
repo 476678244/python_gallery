@@ -199,11 +199,34 @@ class DeepMemoryLayer:
         return archived_count
     
     def consolidate_memories(self) -> int:
-        """Consolidate similar memories
-        
-        Returns:
-            Number of memories consolidated
-        """
-        # TODO: Implement memory consolidation logic
-        # This would identify similar memories and merge them
-        return 0
+        """Consolidate similar deep memories by near-duplicate content."""
+        memories = self.get_all_memories()
+        if len(memories) < 2:
+            return 0
+        from safe_claw.core.memory.retriever import MemoryRetriever
+
+        retriever = MemoryRetriever(self.config)
+        merged = 0
+        removed = set()
+        ordered = sorted(memories, key=lambda m: m.importance_score, reverse=True)
+        for i, keep in enumerate(ordered):
+            if keep.id in removed:
+                continue
+            for other in ordered[i + 1 :]:
+                if other.id in removed:
+                    continue
+                sim = retriever._calculate_similarity(
+                    keep.content.lower(), other.content.lower()
+                )
+                if sim >= 0.85:
+                    keep.keywords = sorted(
+                        set(keep.keywords or []) | set(other.keywords or [])
+                    )
+                    keep.importance_score = max(
+                        keep.importance_score, other.importance_score
+                    )
+                    self.storage.save_memory(keep)
+                    self.remove_memory(other.id)
+                    removed.add(other.id)
+                    merged += 1
+        return merged

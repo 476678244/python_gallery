@@ -31,6 +31,16 @@ async function openPanel(page: Page, label: string) {
   await page.waitForTimeout(300);
 }
 
+/** Open panel only if not already visible (reload may restore open state) */
+async function ensurePanelOpen(page: Page, label: string, title: string) {
+  const panel = panelBody(page, title);
+  if (await panel.isVisible().catch(() => false)) {
+    return;
+  }
+  await openPanel(page, label);
+  await expect(panel).toBeVisible({ timeout: 5000 });
+}
+
 /** Get panel body by title */
 function panelBody(page: Page, title: string) {
   return page
@@ -51,6 +61,20 @@ function verticalResizeHandle(page: Page, panelTitle: string) {
     .first();
 }
 
+/** Drag a handle by pixel deltas using mouse events (reliable vs dragTo) */
+async function dragHandleBy(page: Page, handle: ReturnType<Page["locator"]>, dx: number, dy: number) {
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error("Resize handle has no bounding box");
+  }
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 12 });
+  await page.mouse.up();
+}
+
 // ─── ① Horizontal Resize ─────────────────────────────────────────────────────
 
 test.describe("Right Panel · Horizontal Resize", () => {
@@ -67,18 +91,10 @@ test.describe("Right Panel · Horizontal Resize", () => {
     // Get initial width
     const initialWidth = await execPanel.evaluate((el) => el.getBoundingClientRect().width);
 
-    // Find and drag horizontal resize handle
+    // Find and drag horizontal resize handle (left = widen)
     const handle = horizontalResizeHandle(page);
     await expect(handle).toBeVisible();
-
-    // Drag to widen panel (move handle to the left)
-    const handleBox = await handle.boundingBox();
-    if (handleBox) {
-      await handle.dragTo(handle, {
-        force: true,
-        targetPosition: { x: -50, y: handleBox.height / 2 },
-      });
-    }
+    await dragHandleBy(page, handle, -80, 0);
 
     await page.waitForTimeout(300);
 
@@ -94,31 +110,22 @@ test.describe("Right Panel · Vertical Resize", () => {
   test("should resize panel height by dragging vertical handle", async ({ page }) => {
     await goto(page);
 
-    // Open a panel
+    // Two panels so Exec is not already at max viewport height
     await openPanel(page, "Exec");
+    await openPanel(page, "Skills");
 
     const execPanel = panelBody(page, "Execution Path");
     await expect(execPanel).toBeVisible();
 
-    // Get initial height
     const initialHeight = await execPanel.evaluate((el) => el.getBoundingClientRect().height);
 
-    // Find vertical resize handle
     const vHandle = verticalResizeHandle(page, "Execution Path");
     await expect(vHandle).toBeVisible();
-
-    // Drag to resize
-    const handleBox = await vHandle.boundingBox();
-    if (handleBox) {
-      await vHandle.dragTo(vHandle, {
-        force: true,
-        targetPosition: { x: handleBox.width / 2, y: 50 },
-      });
-    }
+    // Drag down to grow Exec (room exists because Skills shares space)
+    await dragHandleBy(page, vHandle, 0, 80);
 
     await page.waitForTimeout(300);
 
-    // Check height changed
     const newHeight = await execPanel.evaluate((el) => el.getBoundingClientRect().height);
     expect(Math.abs(newHeight - initialHeight)).toBeGreaterThan(10);
   });
@@ -223,11 +230,7 @@ test.describe("Right Panel · Manual Adjustment", () => {
     const handleBox = await vHandle.boundingBox();
 
     if (handleBox) {
-      // Make it significantly larger
-      await vHandle.dragTo(vHandle, {
-        force: true,
-        targetPosition: { x: handleBox.width / 2, y: 100 },
-      });
+      await dragHandleBy(page, vHandle, 0, 120);
     }
 
     await page.waitForTimeout(300);
@@ -236,23 +239,15 @@ test.describe("Right Panel · Manual Adjustment", () => {
     const newHeight = await execPanel.evaluate((el) => el.getBoundingClientRect().height);
     expect(newHeight).toBeGreaterThan(initialHeight + 50);
 
-    // Refresh page
+    // Refresh page (persisted openPanelKeys may already restore panels)
     await page.reload();
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(500);
 
-    // Re-open panels
-    await openPanel(page, "Exec");
-    await openPanel(page, "Skills");
+    await ensurePanelOpen(page, "Exec", "Execution Path");
+    await ensurePanelOpen(page, "Skills", "Skills Path");
 
-    await page.waitForTimeout(500);
-
-    // After manual resize and reload, heights might be different
-    // but both panels should still be visible
-    const execPanel2 = panelBody(page, "Execution Path");
-    const skillsPanel2 = panelBody(page, "Skills Path");
-
-    await expect(execPanel2).toBeVisible();
-    await expect(skillsPanel2).toBeVisible();
+    await expect(panelBody(page, "Execution Path")).toBeVisible();
+    await expect(panelBody(page, "Skills Path")).toBeVisible();
   });
 });

@@ -5,6 +5,10 @@ import remarkGfm from "remark-gfm";
 import { Message } from "@/entities/message";
 import { cn } from "@/shared/utils/cn";
 import { StreamingMessage } from "./streaming-message";
+import { parsePlanArtifact } from "@/features/chat/lib/parse-plan-artifact";
+import { PlanArtifactCard } from "./plan-artifact-card";
+import { parseDeckArtifact } from "@/features/chat/lib/parse-deck-artifact";
+import { DeckArtifactCard } from "./deck-artifact-card";
 
 interface MessageListProps {
   messages: Message[];
@@ -37,6 +41,11 @@ interface MessageItemProps {
 
 function MessageItem({ message, isLast }: MessageItemProps) {
   const isUser = message.role === "user";
+  const content =
+    typeof message.content === "string" ? message.content : null;
+  const plan = !isUser && content ? parsePlanArtifact(content) : null;
+  const deck =
+    !isUser && content && !plan ? parseDeckArtifact(content) : null;
 
   return (
     <motion.div
@@ -72,28 +81,48 @@ function MessageItem({ message, isLast }: MessageItemProps) {
             : "bg-slate-100 text-slate-900"
         )}
       >
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            table: ({ children }) => (
-              <table className="border-collapse border border-slate-300 w-full my-4">
-                {children}
-              </table>
-            ),
-            th: ({ children }) => (
-              <th className="border border-slate-300 px-2 py-1 text-left bg-slate-100 font-semibold">
-                {children}
-              </th>
-            ),
-            td: ({ children }) => (
-              <td className="border border-slate-300 px-2 py-1 text-left">
-                {children}
-              </td>
-            ),
-          }}
-        >
-          {message.content}
-        </ReactMarkdown>
+        {plan ? (
+          <>
+            {plan.intro ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {plan.intro}
+              </ReactMarkdown>
+            ) : null}
+            <PlanArtifactCard plan={plan} sessionId={message.sessionId} />
+          </>
+        ) : deck ? (
+          <>
+            {deck.intro ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {deck.intro}
+              </ReactMarkdown>
+            ) : null}
+            <DeckArtifactCard deck={deck} />
+          </>
+        ) : (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              table: ({ children }) => (
+                <table className="border-collapse border border-slate-300 w-full my-4">
+                  {children}
+                </table>
+              ),
+              th: ({ children }) => (
+                <th className="border border-slate-300 px-2 py-1 text-left bg-slate-100 font-semibold">
+                  {children}
+                </th>
+              ),
+              td: ({ children }) => (
+                <td className="border border-slate-300 px-2 py-1 text-left">
+                  {children}
+                </td>
+              ),
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        )}
 
         {/* Metadata */}
         {message.metadata && !isUser && (

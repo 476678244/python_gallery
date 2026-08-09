@@ -28,6 +28,9 @@ class FileStorage:
             layer_path = self.storage_path / layer.value
             layer_path.mkdir(exist_ok=True)
     
+    def _layer_name(self, layer) -> str:
+        return layer.value if isinstance(layer, MemoryLayer) else str(layer)
+
     def save_memory(self, memory: Memory) -> bool:
         """Save memory to file
         
@@ -38,7 +41,7 @@ class FileStorage:
             True if successful, False otherwise
         """
         try:
-            layer_path = self.storage_path / memory.layer.value
+            layer_path = self.storage_path / self._layer_name(memory.layer)
             file_path = layer_path / f"{memory.id}.json"
             
             with open(file_path, 'w', encoding='utf-8') as f:
@@ -46,8 +49,13 @@ class FileStorage:
             
             return True
         except Exception as e:
-            self.logger.error(f"Error saving memory {memory.id}: {e}")
-            return False
+            raise RuntimeError(
+                f"[MemoryStorage] Failed to save memory (Fail Fast)\n"
+                f"  id: {memory.id}\n"
+                f"  layer: {memory.layer}\n"
+                f"  path: {self.storage_path}\n"
+                f"  Error: {e}"
+            ) from e
     
     def load_memory(self, memory_id: str, layer: str) -> Optional[Memory]:
         """Load memory from file
@@ -71,8 +79,12 @@ class FileStorage:
             
             return Memory(**data)
         except Exception as e:
-            self.logger.error(f"Error loading memory {memory_id}: {e}")
-            return None
+            raise RuntimeError(
+                f"[MemoryStorage] Failed to load memory (Fail Fast)\n"
+                f"  id: {memory_id}\n"
+                f"  layer: {layer}\n"
+                f"  Error: {e}"
+            ) from e
     
     def delete_memory(self, memory_id: str, layer: str) -> bool:
         """Delete memory file
@@ -144,8 +156,12 @@ class FileStorage:
             
             return memory_ids
         except Exception as e:
-            self.logger.error(f"Error listing memories in layer {layer}: {e}")
-            return []
+            raise RuntimeError(
+                f"[MemoryStorage] Failed to list memories (Fail Fast)\n"
+                f"  layer: {layer}\n"
+                f"  path: {self.storage_path / layer}\n"
+                f"  Error: {e}"
+            ) from e
     
     def get_layer_stats(self, layer: str) -> Dict[str, Any]:
         """Get statistics for a layer

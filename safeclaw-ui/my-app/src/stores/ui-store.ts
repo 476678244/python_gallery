@@ -7,7 +7,15 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type SidebarView = "sessions" | "skills" | "memory" | "safety" | "system" | "settings";
-export type RightPanelKey = "exec" | "skills" | "budget" | "log" | "shell" | "prompts" | "memory";
+export type RightPanelKey =
+  | "exec"
+  | "skills"
+  | "budget"
+  | "log"
+  | "shell"
+  | "prompts"
+  | "memory"
+  | "deck";
 export type Theme = "light" | "dark" | "system";
 
 // Panel heights in pixels (min: 60, max: 600)
@@ -55,6 +63,8 @@ interface UIActions {
   railToggle: (key: RightPanelKey) => void;
   collapseToggle: (key: RightPanelKey) => void;
   closeAllPanels: () => void;
+  /** Force-open panels expanded (agent-modes debug/subagent packs). */
+  applyObservabilityPack: (pack: "default" | "full" | "subagent" | "ppt") => void;
   isPanelOpen: (key: RightPanelKey) => boolean;
   isPanelExpanded: (key: RightPanelKey) => boolean;
   setRightPanelWidth: (width: number) => void;
@@ -97,6 +107,7 @@ const initialUIState: UIState = {
     shell: DEFAULT_PANEL_HEIGHT,
     prompts: DEFAULT_PANEL_HEIGHT,
     memory: DEFAULT_PANEL_HEIGHT,
+    deck: DEFAULT_PANEL_HEIGHT + 80,
   },
 
   // LLM Call navigation - start at 0, will be updated by panels
@@ -151,6 +162,64 @@ export const useUIStore = create<UIState & UIActions>()(
       },
 
       closeAllPanels: () => set({ openPanelKeys: [] }),
+
+      applyObservabilityPack: (pack) => {
+        if (pack === "full") {
+          // Exec + Skills + Prompts expanded (Observability Full pack)
+          set({ openPanelKeys: ["exec", "skills", "prompts"] });
+          return;
+        }
+        if (pack === "subagent") {
+          // Subagent pack: Exec forced; release Full-pack Skills/Prompts
+          const keys = get().openPanelKeys.filter(
+            (k) =>
+              ![
+                "exec",
+                "!exec",
+                "skills",
+                "!skills",
+                "prompts",
+                "!prompts",
+                "deck",
+                "!deck",
+              ].includes(k)
+          );
+          set({ openPanelKeys: [...keys, "exec"] });
+          return;
+        }
+        if (pack === "ppt") {
+          // PPT pack: Exec + Deck Preview; do not force Inspect/Skills
+          const keys = get().openPanelKeys.filter(
+            (k) =>
+              ![
+                "exec",
+                "!exec",
+                "deck",
+                "!deck",
+                "skills",
+                "!skills",
+                "prompts",
+                "!prompts",
+              ].includes(k)
+          );
+          set({ openPanelKeys: [...keys, "exec", "deck"] });
+          return;
+        }
+        // default: release Full/PPT forced Skills/Prompts/Deck
+        const keys = get().openPanelKeys.filter(
+          (k) =>
+            ![
+              "skills",
+              "!skills",
+              "prompts",
+              "!prompts",
+              "deck",
+              "!deck",
+            ].includes(k)
+        );
+        set({ openPanelKeys: keys });
+      },
+
       setRightPanelWidth: (width) => set({ rightPanelWidth: Math.max(200, Math.min(600, width)) }),
 
       getPanelHeight: (key) => {

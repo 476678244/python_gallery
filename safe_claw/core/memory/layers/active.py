@@ -46,12 +46,14 @@ class ActiveMemoryLayer:
         """
         memory.layer = MemoryLayer.ACTIVE
         
-        # Save to storage
-        self.storage.save_memory(memory)
-        
-        # Add to cache
+        # Save to storage — Fail Fast if persist fails (do not return unpersisted id)
+        if not self.storage.save_memory(memory):
+            raise RuntimeError(
+                f"[ActiveLayer] save_memory returned False (Fail Fast)\n"
+                f"  id: {memory.id}"
+            )
+
         self._cache[memory.id] = memory
-        
         self.logger.debug(f"Added memory {memory.id} to active layer")
         return memory.id
     

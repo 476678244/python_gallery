@@ -32,7 +32,7 @@ class ConfigService:
             ),
             memory=MemoryConfig(
                 enable_vector_search=False,
-                active_memory_max=20,
+                max_active_memories=20,
                 dormant_wakeup_threshold=0.6,
                 deep_memory_compression="maximum"
             ),

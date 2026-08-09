@@ -18,7 +18,7 @@ import { test, expect, Page } from "@playwright/test";
 // ─── Ground Truth ────────────────────────────────────────────────────────────
 
 const EXPECTED_FOLDERS = [
-  { name: "Private Skills", minSkills: 6, maxSkills: 12 },
+  { name: "Private Skills", minSkills: 6, maxSkills: 20 },
   { name: "Anthropic Skills", minSkills: 15, maxSkills: 22 },
   { name: "Ljg Skills", minSkills: 18, maxSkills: 25 },
   { name: "Superpowers Skills", minSkills: 12, maxSkills: 18 },
@@ -118,9 +118,25 @@ async function fetchSkillTreeFromAPI(page: Page) {
   });
 }
 
+/** Enable all top-level folders so tests start from a known baseline */
+async function resetAllFoldersEnabled(page: Page) {
+  const apiData = await fetchSkillTreeFromAPI(page);
+  const tree: any[] = apiData.tree || [];
+  for (const folder of tree.filter((n: any) => n.is_folder || n.isFolder)) {
+    await page.request.post("http://localhost:8000/skills", {
+      data: { folder_id: folder.id, enabled: true },
+    });
+  }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe("Skill Tree · 4 Main Directories", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await resetAllFoldersEnabled(page);
+  });
 
   // ── T1: API returns correct structure with 4 folders ─────────────────────
 

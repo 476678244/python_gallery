@@ -24,7 +24,19 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        detail:
+          `[skills POST] Invalid JSON body (Fail Fast)\n` +
+          `  Error: ${e instanceof Error ? e.message : String(e)}`,
+      },
+      { status: 400 }
+    );
+  }
   const res = await fetch(`${BACKEND}/skills`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
