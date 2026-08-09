@@ -1,0 +1,17 @@
+{
+  "name": "flow-coding-e2e",
+  "private": true,
+  "description": "Flow Coding — Playwright 工作脚本与验证脚手架（readonly_boss_hire 为可复用工作流，非回归测试）",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "run:boss-recommend": "NO_PROXY=localhost,127.0.0.1,::1 no_proxy=localhost,127.0.0.1,::1 npx playwright test readonly_boss_hire/browse-recommend-structure.spec.ts --project=readonly-boss-hire --headed --retries=0",
+    "run:boss-login": "NO_PROXY=localhost,127.0.0.1,::1 no_proxy=localhost,127.0.0.1,::1 npx playwright test readonly_boss_hire/check-login-state.spec.ts --project=readonly-boss-hire --headed --retries=0",
+    "run:boss-idle": "NO_PROXY=localhost,127.0.0.1,::1 no_proxy=localhost,127.0.0.1,::1 npx playwright test readonly_boss_hire/idle-open-geek-jobs.spec.ts --project=readonly-boss-hire --headed --retries=0",
+    "chrome:cdp": "../scripts/start_chrome_cdp.sh --restart",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

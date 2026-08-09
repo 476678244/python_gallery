@@ -164,17 +164,73 @@ AI 同时读取 ①截图 + ②ui.log + ③server.log/access.log
 
 | Action | 功能 |
 |--------|------|
-| `get_guide` | 获取三重反馈理论 + 落盘范式指南 |
+| `get_guide` | 获取三重/四重反馈理论 + 落盘范式指南 |
 | `get_tail_command` | 生成统一监控的 `tail -f` 命令 |
-| `check_setup` | 检查三路日志文件是否存在且非空 |
-| `tail_logs` | 读取三路日志最近 N 行（只读快照） |
+| `check_setup` | 检查日志文件是否存在且非空 |
+| `tail_logs` | 读取日志最近 N 行（只读快照） |
 | `triangulate` | 根据观测到的三路信号，定位根因层级 |
+| `sync_cdp_status` | 拉取 CDP `/json/version` + `/json/list` 写入 `cdp-*.json` |
+| `export_snapshot` | 将所有日志 tail + 复制到 `reports/log-snapshot-*.md` 供 Agent 直接 Read |
+
+### Profile（日志配置）
+
+| profile | 日志目录 | 包含文件 |
+|---------|----------|----------|
+| `fullstack`（默认） | `<project_root>/logs` | server.log, access.log, ui.log |
+| `boss_hire` | `$BOSS_HIRE_WORKDIR/logs` | browser-console/network/navigation.log, cdp-*.json |
+| `all` | 同上或 project logs | 全栈 + 浏览器合并 |
+
+Boss 直聘工作目录默认：`~/Downloads/nicole/boss直聘_工作目录/logs`
+
+---
+
+## ④ CDP / 浏览器反馈（Boss 直聘扩展）
+
+全栈三重反馈之外，CDP + 真实站点浏览需要**第四路独立信号**：
+
+| 反馈源 | 信号载体 | 回答的问题 |
+|--------|----------|------------|
+| ④ 浏览器反馈 | `browser-console.log` | 页面 JS 报错、console 输出？ |
+| ④ 网络反馈 | `browser-network.log` | 哪些 API 发出/失败/返回状态码？ |
+| ④ 导航反馈 | `browser-navigation.log` | SPA 是否反复跳转/刷新？ |
+| ④ CDP 状态 | `cdp-tabs.json` | 当前 Chrome 打开了哪些 tab？ |
+
+Playwright `connectCdpBrowser()` **默认自动**调用 `installBrowserLogExport(page)`，日志实时 append 到工作目录。
+
+### Agent 分析工作流
+
+```
+Playwright 失败 / 页面卡在「加载中」
+   ↓
+run(action="tail_logs", profile="boss_hire", lines=80)
+run(action="sync_cdp_status", profile="boss_hire")
+   ↓
+run(action="export_snapshot", profile="boss_hire", lines=100)
+   ↓
+Read reports/log-snapshot-*.md — 一次看到 console + network + navigation + CDP tabs
+   ↓
+与 ①截图 交叉比对 → 定位是登录态/API/前端渲染/CDP 连接问题
+```
 
 ### get_tail_command
 
 ```python
-run(action="get_tail_command", project_root="/path/to/project")
-# → "tail -f /path/to/project/logs/server.log /path/to/project/logs/access.log /path/to/project/logs/ui.log"
+run(action="get_tail_command", profile="boss_hire")
+# → tail -f .../boss直聘_工作目录/logs/browser-console.log browser-network.log ...
+```
+
+### sync_cdp_status
+
+```python
+run(action="sync_cdp_status", profile="boss_hire", cdp_url="http://127.0.0.1:9222")
+# → writes cdp-version.json + cdp-tabs.json under logs/
+```
+
+### export_snapshot
+
+```python
+run(action="export_snapshot", profile="boss_hire", lines=100)
+# → reports/log-snapshot-2026-07-18T13-24-00Z.md + bundle dir with raw copies
 ```
 
 ### check_setup / tail_logs
@@ -183,20 +239,20 @@ run(action="get_tail_command", project_root="/path/to/project")
 run(action="check_setup", project_root="/path/to/project")
 # → 每路日志的 exists / size / 是否实时
 
-run(action="tail_logs", project_root="/path/to/project", lines=20)
-# → {"server": [...], "access": [...], "ui": [...]}
+run(action="tail_logs", profile="boss_hire", lines=50)
+# → {"browser_console": [...], "browser_network": [...], ...}
 ```
 
-### triangulate（三角定位）
+### triangulate（三角定位 — 全栈场景）
 
 ```python
 run(
     action="triangulate",
-    frontend_request=True,      # ui.log 中是否有请求记录
-    frontend_status=200,        # 前端观测到的状态码（None 表示无/超时）
-    backend_request=True,       # access.log 中是否有对应请求
-    backend_status=200,         # 后端返回状态码
-    backend_error=True          # server.log 中是否有异常堆栈
+    frontend_request=True,
+    frontend_status=200,
+    backend_request=True,
+    backend_status=200,
+    backend_error=True
 )
 # → {"root_cause_layer": "backend", "reason": "...", "next_action": "..."}
 ```

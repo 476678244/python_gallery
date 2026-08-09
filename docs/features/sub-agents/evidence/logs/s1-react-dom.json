@@ -1,0 +1,19 @@
+{
+  "subagent": true,
+  "lookAheadCount": 3,
+  "lookAhead": [
+    "收集 A 的来源与时间线",
+    "压缩成 5 条要点",
+    "按 expected_output 交回主线程"
+  ],
+  "nestedTool": true,
+  "nestedContainsMarker": true,
+  "mainReplies": [
+    "Main reply: brief summary only. No nested tool dump.",
+    "Main reply: brief summary only. No nested tool dump.",
+    "Main reply: brief summary only. No nested tool dump."
+  ],
+  "mainContainsMarker": false,
+  "halt": true,
+  "steer": true
+}

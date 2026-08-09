@@ -24,6 +24,8 @@ interface ExecutionState {
   currentThinkingStep: string | null;
   thinkingSteps: string[];
   isThinking: boolean;
+  /** Stop-the-World latch (Halt). Cleared on next startExecution. */
+  worldStopped: boolean;
 }
 
 interface ExecutionActions {
@@ -56,6 +58,7 @@ interface ExecutionActions {
   // SSE event handler
   handleExecutionStepEvent: (messageId: string, event: {
     step_id?: string;
+    parent_step_id?: string;
     name?: string;
     step_type?: string;
     status?: string;
@@ -65,6 +68,11 @@ interface ExecutionActions {
     active_skills?: string[];
     skills_invoked?: string[];
     skills_loaded?: string[];
+    agent_name?: string;
+    step_now?: string;
+    look_ahead?: string[];
+    expected_output?: string;
+    error?: string;
   }) => void;
 
   // Queries
@@ -77,6 +85,11 @@ interface ExecutionActions {
   // Remap execution messageId (frontend UUID → backend message_id)
   remapExecution: (oldMessageId: string, newMessageId: string) => void;
 
+  /** Halt: mark all running steps cancelled (Stop the World). */
+  haltActiveSteps: () => void;
+  /** Steer: mark running steps redirected before USER_STEER inject. */
+  redirectActiveSteps: () => void;
+
   // Cleanup
   clearExecution: (messageId: string) => void;
   clearAllExecutions: () => void;
@@ -88,6 +101,7 @@ const initialExecutionState: ExecutionState = {
   currentThinkingStep: null,
   thinkingSteps: [],
   isThinking: false,
+  worldStopped: false,
 };
 
 export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
@@ -100,6 +114,7 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
         state.activeExecutions[messageId] = graph;
         state.isThinking = true;
         state.thinkingSteps = [];
+        state.worldStopped = false;
       });
       return graph;
     },
@@ -247,13 +262,29 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
 
         const stepId = event.step_id || crypto.randomUUID();
         const stepType = (event.step_type || "reasoning") as ExecutionStepType;
+        const status = (event.status || "completed") as ExecutionStep["status"];
 
-        // Find existing step by step_id
+        const patchBrief = (step: ExecutionStep) => {
+          if (event.agent_name) step.agentName = event.agent_name;
+          if (event.step_now) step.stepNow = event.step_now;
+          if (event.look_ahead) step.lookAhead = event.look_ahead;
+          if (event.expected_output) step.expectedOutput = event.expected_output;
+          if (event.error) step.error = event.error;
+          if (event.parent_step_id) step.parentId = event.parent_step_id;
+        };
+
+        const linkParent = (childId: string, parentId?: string) => {
+          if (!parentId) return;
+          const parent = graph.steps.find((s) => s.id === parentId);
+          if (!parent) return;
+          if (!parent.childrenIds) parent.childrenIds = [];
+          if (!parent.childrenIds.includes(childId)) parent.childrenIds.push(childId);
+        };
+
         let existing = graph.steps.find((s) => s.id === stepId);
 
-        if (event.status === "running") {
+        if (status === "running") {
           if (!existing) {
-            // Create new step
             const newStep: ExecutionStep = {
               id: stepId,
               name: event.name || stepId,
@@ -265,18 +296,26 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
               activeSkills: event.active_skills,
               skillsInvoked: event.skills_invoked,
               skillsLoaded: event.skills_loaded,
+              childrenIds: [],
             };
+            patchBrief(newStep);
             graph.steps.push(newStep);
+            linkParent(stepId, event.parent_step_id);
           } else {
             existing.status = "running";
             existing.startedAt = new Date();
             if (event.sub) existing.sub = event.sub;
+            if (event.chips) existing.chips = event.chips;
             if (event.active_skills) existing.activeSkills = event.active_skills;
             if (event.skills_loaded) existing.skillsLoaded = event.skills_loaded;
+            patchBrief(existing);
           }
-        } else if (event.status === "completed") {
+        } else {
+          // completed | failed | cancelled | redirected | error
+          const mapped =
+            status === "error" ? "error" : status;
           if (existing) {
-            existing.status = "completed";
+            existing.status = mapped;
             existing.completedAt = new Date();
             existing.duration = event.duration;
             if (event.sub) existing.sub = event.sub;
@@ -284,20 +323,24 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
             if (event.active_skills) existing.activeSkills = event.active_skills;
             if (event.skills_invoked) existing.skillsInvoked = event.skills_invoked;
             if (event.skills_loaded) existing.skillsLoaded = event.skills_loaded;
+            patchBrief(existing);
           } else {
-            // Create completed step directly (missed the running event)
-            graph.steps.push({
+            const newStep: ExecutionStep = {
               id: stepId,
               name: event.name || stepId,
               type: stepType,
-              status: "completed",
+              status: mapped,
               completedAt: new Date(),
               duration: event.duration,
               sub: event.sub,
               chips: event.chips,
               skillsInvoked: event.skills_invoked,
               skillsLoaded: event.skills_loaded,
-            });
+              childrenIds: [],
+            };
+            patchBrief(newStep);
+            graph.steps.push(newStep);
+            linkParent(stepId, event.parent_step_id);
           }
         }
       });
@@ -354,6 +397,50 @@ export const useExecutionStore = create<ExecutionState & ExecutionActions>()(
           state.completedExecutions[newMessageId] = graph;
           delete state.completedExecutions[oldMessageId];
         }
+      });
+    },
+
+    haltActiveSteps: () => {
+      set((state) => {
+        // Latch even if stream already finished (Fail Fast / Halt idempotent)
+        state.worldStopped = true;
+        const graphs = [
+          ...Object.values(state.activeExecutions),
+          ...Object.values(state.completedExecutions),
+        ];
+        for (const graph of graphs) {
+          for (const step of graph.steps) {
+            if (step.status === "running") {
+              step.status = "cancelled";
+              step.completedAt = new Date();
+              step.chips = [...(step.chips || []).filter((c) => c !== "running"), "halt"];
+            }
+          }
+        }
+        state.isThinking = false;
+      });
+    },
+
+    redirectActiveSteps: () => {
+      set((state) => {
+        const graphs = [
+          ...Object.values(state.activeExecutions),
+          ...Object.values(state.completedExecutions),
+        ];
+        for (const graph of graphs) {
+          for (const step of graph.steps) {
+            if (step.status === "running") {
+              step.status = "redirected";
+              step.completedAt = new Date();
+              step.chips = [
+                ...(step.chips || []).filter((c) => c !== "running"),
+                "redirect",
+                "steer-main",
+              ];
+            }
+          }
+        }
+        state.isThinking = false;
       });
     },
 

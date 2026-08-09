@@ -8,7 +8,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronDown, Plus, Shield, Loader2, Cpu } from "lucide-react";
+import { ChevronDown, Plus, Shield, Loader2, Cpu, Trash2 } from "lucide-react";
 import { useSessionStore } from "@/stores/session-store";
 import { useModelStore, resolveActiveModelId } from "@/stores/model-store";
 import { SessionList } from "./session-list";
@@ -171,13 +171,24 @@ function ToolTreeSection() {
 
 // ── Main Sidebar ──────────────────────────────────────────────────
 export function Sidebar() {
-  const { createSession, isCreating, sessions } = useSessionStore();
+  const { createSession, clearAllSessions, isCreating, isDeleting, sessions } =
+    useSessionStore();
   const { loadGlobalModel } = useModelStore();
 
   const handleNewChat = async () => {
     // Fail Fast: refuse New Chat if global model cannot be loaded.
     const model = await loadGlobalModel();
     await createSession("New Chat", model);
+  };
+
+  const handleClearAllChats = async () => {
+    if (sessions.length === 0) return;
+    const ok = window.confirm(
+      `清空全部 ${sessions.length} 个聊天？\n此操作会删除会话与消息，不可恢复。`
+    );
+    if (!ok) return;
+    const { deletedCount } = await clearAllSessions();
+    console.info(`[Sidebar] Cleared ${deletedCount} chats`);
   };
 
   return (
@@ -195,7 +206,7 @@ export function Sidebar() {
 
         {/* ① Chats */}
         <SbSection icon="💬" title="Chats" badge={sessions.length} defaultOpen={true}>
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 space-y-1.5">
             <button
               onClick={() => {
                 void handleNewChat().catch((err) => {
@@ -207,7 +218,7 @@ export function Sidebar() {
                   );
                 });
               }}
-              disabled={isCreating}
+              disabled={isCreating || isDeleting}
               data-testid="new-chat-button"
               className={cn(
                 "w-full flex items-center justify-center gap-1.5 py-1.5 px-3",
@@ -219,6 +230,36 @@ export function Sidebar() {
             >
               {isCreating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
               New Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleClearAllChats().catch((err) => {
+                  console.error("[Sidebar] Clear all chats failed (Fail Fast)", err);
+                  window.alert(
+                    err instanceof Error
+                      ? err.message
+                      : "[Sidebar] Clear all chats failed: unknown error"
+                  );
+                });
+              }}
+              disabled={isCreating || isDeleting || sessions.length === 0}
+              data-testid="clear-all-chats-button"
+              title="清空全部聊天"
+              className={cn(
+                "w-full flex items-center justify-center gap-1.5 py-1.5 px-3",
+                "border border-slate-200 rounded-lg",
+                "text-xs font-medium text-slate-500",
+                "hover:border-red-300 hover:text-red-700 hover:bg-red-50",
+                "transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              )}
+            >
+              {isDeleting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="w-3.5 h-3.5" />
+              )}
+              清空全部
             </button>
           </div>
           <SessionList />

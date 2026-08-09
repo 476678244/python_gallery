@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Keep app source helpers (Python packaging `lib/` above is too broad)
+!safeclaw-ui/my-app/src/**/lib/
 parts/
 sdist/
 var/

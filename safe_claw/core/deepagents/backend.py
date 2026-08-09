@@ -507,7 +507,8 @@ class FilesystemBackendConfig:
     base_path: str  # Base directory for file operations
     encrypt_files: bool = True  # Encrypt file contents
     encryption_key: Optional[str] = None  # Encryption key (derived if None)
-    allow_write: bool = True  # Allow file write operations
+    allow_write: bool = True  # Allow create (and edit unless allow_edit=False)
+    allow_edit: bool = True  # Allow in-place update/edit of existing files
     allow_delete: bool = False  # Allow file delete operations
     max_file_size: int = 10 * 1024 * 1024  # 10MB max file size
     allowed_extensions: Optional[List[str]] = None  # Allowed file extensions
@@ -765,6 +766,10 @@ class SecureFilesystemBackend:
         try:
             if not self.config.allow_write:
                 return EditResult(error="Error: Write operations not allowed")
+            if not self.config.allow_edit:
+                return EditResult(
+                    error="Error: Edit/update operations not allowed (mode gate: allow_edit=False)"
+                )
             
             resolved_path = self._resolve_path(file_path)
             
@@ -922,6 +927,131 @@ class SecureFilesystemBackend:
             logger.error(f"glob_info failed: {e}")
             return []
 
+    def download_files(self, paths: list) -> list:
+        """Download file bytes (DeepAgents BackendProtocol).
+
+        Used by skills/filesystem/summarization middleware after tool turns.
+        Partial success: one FileDownloadResponse per path.
+        """
+        from deepagents.backends.protocol import FileDownloadResponse
+
+        responses: list = []
+        for path in paths or []:
+            try:
+                if not path or not str(path).strip():
+                    responses.append(
+                        FileDownloadResponse(
+                            path=str(path), content=None, error="invalid_path"
+                        )
+                    )
+                    continue
+                resolved = self._resolve_path(str(path))
+                if not resolved.exists():
+                    responses.append(
+                        FileDownloadResponse(
+                            path=str(path), content=None, error="file_not_found"
+                        )
+                    )
+                    continue
+                if resolved.is_dir():
+                    responses.append(
+                        FileDownloadResponse(
+                            path=str(path), content=None, error="is_directory"
+                        )
+                    )
+                    continue
+                raw = resolved.read_bytes()
+                if self.config.encrypt_files and self._fernet:
+                    try:
+                        text = self._decrypt_content(raw.decode("utf-8"))
+                        raw = text.encode("utf-8")
+                    except Exception:
+                        # Binary / non-encrypted payload written outside write()
+                        pass
+                responses.append(
+                    FileDownloadResponse(path=str(path), content=raw, error=None)
+                )
+            except PermissionError:
+                responses.append(
+                    FileDownloadResponse(
+                        path=str(path), content=None, error="permission_denied"
+                    )
+                )
+            except ValueError:
+                responses.append(
+                    FileDownloadResponse(
+                        path=str(path), content=None, error="invalid_path"
+                    )
+                )
+            except Exception as e:
+                logger.error("[SecureFilesystemBackend] download_files failed: %s", e)
+                responses.append(
+                    FileDownloadResponse(
+                        path=str(path), content=None, error="invalid_path"
+                    )
+                )
+        return responses
+
+    def upload_files(self, files: list) -> list:
+        """Upload file bytes (DeepAgents BackendProtocol). Respects allow_write / create-only."""
+        from deepagents.backends.protocol import FileUploadResponse
+
+        responses: list = []
+        for item in files or []:
+            try:
+                path, content = item
+            except (TypeError, ValueError):
+                responses.append(
+                    FileUploadResponse(path=str(item), error="invalid_path")
+                )
+                continue
+            try:
+                if not self.config.allow_write:
+                    responses.append(
+                        FileUploadResponse(path=str(path), error="permission_denied")
+                    )
+                    continue
+                if not path or not str(path).strip():
+                    responses.append(
+                        FileUploadResponse(path=str(path), error="invalid_path")
+                    )
+                    continue
+                if not isinstance(content, (bytes, bytearray)):
+                    raise ValueError(
+                        f"[SecureFilesystemBackend] upload_files content must be bytes\n"
+                        f"  Path: {path}\n"
+                        f"  Actual type: {type(content)}"
+                    )
+                resolved = self._resolve_path(str(path))
+                if resolved.exists() and not self.config.allow_edit:
+                    # create-only: refuse overwrite
+                    responses.append(
+                        FileUploadResponse(path=str(path), error="permission_denied")
+                    )
+                    continue
+                if len(content) > self.config.max_file_size:
+                    responses.append(
+                        FileUploadResponse(path=str(path), error="permission_denied")
+                    )
+                    continue
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                resolved.write_bytes(bytes(content))
+                responses.append(FileUploadResponse(path=str(path), error=None))
+            except PermissionError:
+                responses.append(
+                    FileUploadResponse(path=str(path), error="permission_denied")
+                )
+            except ValueError:
+                responses.append(
+                    FileUploadResponse(path=str(path), error="invalid_path")
+                )
+            except Exception as e:
+                logger.error("[SecureFilesystemBackend] upload_files failed: %s", e)
+                responses.append(
+                    FileUploadResponse(path=str(path), error="invalid_path")
+                )
+        return responses
+
 
 class FilesystemBackendFactory:
     """Factory for creating filesystem backends"""
@@ -935,6 +1065,7 @@ class FilesystemBackendFactory:
                 encrypt_files=config.get("encrypt_files", True),
                 encryption_key=config.get("encryption_key"),
                 allow_write=config.get("allow_write", True),
+                allow_edit=config.get("allow_edit", True),
                 allow_delete=config.get("allow_delete", False),
                 max_file_size=config.get("max_file_size", 10 * 1024 * 1024),
                 allowed_extensions=config.get("allowed_extensions")

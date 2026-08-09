@@ -9,6 +9,7 @@ import {
   Terminal,
   Eye,
   Brain,
+  Presentation,
   ChevronDown,
   GripHorizontal,
   GripVertical,
@@ -19,7 +20,10 @@ import { useUIStore, type RightPanelKey } from "@/stores/ui-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useSkillStore } from "@/stores/skill-store";
 import { useMessageStore } from "@/stores/message-store";
+import { useDeckPreviewStore } from "@/stores/deck-preview-store";
 import { MemoryPanel } from "@/features/memory/components/memory-panel";
+import { abortChat } from "@/features/chat/services/chat-api";
+import { dispatchSendPrompt } from "@/features/chat/lib/send-prompt-event";
 import { cn } from "@/lib/utils";
 import type { ExecutionStep } from "@/entities/execution";
 
@@ -32,6 +36,7 @@ const RAIL_ITEMS: {
   badgeVariant?: "green" | "amber" | "blue";
 }[] = [
   { key: "exec",    icon: TrendingUp,   label: "Exec",    badge: "✓",     badgeVariant: "green" },
+  { key: "deck",    icon: Presentation, label: "Deck",    badge: "ppt",   badgeVariant: "blue" },
   { key: "skills",  icon: Wrench,       label: "Skills",  badge: "2",     badgeVariant: "blue" },
   { key: "budget",  icon: Coins,        label: "Budget" },
   { key: "log",     icon: ClipboardList,label: "Log",     badge: "live",  badgeVariant: "amber" },
@@ -44,6 +49,7 @@ const RAIL_DIVIDER_AFTER: RightPanelKey[] = ["budget", "shell"];
 
 const PANEL_TITLES: Record<RightPanelKey, string> = {
   exec:    "Execution Path",
+  deck:    "Deck Preview",
   skills:  "Skills Path",
   budget:  "Prompt Budget",
   log:     "Backend Log",
@@ -71,8 +77,412 @@ function ExecChip({ text }: { text: string }) {
 function stepDotColor(step: ExecutionStep) {
   if (step.status === "completed") return "bg-green-500 border-green-100";
   if (step.status === "running")   return "bg-blue-500 border-blue-100 animate-pulse";
-  if (step.status === "error")     return "bg-red-500 border-red-100";
+  if (step.status === "error" || step.status === "failed") return "bg-red-500 border-red-100";
+  if (step.status === "cancelled" || step.status === "redirected") return "bg-amber-500 border-amber-100";
   return "bg-slate-300 border-slate-100";
+}
+
+const DEFAULT_STEER =
+  "换个方向：只查本地配置里的 enabled_skills，不要再做开放网页检索。";
+
+function DeckPreviewPanel() {
+  const deckId = useDeckPreviewStore((s) => s.deckId);
+  const version = useDeckPreviewStore((s) => s.version);
+  const previewUrls = useDeckPreviewStore((s) => s.previewUrls);
+  const selectedSlide = useDeckPreviewStore((s) => s.selectedSlide);
+  const error = useDeckPreviewStore((s) => s.error);
+  const versions = useDeckPreviewStore((s) => s.versions);
+  const selectSlide = useDeckPreviewStore((s) => s.selectSlide);
+  const selectVersion = useDeckPreviewStore((s) => s.selectVersion);
+  const [steerOpen, setSteerOpen] = useState(false);
+  const [steerText, setSteerText] = useState("");
+  const [steerScope, setSteerScope] = useState<"slide" | "deck">("slide");
+
+  const currentUrl = previewUrls[selectedSlide - 1];
+
+  const submitSteer = () => {
+    const need = steerText.trim();
+    if (!need) {
+      throw new Error(
+        "[DeckPreview] PPT_STEER requires non-empty 需求\n  Actual: empty"
+      );
+    }
+    const header =
+      steerScope === "deck"
+        ? `[PPT_STEER] scope=deck`
+        : `[PPT_STEER] slide=${selectedSlide}`;
+    const lines = [
+      header,
+      deckId ? `deck_id: ${deckId}` : null,
+      version != null ? `version: ${version}` : null,
+      `需求：${need}`,
+    ].filter(Boolean);
+    dispatchSendPrompt(lines.join("\n"));
+    setSteerOpen(false);
+    setSteerText("");
+  };
+
+  return (
+    <div className="p-2 space-y-2" data-testid="deck-preview-panel">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-slate-600 truncate">
+          {deckId ? (
+            <>
+              <span className="font-semibold text-slate-800">{deckId}</span>
+              {version != null ? ` · v${version}` : ""}
+              {previewUrls.length ? ` · ${previewUrls.length} slides` : ""}
+            </>
+          ) : (
+            <span className="text-slate-400">No deck yet — save + preview in /ppt</span>
+          )}
+        </div>
+        <div className="flex gap-1 shrink-0">
+          <button
+            type="button"
+            data-testid="ppt-steer-slide"
+            className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 bg-white hover:bg-slate-50"
+            onClick={() => {
+              setSteerScope("slide");
+              setSteerOpen(true);
+            }}
+          >
+            提需求·页
+          </button>
+          <button
+            type="button"
+            data-testid="ppt-steer-deck"
+            className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 bg-white hover:bg-slate-50"
+            onClick={() => {
+              setSteerScope("deck");
+              setSteerOpen(true);
+            }}
+          >
+            提需求·全局
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {error}
+        </div>
+      ) : null}
+
+      {versions.length > 1 ? (
+        <div className="flex flex-wrap gap-1" data-testid="deck-version-list">
+          {versions.map((v) => (
+            <button
+              key={v.version}
+              type="button"
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded border",
+                v.version === version
+                  ? "border-blue-400 bg-blue-50 text-blue-800"
+                  : "border-slate-200 text-slate-500"
+              )}
+              onClick={() => selectVersion(v.version)}
+            >
+              v{v.version}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {currentUrl ? (
+        <div className="rounded border border-slate-200 bg-slate-50 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={currentUrl}
+            alt={`Slide ${selectedSlide}`}
+            className="w-full h-auto max-h-56 object-contain bg-white"
+            data-testid="deck-preview-main"
+          />
+        </div>
+      ) : (
+        <div
+          className="h-28 rounded border border-dashed border-slate-200 flex items-center justify-center text-[11px] text-slate-400"
+          data-testid="deck-preview-empty"
+        >
+          Waiting for safe_claw_ppt_preview…
+        </div>
+      )}
+
+      {previewUrls.length > 0 ? (
+        <div className="flex gap-1 overflow-x-auto pb-1" data-testid="deck-thumb-strip">
+          {previewUrls.map((url, i) => {
+            const n = i + 1;
+            return (
+              <button
+                key={url}
+                type="button"
+                onClick={() => selectSlide(n)}
+                className={cn(
+                  "shrink-0 w-14 h-10 rounded border overflow-hidden",
+                  n === selectedSlide ? "border-blue-500 ring-1 ring-blue-300" : "border-slate-200"
+                )}
+                data-testid={`deck-thumb-${n}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`thumb ${n}`} className="w-full h-full object-cover" />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {steerOpen ? (
+        <div
+          className="rounded border border-amber-200 bg-amber-50 p-2 space-y-1.5"
+          data-testid="ppt-steer-modal"
+        >
+          <p className="text-[10px] font-semibold text-amber-900 uppercase tracking-wide">
+            {steerScope === "deck" ? "全局提需求" : `第 ${selectedSlide} 页提需求`}
+          </p>
+          <textarea
+            data-testid="ppt-steer-input"
+            className="w-full text-[12px] rounded border border-amber-200 p-1.5 min-h-[56px]"
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+            placeholder="例如：标题改短、留白加大…"
+          />
+          <div className="flex gap-1 justify-end">
+            <button
+              type="button"
+              className="text-[10px] px-2 py-1 rounded border border-slate-200 bg-white"
+              onClick={() => setSteerOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              data-testid="ppt-steer-send"
+              className="text-[10px] px-2 py-1 rounded bg-amber-600 text-white"
+              onClick={submitSteer}
+            >
+              发送 PPT_STEER
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExecPanelHeadControls() {
+  const [steerOpen, setSteerOpen] = useState(false);
+  const [steerHint, setSteerHint] = useState(DEFAULT_STEER);
+  const haltActiveSteps = useExecutionStore((s) => s.haltActiveSteps);
+  const redirectActiveSteps = useExecutionStore((s) => s.redirectActiveSteps);
+  const worldStopped = useExecutionStore((s) => s.worldStopped);
+  const cancelStreaming = useMessageStore((s) => s.cancelStreaming);
+  const isStreaming = useMessageStore((s) => s.isStreaming);
+
+  const onHalt = useCallback(() => {
+    abortChat();
+    cancelStreaming();
+    haltActiveSteps();
+  }, [cancelStreaming, haltActiveSteps]);
+
+  const onSteerConfirm = useCallback(() => {
+    const hint = steerHint.trim() || DEFAULT_STEER;
+    abortChat();
+    cancelStreaming();
+    redirectActiveSteps();
+    // Inject short control signal and stream a new main turn (not store-only)
+    dispatchSendPrompt(
+      `[USER_STEER] 要换个方向。\n新方向：${hint}\n要求：取消当前 subagent；重新看三步后 spawn；勿合并旧子轨迹。`
+    );
+    setSteerOpen(false);
+  }, [steerHint, cancelStreaming, redirectActiveSteps]);
+
+  // Keyboard: Esc = Halt, R = open Steer (when Exec pack open; skip if typing in inputs)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || t?.isContentEditable) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onHalt();
+        return;
+      }
+      if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (worldStopped || isStreaming) return;
+        e.preventDefault();
+        setSteerOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onHalt, worldStopped, isStreaming]);
+
+  return (
+    <>
+      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          data-testid="exec-btn-steer"
+          title="纠正方向 (R)"
+          disabled={worldStopped}
+          onClick={() => setSteerOpen(true)}
+          className={cn(
+            "h-6 px-2 rounded-md text-[11px] font-medium border",
+            "bg-white text-amber-800 border-amber-300 hover:bg-amber-50",
+            "disabled:opacity-40 disabled:cursor-not-allowed"
+          )}
+        >
+          纠正方向
+        </button>
+        <button
+          type="button"
+          data-testid="exec-btn-halt"
+          title="STOP THE WORLD (Esc)"
+          onClick={onHalt}
+          className="h-6 px-2 rounded-md text-[11px] font-medium bg-red-600 text-white hover:brightness-105"
+        >
+          Halt
+        </button>
+      </div>
+      {steerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          data-testid="steer-modal"
+          onClick={() => setSteerOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-lg w-[420px] max-w-[90vw] p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-slate-800">纠正方向</p>
+            <p className="text-[11px] text-slate-500">
+              取消当前 subagent，并向 main 注入短控制信号（不回灌旧子轨迹）。
+            </p>
+            <textarea
+              className="w-full h-24 text-xs border border-slate-200 rounded-md p-2"
+              value={steerHint}
+              onChange={(e) => setSteerHint(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-7 px-3 text-[11px] border border-slate-200 rounded-md"
+                onClick={() => setSteerOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                data-testid="steer-confirm"
+                className="h-7 px-3 text-[11px] rounded-md bg-amber-500 text-white font-medium"
+                onClick={onSteerConfirm}
+              >
+                确认纠正并提示 Main
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ExecStepNode({
+  step,
+  stepsById,
+  isLast,
+  nested,
+}: {
+  step: ExecutionStep;
+  stepsById: Map<string, ExecutionStep>;
+  isLast: boolean;
+  nested: boolean;
+}) {
+  const children = (step.childrenIds || [])
+    .map((id) => stepsById.get(id))
+    .filter((s): s is ExecutionStep => Boolean(s));
+  const isSubagent = step.type === "subagent";
+  const isNestedTool = nested && step.type === "tool_call";
+
+  return (
+    <div>
+      <div
+        className={cn("flex gap-2", nested && "ml-3 pl-2 border-l border-slate-200")}
+        data-testid={
+          isSubagent ? "exec-step-subagent" : isNestedTool ? "exec-step-nested-tool" : undefined
+        }
+      >
+        <div className="flex flex-col items-center w-5 flex-shrink-0">
+          <div className={cn("w-2.5 h-2.5 rounded-full border-2 mt-0.5 flex-shrink-0", stepDotColor(step))} />
+          {(!isLast || children.length > 0) && <div className="w-px flex-1 bg-slate-200 my-1" />}
+        </div>
+        <div className="flex-1 pb-3 min-w-0">
+          <p className="text-xs font-semibold text-slate-800">{step.name}</p>
+          {step.sub && (
+            <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">{step.sub}</p>
+          )}
+          {step.chips && step.chips.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {step.chips.map((c, ci) => <ExecChip key={ci} text={c} />)}
+            </div>
+          )}
+          {isSubagent && (
+            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 space-y-1.5" data-testid="subagent-block">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Subagent · 默认展开
+              </p>
+              {step.agentName && (
+                <p className="text-[11px] text-slate-600">
+                  <span className="text-slate-400">agent </span>{step.agentName}
+                </p>
+              )}
+              {step.stepNow && (
+                <p className="text-[11px] text-slate-600">
+                  <span className="text-slate-400">step_now </span>{step.stepNow}
+                </p>
+              )}
+              {step.expectedOutput && (
+                <p className="text-[11px] text-slate-600">
+                  <span className="text-slate-400">expected </span>{step.expectedOutput}
+                </p>
+              )}
+              {step.lookAhead && step.lookAhead.length > 0 && (
+                <ol className="list-decimal list-inside space-y-0.5 mt-1">
+                  {step.lookAhead.map((item, i) => (
+                    <li
+                      key={i}
+                      data-testid="look-ahead-item"
+                      className="text-[11px] text-slate-700"
+                    >
+                      {item}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {step.error && (
+                <pre className="text-[10px] text-red-700 bg-red-50 border border-red-100 rounded p-1.5 whitespace-pre-wrap">
+                  {step.error}
+                </pre>
+              )}
+            </div>
+          )}
+          {!isSubagent && step.error && (
+            <pre className="mt-1 text-[10px] text-red-700 bg-red-50 border border-red-100 rounded p-1.5 whitespace-pre-wrap">
+              {step.error}
+            </pre>
+          )}
+        </div>
+      </div>
+      {children.map((child, i) => (
+        <ExecStepNode
+          key={child.id}
+          step={child}
+          stepsById={stepsById}
+          isLast={i === children.length - 1}
+          nested
+        />
+      ))}
+    </div>
+  );
 }
 
 function ExecutionPathPanel() {
@@ -87,8 +497,8 @@ function ExecutionPathPanel() {
 
   const execStore = useExecutionStore();
   const execution = mounted ? execStore.getLatestExecution() : undefined;
+  const worldStopped = mounted ? execStore.worldStopped : false;
 
-  // Get steps from current LLM call, or fallback to overall execution steps
   const currentLLMCall = execution?.llmCalls?.[currentCallIndex];
   const steps = currentLLMCall
     ? currentLLMCall.steps.filter((s) => s.name !== "Start")
@@ -97,13 +507,24 @@ function ExecutionPathPanel() {
   const isActive = currentLLMCall?.status === "running" || execution?.status === "running";
   const hasNext = currentCallIndex < totalCalls - 1;
   const hasPrev = currentCallIndex > 0;
-
-  // Show navigation if there are multiple calls
   const showNav = totalCalls > 1;
+
+  const stepsById = new Map(steps.map((s) => [s.id, s]));
+  const roots = steps.filter((s) => !s.parentId || !stepsById.has(s.parentId));
+
+  const worldBanner = worldStopped ? (
+    <div
+      data-testid="world-stopped-banner"
+      className="mb-3 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-medium text-red-700"
+    >
+      STOP THE WORLD · 现场冻结 · Steer 已禁用 · Esc 可再次 Halt
+    </div>
+  ) : null;
 
   if (steps.length === 0) {
     return (
       <div className="p-3 text-xs text-slate-400">
+        {worldBanner}
         {showNav && (
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
             <button
@@ -142,8 +563,8 @@ function ExecutionPathPanel() {
     : undefined;
 
   return (
-    <div className="p-3 space-y-0">
-      {/* Navigation for LLM Calls */}
+    <div className="p-3 space-y-0" data-testid="execution-path-panel">
+      {worldBanner}
       {showNav && (
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
           <button
@@ -175,24 +596,14 @@ function ExecutionPathPanel() {
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
         {currentLLMCall ? `Call #${currentLLMCall.callNumber} execution` : "Current run"}
       </p>
-      {steps.map((step, i) => (
-        <div key={step.id} className="flex gap-2">
-          <div className="flex flex-col items-center w-5 flex-shrink-0">
-            <div className={cn("w-2.5 h-2.5 rounded-full border-2 mt-0.5 flex-shrink-0", stepDotColor(step))} />
-            {i < steps.length - 1 && <div className="w-px flex-1 bg-slate-200 my-1" />}
-          </div>
-          <div className="flex-1 pb-3 min-w-0">
-            <p className="text-xs font-semibold text-slate-800">{step.name}</p>
-            {step.sub && (
-              <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">{step.sub}</p>
-            )}
-            {step.chips && step.chips.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {step.chips.map((c, ci) => <ExecChip key={ci} text={c} />)}
-              </div>
-            )}
-          </div>
-        </div>
+      {roots.map((step, i) => (
+        <ExecStepNode
+          key={step.id}
+          step={step}
+          stepsById={stepsById}
+          isLast={i === roots.length - 1}
+          nested={false}
+        />
       ))}
       {(currentLLMCall?.status === "completed" || (!currentLLMCall && execution?.status === "completed")) && (
         <div className="flex gap-2">
@@ -904,6 +1315,7 @@ function PromptInspectPanel() {
 function PanelBody({ panelKey }: { panelKey: RightPanelKey }) {
   switch (panelKey) {
     case "exec":    return <ExecutionPathPanel />;
+    case "deck":    return <DeckPreviewPanel />;
     case "skills":  return <SkillsPathPanel />;
     case "budget":  return <BudgetPanel />;
     case "log":     return <BackendLogPanel />;
@@ -1034,18 +1446,27 @@ function PanelCard({
       className="flex flex-col border-b border-slate-200 flex-shrink-0 overflow-hidden"
       style={expanded ? { height } : { height: 37 }}
     >
-      {/* Header */}
-      <button
-        onClick={() => collapseToggle(panelKey)}
+      {/* Header — Exec keeps Halt/Steer on the product panel head */}
+      <div
         className={cn(
-          "flex items-center gap-2 px-3 py-2 flex-shrink-0 w-full text-left transition-colors h-[37px]",
-          expanded ? "bg-slate-50 border-b border-slate-200 hover:bg-slate-100" : "hover:bg-slate-50"
+          "flex items-center gap-2 px-3 py-2 flex-shrink-0 w-full h-[37px]",
+          expanded ? "bg-slate-50 border-b border-slate-200" : ""
         )}
       >
-        <Icon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-        <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.5px] text-slate-500 truncate">
-          {PANEL_TITLES[panelKey]}
-        </span>
+        <button
+          type="button"
+          onClick={() => collapseToggle(panelKey)}
+          className={cn(
+            "flex items-center gap-2 flex-1 min-w-0 text-left transition-colors rounded",
+            "hover:bg-slate-100/80"
+          )}
+        >
+          <Icon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+          <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.5px] text-slate-500 truncate">
+            {PANEL_TITLES[panelKey]}
+          </span>
+        </button>
+        {panelKey === "exec" && expanded && <ExecPanelHeadControls />}
         {badge && (
           <span
             data-testid={panelKey === "memory" ? "memory-badge" : undefined}
@@ -1056,11 +1477,18 @@ function PanelCard({
             def.badgeVariant === "blue"  ? "bg-blue-500" : "bg-slate-400"
           )}>{badge}</span>
         )}
-        <ChevronDown className={cn(
-          "w-3 h-3 text-slate-400 flex-shrink-0 transition-transform duration-200",
-          !expanded && "-rotate-90"
-        )} />
-      </button>
+        <button
+          type="button"
+          onClick={() => collapseToggle(panelKey)}
+          className="p-0.5 rounded hover:bg-slate-100"
+          aria-label={expanded ? "Collapse panel" : "Expand panel"}
+        >
+          <ChevronDown className={cn(
+            "w-3 h-3 text-slate-400 flex-shrink-0 transition-transform duration-200",
+            !expanded && "-rotate-90"
+          )} />
+        </button>
+      </div>
       {/* Body */}
       {expanded && (
         <>

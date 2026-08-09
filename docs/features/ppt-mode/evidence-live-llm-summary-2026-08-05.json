@@ -1,0 +1,34 @@
+{
+  "session_id": "ppt-live-42b1dcd6",
+  "deck_id": "liveprobe90688",
+  "turn1_preview_events": 2,
+  "turn2_preview_events": 2,
+  "v1_ok": true,
+  "v2_ok": true,
+  "preview_refresh_ok": true,
+  "preview2_ok": true,
+  "pptx_recent": [
+    "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/liveprobe90688_v1.pptx",
+    "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/liveprobe90688_v2.pptx"
+  ],
+  "previews_recent": [
+    {
+      "dir": "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v1",
+      "png_count": 2,
+      "pngs": [
+        "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v1/slide_01.png",
+        "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v1/slide_02.png"
+      ]
+    },
+    {
+      "dir": "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v2",
+      "png_count": 2,
+      "pngs": [
+        "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v2/slide_01.png",
+        "/Users/nicole/Downloads/safe_claw_worksapce/workspace/ppt/previews/liveprobe90688_v2/slide_02.png"
+      ]
+    }
+  ],
+  "turn1_errors": [],
+  "turn2_errors": []
+}

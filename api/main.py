@@ -187,6 +187,9 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     temperature: float = 0.7
     stream: bool = True
+    # Agent execution mode (ask|agent|plan|safe|debug|subagent|ppt). None → agent.
+    # loop is invalid here (scheduler only) → 400.
+    mode: Optional[str] = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -564,6 +567,15 @@ def _save_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
     )
 
 
+def _delete_session_messages(session_id: str) -> bool:
+    """Remove persisted message file for a session. Returns True if a file was deleted."""
+    f = _messages_file(session_id)
+    if not f.exists():
+        return False
+    f.unlink()
+    return True
+
+
 SESSIONS: List[Dict[str, Any]] = _load_sessions()
 
 
@@ -615,7 +627,13 @@ def _sse(data: dict) -> str:
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Stream chat responses from SafeClaw"""
-    
+    from safe_claw.core.agent_modes import ModePolicyError, resolve_mode_policy
+
+    try:
+        mode_policy = resolve_mode_policy(request.mode)
+    except ModePolicyError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     async def event_generator() -> AsyncGenerator[str, None]:
         t0 = datetime.now().timestamp()
         msg_id = f"msg-{t0}"
@@ -631,6 +649,24 @@ async def chat_stream(request: ChatRequest):
                 yield _sse({"type": "error", "error": "No user message found"})
                 yield _sse({"type": "done", "session_id": request.session_id, "message_id": msg_id})
                 return
+
+            yield _sse({
+                "type": "execution_step",
+                "step_id": "mode_gate",
+                "name": f"Mode gate · {mode_policy.mode}",
+                "step_type": "gate",
+                "status": "completed",
+                "sub": (
+                    f"create={mode_policy.allow_create} edit={mode_policy.allow_edit} "
+                    f"delete={mode_policy.allow_delete} skill={mode_policy.skill_execute} "
+                    f"obs={mode_policy.observability}"
+                ),
+                "chips": [
+                    f"✓ {mode_policy.mode}",
+                    "create" if mode_policy.allow_create else "no-create",
+                    "edit" if mode_policy.allow_edit else "no-edit",
+                ],
+            })
             
             # ── Step 1: Parse ─────────────────────────────────────
             t_parse_start = datetime.now().timestamp()
@@ -823,6 +859,11 @@ async def chat_stream(request: ChatRequest):
             llm_service = LLMService(config=llm_config)
 
             # Create SafeClawGraphBuilder with DeepAgent — reuse global SM + MemoryManager
+            ppt_preview_events: List[Dict[str, Any]] = []
+
+            def _on_ppt_preview(payload: Dict[str, Any]) -> None:
+                ppt_preview_events.append(dict(payload))
+
             try:
                 graph_builder = SafeClawGraphBuilder(
                     llm_service=llm_service,
@@ -833,12 +874,18 @@ async def chat_stream(request: ChatRequest):
                         "max_skills": 100,
                         "system_prompt_limit": 65536,
                         "print_prompts": True,
+                        "mode_policy": mode_policy,
+                        "workspace_path": str(WORKSPACE_DIR),
+                        "session_id": request.session_id or "_default",
+                        "on_ppt_preview": _on_ppt_preview,
                         "backend": {
                             "filesystem": {
                                 "enabled": True,
                                 "base_path": str(WORKSPACE_DIR.parent),
                                 "encrypt_files": False,
-                                "allow_write": True,
+                                "allow_write": mode_policy.allow_write,
+                                "allow_edit": mode_policy.allow_edit,
+                                "allow_delete": mode_policy.allow_delete,
                             }
                         }
                     }
@@ -885,18 +932,41 @@ async def chat_stream(request: ChatRequest):
                     ]
 
                 for chunk in deep_agent.stream(messages, message_id=msg_id, session_id=request.session_id or ""):
+                    while ppt_preview_events:
+                        ev = ppt_preview_events.pop(0)
+                        yield _sse({"type": "ppt_preview", **ev})
                     if chunk.get("type") == "error":
                         stream_error = chunk.get("content") or "Unknown DeepAgent stream error"
                         has_error = True
                         logger.error("DeepAgent stream error chunk (Fail Fast): %s", stream_error)
                         break
+                    elif chunk.get("type") == "execution_step":
+                        # Subagent / nested tool observability (authoritative tree)
+                        yield _sse(chunk)
+                    elif chunk.get("type") == "ppt_preview":
+                        yield _sse(chunk)
                     elif chunk.get("thinking"):
                         yield _sse({"type": "thinking", "content": chunk["thinking"]})
                     elif chunk.get("tool"):
                         yield _sse({"type": "tool", "tool": chunk["tool"], "content": chunk.get("content", "")})
+                        # Fallback: parse ppt_preview JSON from tool result text
+                        raw = chunk.get("content") or ""
+                        if "ppt_preview" in raw and "preview_urls" in raw:
+                            try:
+                                import json as _json
+
+                                data = _json.loads(raw)
+                                if data.get("type") == "ppt_preview":
+                                    yield _sse({"type": "ppt_preview", **data})
+                            except Exception:
+                                pass
                     elif chunk.get("content"):
                         full_response = chunk["content"]
                         yield _sse({"type": "content", "content": full_response})
+
+                while ppt_preview_events:
+                    ev = ppt_preview_events.pop(0)
+                    yield _sse({"type": "ppt_preview", **ev})
 
             except Exception as e:
                 has_error = True
@@ -932,8 +1002,8 @@ async def chat_stream(request: ChatRequest):
                         "sub": f"{model_id} \u00b7 stream \u00b7 512 max tokens",
                         "chips": ["\u2713 done", f"{llm_dur}s", f"{prompt_tokens} in", f"{completion_tokens} out"]})
 
-            # Persist turn to memory when importance passes threshold
-            if full_response and global_mm is not None:
+            # Persist turn to memory when importance passes threshold (mode gate)
+            if full_response and global_mm is not None and mode_policy.memory_auto_write:
                 try:
                     stored_id = global_mm.maybe_store_conversation(
                         user_input=last_message,
@@ -945,6 +1015,10 @@ async def chat_stream(request: ChatRequest):
                 except Exception as mem_err:
                     logger.error("[chat/stream] Failed to store memory: %s", mem_err)
                     raise
+            elif full_response and not mode_policy.memory_auto_write:
+                logger.info(
+                    "[chat/stream] Skip memory auto-write (mode=%s)", mode_policy.mode
+                )
 
             # ── Done ──────────────────────────────────────────────
             total_dur = round(datetime.now().timestamp() - t0, 3)
@@ -975,7 +1049,8 @@ async def chat_stream(request: ChatRequest):
                              "chips": [f"{call.get('token_estimate', 0):.0f} in", f"{call.get('response_tokens', 0)} out"]},
                         ],
                         "active_skills": active_skills[:10] if active_skills else [],
-                        "skills_invoked": skill_names,
+                        "skills_invoked": router_skill_names,
+                        "skills_loaded": loaded.get("names") or [],
                         "prompt_tokens": int(call.get("token_estimate", prompt_tokens)),
                         "completion_tokens": call.get("response_tokens", completion_tokens),
                         "duration_ms": call.get("duration_ms", round(llm_dur * 1000, 2)),
@@ -1002,7 +1077,8 @@ async def chat_stream(request: ChatRequest):
                          "duration": llm_dur, "chips": [f"{prompt_tokens} in", f"{completion_tokens} out"]},
                     ],
                     "active_skills": active_skills[:10] if active_skills else [],
-                    "skills_invoked": skill_names,
+                    "skills_invoked": router_skill_names,
+                    "skills_loaded": loaded.get("names") or [],
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "duration_ms": round(llm_dur * 1000, 2),
@@ -1013,6 +1089,8 @@ async def chat_stream(request: ChatRequest):
                 "type": "done",
                 "session_id": request.session_id,
                 "message_id": msg_id,
+                "mode": mode_policy.mode,
+                "observability": mode_policy.observability,
                 "usage": {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
@@ -1029,7 +1107,8 @@ async def chat_stream(request: ChatRequest):
                     {"name": "Memory retrieval",      "duration": mem_dur},
                     {"name": "LLM call",              "duration": llm_dur},
                 ],
-                "skills_used": [{"name": s, "duration": 0} for s in skill_names],
+                "skills_used": [{"name": s, "duration": 0} for s in router_skill_names],
+                "skills_loaded": loaded.get("names") or [],
                 "llm_calls": llm_calls,
                 "total_calls": len(llm_calls),
             })
@@ -1179,7 +1258,11 @@ async def create_session(request: SessionCreateRequest):
             "title": request.title,
             "status": "active",
             "message_count": 0,
-            "settings": {"model": request.model or _selected_model, "enabled_skills": []},
+            "settings": {
+                "model": request.model or _selected_model,
+                "enabled_skills": [],
+                "mode": "agent",
+            },
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "last_activity_at": datetime.now().isoformat()
@@ -1224,17 +1307,55 @@ async def delete_session(id: str):
         global SESSIONS
         SESSIONS = [s for s in SESSIONS if s["id"] != id]
         _save_sessions(SESSIONS)
+        _delete_session_messages(id)
         return {"success": True, "deleted_id": id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/sessions/all")
+async def delete_all_sessions():
+    """One-click clear: delete every session + message files (Fail Fast, no soft archive)."""
+    global SESSIONS
+    ids = [s["id"] for s in SESSIONS]
+    message_files_removed = 0
+    if MESSAGES_DIR.exists():
+        for f in MESSAGES_DIR.glob("*.json"):
+            try:
+                f.unlink()
+                message_files_removed += 1
+            except OSError as e:
+                raise RuntimeError(
+                    f"[sessions/all] Failed to delete message file (Fail Fast)\n"
+                    f"  Path: {f}\n"
+                    f"  Error: {e}"
+                ) from e
+    count = len(ids)
+    SESSIONS = []
+    _save_sessions(SESSIONS)
+    logger.info(
+        "[sessions/all] Cleared %s sessions, message_files_removed=%s",
+        count,
+        message_files_removed,
+    )
+    return {
+        "success": True,
+        "deleted_count": count,
+        "deleted_ids": ids,
+        "message_files_removed": message_files_removed,
+    }
+
+
 @app.delete("/sessions/{session_id}")
 async def delete_session_by_path(session_id: str):
     """Delete session by path param: DELETE /sessions/{id}"""
+    if session_id == "all":
+        # Defensive: static route /sessions/all should win; never treat "all" as an id.
+        return await delete_all_sessions()
     global SESSIONS
     SESSIONS = [s for s in SESSIONS if s["id"] != session_id]
     _save_sessions(SESSIONS)
+    _delete_session_messages(session_id)
     return {"success": True, "deleted_id": session_id}
 
 
@@ -1615,17 +1736,45 @@ async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
         candidate.parent.mkdir(parents=True, exist_ok=True)
         content = await file.read()
         candidate.write_bytes(content)
-
-        return {
-            "success": True,
-            "path": str(candidate),
-            "size": len(content),
-            "filename": file.filename,
-        }
+        rel = str(candidate.relative_to(WORKSPACE_DIR.resolve()))
+        return {"ok": True, "path": rel, "bytes": len(content)}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logger.error("Upload failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/workspace-file")
+async def get_workspace_file(path: str):
+    """Serve a file under WORKSPACE_DIR only (PPT previews, etc.)."""
+    from fastapi.responses import FileResponse
+
+    raw = (path or "").strip().lstrip("/")
+    if not raw:
+        raise HTTPException(
+            status_code=400,
+            detail="[workspace-file] path is required\n  Actual: empty",
+        )
+    candidate = (WORKSPACE_DIR / raw).resolve()
+    try:
+        candidate.relative_to(WORKSPACE_DIR.resolve())
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"[workspace-file] Path escapes WORKSPACE_DIR\n"
+                f"  Requested: {path}\n"
+                f"  Resolved: {candidate}\n"
+                f"  Allowed root: {WORKSPACE_DIR}"
+            ),
+        ) from e
+    if not candidate.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"[workspace-file] Not found\n  Path: {candidate}",
+        )
+    return FileResponse(candidate)
 
 
 # LLM Call Logs endpoint

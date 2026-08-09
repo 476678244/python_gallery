@@ -33,19 +33,38 @@ import { useExecutionStore } from "@/stores/execution-store";
 import { useSkillStore } from "@/stores/skill-store";
 import { useUIStore } from "@/stores/ui-store";
 import { streamChat } from "@/features/chat/services/chat-api";
+import {
+  SEND_PROMPT_EVENT,
+  type SendPromptDetail,
+} from "@/features/chat/lib/send-prompt-event";
 import { getEnabledModels, getModelById, type Model } from "@/entities/model";
 import { useModelStore, resolveActiveModelId } from "@/stores/model-store";
 import {
   SLASH_COMMANDS,
+  MODE_SLASH_IDS,
   filterCommands,
   parseSlashCommand,
   type SlashCommandDef,
   type SlashMode,
 } from "@/features/chat/slash/commands";
+import {
+  isAgentMode,
+  modeWriteChips,
+  parseAgentMode,
+  type AgentMode,
+} from "@/entities/agent-mode";
 import { cn } from "@/shared/utils/cn";
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
   help: HelpCircle,
+  ask: HelpCircle,
+  agent: Sparkles,
+  plan: FileText,
+  safe: Check,
+  debug: Code,
+  subagent: Wrench,
+  ppt: FileText,
+  loop: Command,
   model: Cpu,
   skill: Wrench,
   remember: Brain,
@@ -53,6 +72,22 @@ const COMMAND_ICONS: Record<string, LucideIcon> = {
   clear: Eraser,
   new: MessageSquarePlus,
 };
+
+/** Parse `/loop [interval] prompt` — interval like 30s, 5m, 2h. */
+function parseLoopArgs(args: string): { intervalMs: number; prompt: string } | null {
+  const trimmed = args.trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/^(\d+)\s*([smhd])\s+(.+)$/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const unit = m[2].toLowerCase();
+    const mult =
+      unit === "s" ? 1000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000;
+    return { intervalMs: Math.max(n * mult, 5000), prompt: m[3].trim() };
+  }
+  // default 5m if no interval
+  return { intervalMs: 5 * 60_000, prompt: trimmed };
+}
 
 const QUICK_ACTIONS = [
   { icon: Sparkles, label: "Research", color: "text-purple-500" },
@@ -93,6 +128,7 @@ interface ChatInputProps {
 }
 
 import { useSessionStore } from "@/stores/session-store";
+import { useDeckPreviewStore } from "@/stores/deck-preview-store";
 
 export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, onFileUpload }: ChatInputProps) {
   // Get session from store if not provided via props
@@ -118,6 +154,39 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
   const [slashNotice, setSlashNotice] = useState<string | null>(null);
   const railToggle = useUIStore((s) => s.railToggle);
   const isPanelOpen = useUIStore((s) => s.isPanelOpen);
+  const applyObservabilityPack = useUIStore((s) => s.applyObservabilityPack);
+  const loopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loopDoneConditionRef = useRef<string>("");
+  const [loopStatus, setLoopStatus] = useState<string | null>(null);
+  /** Pending loop awaiting human confirmation of done/stop condition (Fail Fast). */
+  const [loopConfirm, setLoopConfirm] = useState<{
+    intervalMs: number;
+    prompt: string;
+    doneCondition: string;
+  } | null>(null);
+
+  const sessionMode: AgentMode = parseAgentMode(
+    sessions.find((s) => s.id === sessionId)?.settings?.mode
+  );
+  const writeChips = modeWriteChips(sessionMode);
+
+  // Re-apply pack on mount / session switch / reload (ppt/debug/subagent sticky)
+  useEffect(() => {
+    if (!sessionId) return;
+    applyObservabilityPack(writeChips.observability);
+  }, [sessionId, sessionMode, applyObservabilityPack, writeChips.observability]);
+
+  const stopLoop = useCallback(() => {
+    if (loopTimerRef.current) {
+      clearInterval(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
+    loopDoneConditionRef.current = "";
+    setLoopStatus(null);
+    setLoopConfirm(null);
+  }, []);
+
+  useEffect(() => () => stopLoop(), [stopLoop]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashDropdownRef = useRef<HTMLDivElement>(null);
@@ -224,160 +293,190 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     handleExecutionStepEvent,
   } = useExecutionStore();
 
+  const sendPromptContent = useCallback(
+    async (rawContent: string, files: UploadedFile[] = []) => {
+      if (isStreaming || !sessionId) return;
+      const content = rawContent.trim();
+      if (!content && files.length === 0) return;
+
+      // Fail Fast before mutating UI / starting stream
+      if (!currentModelId) {
+        const message =
+          `[ChatInput] Refuse to stream: model not resolved\n` +
+          `  sessionId: ${sessionId}\n` +
+          `  modelLoaded: ${modelLoaded}\n` +
+          `  modelError: ${modelError}\n` +
+          `  globalModelId: ${globalModelId}`;
+        console.error(message);
+        window.alert(message);
+        throw new Error(message);
+      }
+
+      const messageContent =
+        files.length > 0
+          ? `${content}\n\n[Attached files: ${files.map((f) => f.name).join(", ")}]`
+          : content;
+      addUserMessage(messageContent, sessionId);
+
+      if (files.length > 0 && onFileUpload) {
+        onFileUpload(files);
+      }
+
+      const messages = getMessagesForSession(sessionId);
+      const apiMessages: { role: string; content: any }[] = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+      if (imageFiles.length > 0 && apiMessages.length > 0) {
+        const imageParts = await Promise.all(
+          imageFiles.map(async (f) => ({
+            type: "image_url",
+            image_url: { url: await readFileAsDataUrl(f.file) },
+          }))
+        );
+        const lastIdx = apiMessages.length - 1;
+        apiMessages[lastIdx] = {
+          role: apiMessages[lastIdx].role,
+          content: [
+            ...(content ? [{ type: "text", text: content }] : []),
+            ...imageParts,
+          ],
+        };
+      }
+
+      const streamingId = startStreaming(sessionId);
+      startExecution(sessionId, streamingId);
+      setThinking(true);
+
+      await streamChat(
+        {
+          messages: apiMessages,
+          sessionId: sessionId,
+          model: currentModelId,
+          mode: sessionMode,
+        },
+        {
+          onThinking: (step) => {
+            addThinkingStep(step);
+          },
+          onExecutionStep: (event) => {
+            handleExecutionStepEvent(streamingId, event);
+          },
+          onPptPreview: (event) => {
+            useDeckPreviewStore.getState().applyPreviewEvent({
+              deck_id: event.deck_id,
+              version: event.version,
+              pptx_path: event.pptx_path,
+              preview_urls: event.preview_urls,
+              error: event.error,
+            });
+          },
+          onContent: () => {
+            // Content updates handled in store
+          },
+          onComplete: (data) => {
+            completeStreaming(data.message.content);
+            completeExecution(streamingId, {
+              totalTokens: data.usage?.totalTokens,
+              skillsUsed: data.executionGraph?.metadata?.skillsUsed,
+              totalDuration: data.timing?.totalDuration,
+            });
+            const backendMsgId = data.executionGraph?.messageId;
+            if (backendMsgId && backendMsgId !== streamingId) {
+              remapExecution(streamingId, backendMsgId);
+            }
+            setThinking(false);
+            setTimeout(() => {
+              const allMessages = getMessagesForSession(sessionId!);
+              void fetch(`/api/sessions/${sessionId}/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  messages: allMessages.map((m) => ({
+                    ...m,
+                    timestamp:
+                      m.timestamp instanceof Date
+                        ? m.timestamp.toISOString()
+                        : m.timestamp,
+                  })),
+                }),
+              })
+                .then(async (r) => {
+                  if (!r.ok) {
+                    const detail = await r.text();
+                    throw new Error(
+                      `[ChatInput] Persist messages failed (Fail Fast)\n` +
+                        `  sessionId: ${sessionId}\n` +
+                        `  Status: ${r.status}\n` +
+                        `  Body: ${detail.slice(0, 200)}`
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error(err);
+                  window.alert(
+                    err instanceof Error ? err.message : "Failed to persist messages"
+                  );
+                });
+            }, 0);
+          },
+          onError: (error) => {
+            console.error("Chat error:", error);
+            cancelStreaming();
+            setThinking(false);
+          },
+        }
+      );
+    },
+    [
+      isStreaming,
+      sessionId,
+      onFileUpload,
+      currentModelId,
+      sessionMode,
+      modelLoaded,
+      modelError,
+      globalModelId,
+      addUserMessage,
+      getMessagesForSession,
+      startStreaming,
+      startExecution,
+      setThinking,
+      addThinkingStep,
+      completeStreaming,
+      completeExecution,
+      remapExecution,
+      cancelStreaming,
+      handleExecutionStepEvent,
+    ]
+  );
+
   const handleSubmit = useCallback(async () => {
     if ((!input.trim() && uploadedFiles.length === 0) || isStreaming || !sessionId) return;
-
-    // Fail Fast before mutating UI / starting stream
-    if (!currentModelId) {
-      const message =
-        `[ChatInput] Refuse to stream: model not resolved\n` +
-        `  sessionId: ${sessionId}\n` +
-        `  modelLoaded: ${modelLoaded}\n` +
-        `  modelError: ${modelError}\n` +
-        `  globalModelId: ${globalModelId}`;
-      console.error(message);
-      window.alert(message);
-      throw new Error(message);
-    }
-
     const content = input.trim();
     const files = [...uploadedFiles];
-    
-    // Reset state
     setInput("");
     setUploadedFiles([]);
     setSlashMode(null);
+    await sendPromptContent(content, files);
+  }, [input, uploadedFiles, isStreaming, sessionId, sendPromptContent]);
 
-    // Add user message (with file references if any)
-    const messageContent = files.length > 0
-      ? `${content}\n\n[Attached files: ${files.map(f => f.name).join(", ")}]`
-      : content;
-    addUserMessage(messageContent, sessionId);
-    
-    // Notify parent about file uploads
-    if (files.length > 0 && onFileUpload) {
-      onFileUpload(files);
-    }
-
-    // Get all messages for context
-    const messages = getMessagesForSession(sessionId);
-    const apiMessages: { role: string; content: any }[] = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    // Inject image attachments as multimodal content into the last user message
-    // so vision-capable models (VLM) can actually "see" them.
-    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-    if (imageFiles.length > 0 && apiMessages.length > 0) {
-      const imageParts = await Promise.all(
-        imageFiles.map(async (f) => ({
-          type: "image_url",
-          image_url: { url: await readFileAsDataUrl(f.file) },
-        }))
-      );
-      const lastIdx = apiMessages.length - 1;
-      apiMessages[lastIdx] = {
-        role: apiMessages[lastIdx].role,
-        content: [
-          ...(content ? [{ type: "text", text: content }] : []),
-          ...imageParts,
-        ],
-      };
-    }
-
-    // Start streaming
-    const streamingId = startStreaming(sessionId);
-    startExecution(sessionId, streamingId);
-    setThinking(true);
-
-    await streamChat(
-      {
-        messages: apiMessages,
-        sessionId: sessionId,
-        model: currentModelId,
-      },
-      {
-        onThinking: (step) => {
-          addThinkingStep(step);
-        },
-        onExecutionStep: (event) => {
-          handleExecutionStepEvent(streamingId, event);
-        },
-        onContent: (content) => {
-          // Content updates handled in store
-        },
-        onComplete: (data) => {
-          completeStreaming(data.message.content);
-          completeExecution(streamingId, {
-            totalTokens: data.usage?.totalTokens,
-            skillsUsed: data.executionGraph?.metadata?.skillsUsed,
-            totalDuration: data.timing?.totalDuration,
-          });
-          // Remap execution to backend's message_id so PromptInspectPanel
-          // can fetch /llm-calls/{backend_msg_id} correctly
-          const backendMsgId = data.executionGraph?.messageId;
-          if (backendMsgId && backendMsgId !== streamingId) {
-            remapExecution(streamingId, backendMsgId);
-          }
-          setThinking(false);
-          // Persist after state update is flushed
-          setTimeout(() => {
-            const allMessages = getMessagesForSession(sessionId!);
-            void fetch(`/api/sessions/${sessionId}/messages`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messages: allMessages.map((m) => ({
-                  ...m,
-                  timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-                })),
-              }),
-            }).then(async (r) => {
-              if (!r.ok) {
-                const detail = await r.text();
-                throw new Error(
-                  `[ChatInput] Persist messages failed (Fail Fast)\n` +
-                    `  sessionId: ${sessionId}\n` +
-                    `  Status: ${r.status}\n` +
-                    `  Body: ${detail.slice(0, 200)}`
-                );
-              }
-            }).catch((err) => {
-              console.error(err);
-              window.alert(err instanceof Error ? err.message : "Failed to persist messages");
-            });
-          }, 0);
-        },
-        onError: (error) => {
-          console.error("Chat error:", error);
-          cancelStreaming();
-          setThinking(false);
-        },
+  // Exec Steer / external inject → stream a user turn
+  useEffect(() => {
+    const onSend = (ev: Event) => {
+      const detail = (ev as CustomEvent<SendPromptDetail>).detail;
+      if (!detail?.content?.trim()) {
+        throw new Error(
+          `[ChatInput] ${SEND_PROMPT_EVENT} missing content (Fail Fast)`
+        );
       }
-    );
-  }, [
-    input,
-    isStreaming,
-    sessionId,
-    uploadedFiles,
-    onFileUpload,
-    currentModelId,
-    modelLoaded,
-    modelError,
-    globalModelId,
-    addUserMessage,
-    getMessagesForSession,
-    startStreaming,
-    startExecution,
-    setThinking,
-    addThinkingStep,
-    completeStreaming,
-    completeExecution,
-    remapExecution,
-    cancelStreaming,
-    handleExecutionStepEvent,
-  ]);
+      void sendPromptContent(detail.content);
+    };
+    window.addEventListener(SEND_PROMPT_EVENT, onSend);
+    return () => window.removeEventListener(SEND_PROMPT_EVENT, onSend);
+  }, [sendPromptContent]);
 
   // File upload handlers — files land under WORKSPACE_DIR/uploaded/
   const handleFileSelect = useCallback(async (files: FileList | null) => {
@@ -528,6 +627,114 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
       }
     }, 0);
   }, [input]);
+
+  const setSessionMode = useCallback(
+    (mode: AgentMode) => {
+      if (!sessionId) {
+        throw new Error(
+          `[ChatInput] Cannot set mode without session\n  mode: ${mode}`
+        );
+      }
+      updateSessionSettings(sessionId, { mode });
+      const chips = modeWriteChips(mode);
+      applyObservabilityPack(chips.observability);
+      clearSlashCommandFromInput();
+      setSlashMode(null);
+      showNotice(
+        `Mode → ${mode} · create ${chips.create ? "✓" : "✗"} · update ${
+          chips.update ? "✓" : "✗"
+        } · delete ${chips.delete ? "✓" : "✗"}`
+      );
+    },
+    [
+      sessionId,
+      updateSessionSettings,
+      applyObservabilityPack,
+      clearSlashCommandFromInput,
+      showNotice,
+    ]
+  );
+
+  const armLoop = useCallback(
+    (intervalMs: number, prompt: string, doneCondition: string) => {
+      const done = doneCondition.trim();
+      if (!done) {
+        throw new Error(
+          `[ChatInput] Loop refused: empty done/stop condition (Fail Fast)\n` +
+            `  Confirm a concrete completion criterion with the human before arming.`
+        );
+      }
+      if (!sessionId || !currentModelId) {
+        throw new Error(
+          `[ChatInput] Cannot start loop without session/model\n` +
+            `  sessionId: ${sessionId}\n  model: ${currentModelId}`
+        );
+      }
+      stopLoop();
+      loopDoneConditionRef.current = done;
+      let tick = 0;
+      const tickPrompt = () =>
+        `${prompt}\n\n[LOOP] Done/stop when: ${done}\n` +
+        `If the condition is met, reply with exactly: LOOP_DONE — <reason>`;
+
+      showNotice(
+        `Loop armed · every ${Math.round(intervalMs / 1000)}s · until: ${done.slice(0, 80)}`
+      );
+      setLoopConfirm(null);
+      clearSlashCommandFromInput();
+      setInput(tickPrompt());
+
+      const kickSend = () => {
+        tick += 1;
+        setLoopStatus(
+          `loop #${tick} · ${Math.round(intervalMs / 1000)}s · stop: ${done.slice(0, 40)}`
+        );
+        setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-testid="chat-send-button"]')
+            ?.click();
+        }, 30);
+      };
+      setTimeout(kickSend, 40);
+      loopTimerRef.current = setInterval(() => {
+        setInput(tickPrompt());
+        kickSend();
+      }, intervalMs);
+    },
+    [
+      sessionId,
+      currentModelId,
+      stopLoop,
+      showNotice,
+      clearSlashCommandFromInput,
+    ]
+  );
+
+  const runLoop = useCallback(
+    (args: string) => {
+      if (args.trim().toLowerCase() === "stop") {
+        stopLoop();
+        clearSlashCommandFromInput();
+        showNotice("Loop stopped");
+        return;
+      }
+      const parsed = parseLoopArgs(args);
+      if (!parsed) {
+        showNotice("Usage: /loop [interval] <prompt> · then confirm done condition · /loop stop");
+        clearSlashCommandFromInput();
+        return;
+      }
+      // Fail Fast: never arm until human confirms explicit done/stop condition
+      clearSlashCommandFromInput();
+      setLoopConfirm({
+        intervalMs: parsed.intervalMs,
+        prompt: parsed.prompt,
+        doneCondition: "",
+      });
+      showNotice("Confirm loop done/stop condition before arming");
+    },
+    [stopLoop, showNotice, clearSlashCommandFromInput]
+  );
 
   const handleSkillSelect = useCallback((skill: SkillSuggestion) => {
     const cursorPos = textareaRef.current?.selectionStart || 0;
@@ -745,10 +952,18 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
         });
         return;
       }
+      if ((MODE_SLASH_IDS as readonly string[]).includes(cmd.id) && isAgentMode(cmd.id)) {
+        setSessionMode(cmd.id);
+        return;
+      }
+      if (cmd.id === "loop") {
+        runLoop(args);
+        return;
+      }
       throw new Error(
         `[ChatInput] Unknown slash action\n` +
           `  Command id: ${cmd.id}\n` +
-          `  Expected: clear | new | remember | memory`
+          `  Expected: clear|new|remember|memory|ask|agent|plan|safe|debug|subagent|ppt|loop`
       );
     },
     [
@@ -758,6 +973,8 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
       runNewChat,
       runRemember,
       runMemorySearch,
+      setSessionMode,
+      runLoop,
       showNotice,
     ]
   );
@@ -847,6 +1064,87 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
     <div 
       className="border-t border-slate-200 bg-white p-4"
     >
+      {loopConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4"
+          data-testid="loop-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="loop-confirm-title"
+        >
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+            <h2 id="loop-confirm-title" className="text-sm font-semibold text-slate-900 mb-1">
+              Confirm loop · done / stop condition
+            </h2>
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              Loop will not start until you state a clear completion criterion.
+              Empty condition is rejected (Fail Fast).
+            </p>
+            <div className="text-[11px] text-slate-600 mb-2 space-y-1 rounded-lg bg-slate-50 border border-slate-100 p-2">
+              <div>
+                <span className="font-semibold">Interval:</span>{" "}
+                {Math.round(loopConfirm.intervalMs / 1000)}s
+              </div>
+              <div>
+                <span className="font-semibold">Prompt:</span> {loopConfirm.prompt}
+              </div>
+              <div>
+                <span className="font-semibold">Mode:</span> {sessionMode}
+              </div>
+            </div>
+            <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor="loop-done-input">
+              Done / stop when (required)
+            </label>
+            <textarea
+              id="loop-done-input"
+              data-testid="loop-done-condition"
+              className="w-full min-h-[72px] text-sm border border-slate-200 rounded-lg p-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              placeholder="e.g. CI green · file X exists · max 10 ticks · no change ×3"
+              value={loopConfirm.doneCondition}
+              onChange={(e) =>
+                setLoopConfirm((prev) =>
+                  prev ? { ...prev, doneCondition: e.target.value } : prev
+                )
+              }
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                data-testid="loop-confirm-cancel"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                onClick={() => {
+                  setLoopConfirm(null);
+                  showNotice("Loop cancelled — not armed");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="loop-confirm-arm"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
+                disabled={!loopConfirm.doneCondition.trim()}
+                onClick={() => {
+                  try {
+                    armLoop(
+                      loopConfirm.intervalMs,
+                      loopConfirm.prompt,
+                      loopConfirm.doneCondition
+                    );
+                  } catch (err) {
+                    console.error(err);
+                    window.alert(
+                      err instanceof Error ? err.message : "Failed to arm loop"
+                    );
+                  }
+                }}
+              >
+                Arm loop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Session model + slash notice */}
       <div className="flex items-center gap-2 mb-2 min-h-[22px]">
         {modelError ? (
@@ -875,6 +1173,39 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
           >
             <Cpu className="w-3 h-3 text-blue-500" />
             <span className="font-medium truncate max-w-[160px]">{currentModel.name}</span>
+          </button>
+        )}
+        <span
+          data-testid="mode-badge"
+          className={cn(
+            "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide",
+            "bg-blue-50 text-blue-700 border border-blue-100"
+          )}
+          title={`Session mode · create ${writeChips.create ? "on" : "off"} · update ${
+            writeChips.update ? "on" : "off"
+          }`}
+        >
+          {sessionMode}
+        </span>
+        <span
+          data-testid="mode-policy-chips"
+          className="text-[10px] text-slate-500"
+        >
+          c{writeChips.create ? "✓" : "✗"} u{writeChips.update ? "✓" : "✗"} d
+          {writeChips.delete ? "✓" : "✗"}
+        </span>
+        {loopStatus && (
+          <button
+            type="button"
+            data-testid="loop-status"
+            onClick={() => {
+              stopLoop();
+              showNotice("Loop stopped");
+            }}
+            className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md"
+            title="Click to stop loop"
+          >
+            {loopStatus}
           </button>
         )}
         {slashNotice && (
@@ -1178,6 +1509,8 @@ export function ChatInput({ sessionId: sessionIdProp, disabled: disabledProp, on
           </button>
 
           <button
+            type="button"
+            data-testid="chat-send-button"
             onClick={handleSubmit}
             disabled={(!input.trim() && uploadedFiles.length === 0) || disabled || isStreaming}
             className={cn(

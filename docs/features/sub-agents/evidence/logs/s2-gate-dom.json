@@ -1,0 +1,16 @@
+{
+  "hasSubagent": true,
+  "lookAheadCount": 2,
+  "looks": [
+    "只写了两步",
+    "缺少第三步"
+  ],
+  "halt": true,
+  "steer": true,
+  "err": "[spawn_brief] Rejected (Fail Fast)\n  look_ahead must have exactly 3 non-empty items\n  expected_output empty\n  Spawn aborted",
+  "chips": [
+    "✓ done",
+    "blocked",
+    "fail-fast"
+  ]
+}

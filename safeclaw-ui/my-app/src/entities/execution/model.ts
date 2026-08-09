@@ -3,8 +3,22 @@
  * Represents agent execution flow and reasoning steps
  */
 
-export type ExecutionStatus = "pending" | "running" | "completed" | "error" | "cancelled";
-export type ExecutionStepType = "reasoning" | "tool_call" | "model_call" | "context_retrieval" | "user_input" | "output";
+export type ExecutionStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "error"
+  | "cancelled"
+  | "failed"
+  | "redirected";
+export type ExecutionStepType =
+  | "reasoning"
+  | "tool_call"
+  | "model_call"
+  | "context_retrieval"
+  | "user_input"
+  | "output"
+  | "subagent";
 
 export interface ExecutionStep {
   id: string;
@@ -25,6 +39,11 @@ export interface ExecutionStep {
   skillsInvoked?: string[];
   /** Actual names passed to create_deep_agent (not BM25 router). */
   skillsLoaded?: string[];
+  /** Spawn brief — 走一步看三步 */
+  agentName?: string;
+  stepNow?: string;
+  lookAhead?: string[];
+  expectedOutput?: string;
   metadata?: {
     toolName?: string;
     modelName?: string;

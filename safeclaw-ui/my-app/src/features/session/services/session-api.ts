@@ -144,6 +144,31 @@ export class SessionService {
   }
 
   /**
+   * Delete all sessions + persisted messages (one-click clear).
+   */
+  async clearAllSessions(): Promise<{ deletedCount: number; deletedIds: string[] }> {
+    const response = await fetch(`${this.baseUrl}/sessions/all`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(
+        `[session-api] clearAllSessions failed (Fail Fast)\n` +
+          `  Status: ${response.status}\n` +
+          `  Body: ${detail.slice(0, 300)}`
+      );
+    }
+    const data = (await response.json()) as {
+      deleted_count?: number;
+      deleted_ids?: string[];
+    };
+    return {
+      deletedCount: data.deleted_count ?? 0,
+      deletedIds: data.deleted_ids ?? [],
+    };
+  }
+
+  /**
    * Archive a session (soft delete)
    */
   async archiveSession(sessionId: string): Promise<Session> {
@@ -208,4 +233,5 @@ export const apiCreateSession = (req?: CreateSessionRequest) => sessionService.c
 export const apiUpdateSession = (id: string, req: UpdateSessionRequest) =>
   sessionService.updateSession(id, req);
 export const apiDeleteSession = (id: string) => sessionService.deleteSession(id);
+export const apiClearAllSessions = () => sessionService.clearAllSessions();
 export const apiArchiveSession = (id: string) => sessionService.archiveSession(id);

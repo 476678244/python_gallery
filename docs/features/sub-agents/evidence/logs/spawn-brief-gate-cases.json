@@ -1,0 +1,36 @@
+[
+  {
+    "name": "valid",
+    "ok": true,
+    "brief": {
+      "step_now": "调研主题 A",
+      "look_ahead": [
+        "收集来源",
+        "压缩要点",
+        "交回主线程"
+      ],
+      "expected_output": "JSON facts",
+      "agent_name": "general-purpose"
+    }
+  },
+  {
+    "name": "look_ahead_2",
+    "ok": false,
+    "error": "[spawn_brief] Rejected (Fail Fast)\n  Missing/invalid: look_ahead must have exactly 3 non-empty items (got 2)\n  Spawn aborted — subagent not started"
+  },
+  {
+    "name": "empty_expected",
+    "ok": false,
+    "error": "[spawn_brief] Rejected (Fail Fast)\n  Missing/invalid: expected_output\n  Spawn aborted — subagent not started"
+  },
+  {
+    "name": "unknown_agent",
+    "ok": false,
+    "error": "[spawn_brief] Rejected (Fail Fast)\n  Missing/invalid: agent_name not in whitelist ['explore', 'general-purpose'] (got 'Bugbot')\n  Spawn aborted — subagent not started"
+  },
+  {
+    "name": "unstructured_description",
+    "ok": false,
+    "error": "[spawn_brief] Rejected (Fail Fast)\n  Missing: structured brief (step_now, look_ahead[3], expected_output, agent_name)\n  Hint: pass brief{} or JSON description with those keys\n  Spawn aborted — subagent not started"
+  }
+]

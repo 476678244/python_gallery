@@ -4,6 +4,8 @@
  */
 
 import { Message } from "@/entities/message";
+import type { AgentMode } from "@/entities/agent-mode";
+import { DEFAULT_AGENT_MODE } from "@/entities/agent-mode";
 
 export type SessionStatus = "active" | "archived" | "deleted";
 
@@ -13,6 +15,8 @@ export interface SessionSettings {
   temperature?: number;
   maxTokens?: number;
   systemPrompt?: string;
+  /** Session-sticky agent mode (ask|agent|plan|safe|debug|subagent|ppt). */
+  mode?: AgentMode;
 }
 
 export interface Session {
@@ -50,6 +54,7 @@ export function createSession(
       enabledSkills: [],
       temperature: 0.7,
       maxTokens: 4096,
+      mode: DEFAULT_AGENT_MODE,
       ...settings,
     },
     createdAt: now,

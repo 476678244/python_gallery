@@ -10,6 +10,7 @@
 import { useState, useEffect } from "react";
 import { Session } from "@/entities/session";
 import { AVAILABLE_MODELS, getEnabledModels, getModelById, Model } from "@/entities/model";
+import { parseAgentMode } from "@/entities/agent-mode";
 import { useSessionStore } from "@/stores/session-store";
 import { useModelStore, resolveActiveModelId } from "@/stores/model-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -107,9 +108,19 @@ export function ChatHeader({ session, messageCount }: ChatHeaderProps) {
       {/* Left - Session Info */}
       <div className="flex items-center gap-3">
         <div>
-          <h1 className="font-semibold text-slate-900">
-            {mounted ? (session?.title || "New Chat") : "New Chat"}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-semibold text-slate-900">
+              {mounted ? (session?.title || "New Chat") : "New Chat"}
+            </h1>
+            {mounted && (
+              <span
+                data-testid="header-mode-badge"
+                className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100"
+              >
+                {parseAgentMode(session?.settings?.mode)}
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500">
             {messageCount} {messageCount === 1 ? "message" : "messages"}
           </p>

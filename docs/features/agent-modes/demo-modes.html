@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeClaw · Agent Modes Demo (prod shell)</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand-50: #eff6ff; --brand-100: #dbeafe; --brand-500: #3b82f6; --brand-600: #2563eb; --brand-700: #1d4ed8;
+      --gray-0: #fff; --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0; --gray-300: #cbd5e1;
+      --gray-400: #94a3b8; --gray-500: #64748b; --gray-600: #475569; --gray-700: #334155; --gray-800: #1e293b; --gray-900: #0f172a;
+      --green-100: #dcfce7; --green-500: #22c55e; --green-600: #16a34a; --green-700: #15803d;
+      --amber-100: #fef3c7; --amber-400: #fbbf24; --amber-800: #92400e;
+      --red-50: #fef2f2; --red-500: #ef4444; --red-600: #dc2626; --red-700: #b91c1c;
+      --surface-app: var(--gray-50); --surface-sidebar: var(--gray-0); --surface-main: var(--gray-0); --surface-panel: var(--gray-0);
+      --border: var(--gray-200); --text-primary: var(--gray-800); --text-secondary: var(--gray-500); --text-tertiary: var(--gray-400);
+      --sidebar-w: 240px; --panel-w: 320px; --radius-sm: 6px; --radius-md: 10px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px; color: var(--text-primary); background: var(--surface-app);
+      height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+    }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 2px; }
+
+    .demo-bar {
+      flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 6px 12px; background: var(--gray-50); color: var(--gray-600);
+      border-bottom: 1px solid var(--border); font-size: 11.5px;
+    }
+    .demo-bar .harness-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--gray-400); margin-right: 4px;
+    }
+    .demo-bar span.note { color: var(--gray-400); margin-left: auto; font-size: 11px; }
+    .demo-bar button {
+      font: inherit; font-size: 11px; font-weight: 650; border-radius: 6px;
+      padding: 4px 9px; cursor: pointer; line-height: 1.2;
+      background: #fff; border: 1px solid var(--gray-300); color: var(--gray-600);
+    }
+    .demo-bar button:hover:not(:disabled) { border-color: var(--brand-500); color: var(--brand-700); background: var(--brand-50); }
+    .demo-bar button:disabled { opacity: .4; cursor: not-allowed; }
+    .demo-bar button.active-run {
+      border-color: var(--brand-500); color: var(--brand-700); box-shadow: inset 0 0 0 1px var(--brand-100);
+    }
+
+    .app {
+      flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--gray-0);
+    }
+
+    .sidebar {
+      width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--surface-sidebar);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .sidebar-logo {
+      display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border);
+    }
+    .logo-icon {
+      width: 28px; height: 28px; border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+      color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+    }
+    .logo-text { font-size: 14px; font-weight: 700; letter-spacing: -.3px; }
+    .sb-meta { padding: 10px 14px; font-size: 11px; color: var(--text-tertiary); line-height: 1.45; border-bottom: 1px solid var(--border); }
+    .sb-meta code { font-size: 10.5px; color: var(--brand-600); }
+    .sb-section-h {
+      padding: 10px 14px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .session-row {
+      margin: 0 8px 6px; padding: 8px 10px; border-radius: 8px; background: var(--brand-50);
+      border: 1px solid var(--brand-100); font-size: 12px; font-weight: 600; color: var(--brand-700);
+    }
+    .policy-card {
+      margin: 0 8px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--gray-50);
+      font-size: 11px; color: var(--text-secondary); line-height: 1.4;
+    }
+    .policy-card h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; color: var(--text-tertiary); }
+    .policy-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--gray-200); }
+    .policy-row:last-child { border-bottom: none; }
+    .policy-row .k { color: var(--text-tertiary); }
+    .policy-row .ok { color: var(--green-700); font-weight: 650; }
+    .policy-row .no { color: var(--red-600); font-weight: 650; }
+    .policy-row .na { color: var(--gray-400); font-weight: 650; }
+    .slash-list { margin: 0 8px 8px; padding: 0; list-style: none; }
+    .slash-list li {
+      padding: 6px 10px; border-radius: 6px; font-size: 12px; color: var(--text-secondary);
+      display: flex; justify-content: space-between; gap: 8px;
+    }
+    .slash-list li.active { background: var(--brand-50); color: var(--brand-700); font-weight: 650; }
+    .slash-list code { font-size: 11px; color: var(--brand-600); }
+
+    .main {
+      flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--surface-main);
+    }
+    .chat-header {
+      height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+      padding: 0 16px; border-bottom: 1px solid var(--border);
+    }
+    .chat-header h1 { font-size: 13.5px; font-weight: 650; }
+    .chat-header .tag {
+      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      background: var(--brand-50); color: var(--brand-600);
+    }
+    .mode-badge {
+      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .04em;
+      border: 1px solid var(--border); background: var(--gray-50); color: var(--text-secondary);
+    }
+    .mode-badge.ask { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+    .mode-badge.agent { background: var(--brand-50); border-color: var(--brand-100); color: var(--brand-700); }
+    .mode-badge.plan { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
+    .mode-badge.loop { background: var(--amber-100); border-color: #fde68a; color: var(--amber-800); }
+
+    .messages {
+      flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .msg { max-width: 720px; }
+    .msg .role { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+    .msg .bubble {
+      display: inline-block; padding: 10px 12px; border-radius: 12px; font-size: 13.5px;
+      line-height: 1.5; white-space: pre-wrap; border: 1px solid var(--border); background: var(--gray-50);
+    }
+    .msg.user { align-self: flex-end; text-align: right; }
+    .msg.user .bubble { background: var(--brand-50); border-color: var(--brand-100); text-align: left; }
+    .msg.assistant .bubble { background: var(--gray-0); }
+    .msg.system .bubble { background: #f0f9ff; border-color: #bae6fd; color: #075985; }
+    .msg.notice .bubble { background: #fffbeb; border-color: #fde68a; color: var(--amber-800); }
+
+    .plan-card {
+      margin-top: 8px; border: 1px solid #ddd6fe; border-radius: 10px; background: #faf5ff; overflow: hidden;
+    }
+    .plan-card h3 {
+      font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      padding: 8px 10px; background: #f5f3ff; border-bottom: 1px solid #ddd6fe; color: #6d28d9;
+    }
+    .plan-card ol { margin: 0; padding: 10px 10px 10px 28px; font-size: 12.5px; line-height: 1.5; color: var(--text-primary); }
+    .plan-card .risks {
+      border-top: 1px solid #ddd6fe; padding: 8px 10px; font-size: 11.5px; color: var(--amber-800); background: #fffbeb;
+    }
+
+    .composer {
+      flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px; background: var(--gray-0);
+      position: relative;
+    }
+    .composer-meta {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 11px; color: var(--text-tertiary);
+    }
+    .composer-box {
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; color: var(--text-tertiary);
+      font-size: 13px; background: var(--gray-50);
+    }
+    .slash-panel {
+      position: absolute; left: 16px; right: 16px; bottom: 72px;
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: var(--shadow-sm), 0 8px 24px rgba(0,0,0,.08); overflow: hidden;
+      display: none;
+    }
+    .slash-panel.open { display: block; }
+    .slash-panel .sh {
+      padding: 8px 12px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--text-tertiary); background: var(--gray-50); border-bottom: 1px solid var(--border);
+    }
+    .slash-panel button {
+      display: flex; width: 100%; text-align: left; gap: 10px; align-items: baseline;
+      padding: 8px 12px; border: none; background: transparent; cursor: pointer; font: inherit;
+    }
+    .slash-panel button:hover, .slash-panel button.active { background: var(--brand-50); }
+    .slash-panel .cmd { font-size: 12.5px; font-weight: 700; color: var(--brand-700); min-width: 64px; }
+    .slash-panel .desc { font-size: 12px; color: var(--text-secondary); }
+
+    .right-zone {
+      display: flex; flex-direction: row-reverse; border-left: 1px solid var(--border); background: var(--surface-panel);
+      min-width: 48px;
+    }
+    .rp-rail {
+      width: 48px; border-left: 1px solid var(--border); display: flex; flex-direction: column;
+      align-items: center; padding: 8px 0; gap: 4px; background: var(--gray-50);
+    }
+    .rail-btn {
+      width: 40px; border: none; background: transparent; border-radius: 8px; padding: 6px 0 4px;
+      cursor: pointer; color: var(--text-secondary); display: flex; flex-direction: column; align-items: center; gap: 2px;
+      position: relative;
+    }
+    .rail-btn:hover { background: var(--gray-200); color: var(--text-primary); }
+    .rail-btn.active { background: var(--brand-50); color: var(--brand-600); }
+    .rail-btn.active::before {
+      content: ""; position: absolute; margin-left: -20px; width: 2px; height: 22px; background: var(--brand-600); border-radius: 2px;
+    }
+    .rail-icon { font-size: 14px; line-height: 1; }
+    .rail-label { font-size: 9px; font-weight: 600; }
+    .rp-stack {
+      width: var(--panel-w); display: flex; flex-direction: column; border-left: 1px solid var(--border);
+      background: var(--gray-0); min-height: 0;
+    }
+    .panel-card { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); flex: 1; min-height: 0; }
+    .panel-head {
+      height: 37px; flex-shrink: 0; padding: 0 10px 0 12px;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--gray-50); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700;
+      letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary);
+    }
+    .panel-head .badge {
+      font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+      background: var(--green-500); color: #fff; text-transform: none; letter-spacing: 0; margin-left: auto;
+    }
+    .panel-body { flex: 1; overflow-y: auto; min-height: 0; padding: 12px; }
+
+    .exec-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--text-tertiary); margin-bottom: 12px;
+    }
+    .exec-path { display: flex; flex-direction: column; }
+    .exec-node { display: flex; gap: 10px; position: relative; }
+    .exec-node-left { display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0; }
+    .exec-dot {
+      width: 10px; height: 10px; border-radius: 50%; background: var(--brand-500);
+      border: 2px solid var(--brand-100); margin-top: 3px; flex-shrink: 0;
+    }
+    .exec-dot.done { background: var(--green-500); border-color: #d1fae5; }
+    .exec-dot.run { background: var(--amber-400); border-color: #fef3c7; animation: pulse 1.2s infinite; }
+    .exec-dot.fail { background: var(--red-500); border-color: #fecaca; }
+    .exec-dot.blocked { background: var(--red-600); border-color: #fecaca; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .exec-vline { flex: 1; width: 2px; background: var(--border); margin: 2px 0; min-height: 10px; }
+    .exec-content { flex: 1; padding-bottom: 12px; min-width: 0; }
+    .exec-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .exec-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+    .type-badge {
+      font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; text-transform: lowercase;
+    }
+    .type-badge.model_call { background: var(--brand-50); color: var(--brand-600); }
+    .type-badge.tool_call { background: #ede9fe; color: #7c3aed; }
+    .type-badge.gate { background: #fee2e2; color: var(--red-700); }
+    .type-badge.scheduler { background: var(--amber-100); color: var(--amber-800); }
+    .exec-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; line-height: 1.4; }
+    .exec-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+    .exec-chip {
+      padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 500;
+      background: var(--brand-50); color: var(--brand-600);
+    }
+    .chip-green { background: #d1fae5; color: var(--green-600); }
+    .chip-gray { background: var(--gray-100); color: var(--text-secondary); }
+    .chip-amber { background: var(--amber-100); color: var(--amber-800); }
+    .chip-red { background: #fee2e2; color: var(--red-700); }
+
+    .loop-box {
+      margin-top: 10px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; padding: 8px 10px;
+      font-size: 11.5px; color: var(--amber-800); line-height: 1.45;
+    }
+    .loop-box strong { display: block; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
+    .loop-actions { margin-top: 8px; display: flex; gap: 6px; }
+    .loop-actions button {
+      font: inherit; font-size: 11px; font-weight: 650; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+      background: #fff; border: 1px solid #fde68a; color: var(--amber-800);
+    }
+    .loop-actions button.stop { background: var(--red-600); border-color: var(--red-600); color: #fff; }
+    .loop-actions button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .empty-exec { font-size: 12px; color: var(--text-tertiary); padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="demo-bar">
+    <span class="harness-label">Harness · 非产品</span>
+    <button type="button" id="btnAsk" data-mode="ask">Ask</button>
+    <button type="button" id="btnAgent" data-mode="agent">Agent</button>
+    <button type="button" id="btnPlan" data-mode="plan">Plan</button>
+    <button type="button" id="btnSafe" data-mode="safe">Safe</button>
+    <button type="button" id="btnDebug" data-mode="debug">Debug</button>
+    <button type="button" id="btnSubagent" data-mode="subagent">Subagent</button>
+    <button type="button" id="btnLoop" data-mode="loop">Loop</button>
+    <button type="button" id="btnSlash">显示 / 命令</button>
+    <button type="button" id="btnReset">重置</button>
+    <span class="note">全 mode 并列剧本（含 Safe/Debug/Subagent） · 会话级粘性 · 硬门禁芯片在侧栏 / Exec</span>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">S</div>
+        <div class="logo-text">SafeClaw</div>
+      </div>
+      <div class="sb-meta">
+        Feature demo · <code>docs/features/agent-modes</code><br />
+        壳层 = prod；合同 = 会话级 <b>mode</b> + 工具硬门禁。
+      </div>
+      <div class="sb-section-h">Sessions</div>
+      <div class="session-row">Agent modes · sticky</div>
+      <div class="sb-section-h">Slash · AgentMode</div>
+      <ul class="slash-list" id="slashSidebar">
+        <li data-m="ask"><code>/ask</code><span>只读问答</span></li>
+        <li data-m="agent"><code>/agent</code><span>完整执行</span></li>
+        <li data-m="plan"><code>/plan</code><span>只读规划</span></li>
+        <li data-m="safe"><code>/safe</code><span>仅新建</span></li>
+        <li data-m="debug"><code>/debug</code><span>Full 观测</span></li>
+        <li data-m="subagent"><code>/subagent</code><span>子树观测</span></li>
+        <li data-m="loop"><code>/loop</code><span>定时复跑</span></li>
+      </ul>
+      <div class="sb-section-h">Tool policy</div>
+      <div class="policy-card" id="policyCard">
+        <h4>当前会话 · <span id="policyMode">agent</span></h4>
+        <div id="policyRows"></div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="chat-header">
+        <h1>Agent modes</h1>
+        <span class="tag">DeepSeek · demo</span>
+        <span class="mode-badge agent" id="modeBadge" data-testid="mode-badge">agent</span>
+      </header>
+      <div class="messages" id="chat"></div>
+      <div class="composer">
+        <div class="slash-panel" id="slashPanel">
+          <div class="sh">Commands · AgentMode</div>
+          <button type="button" data-cmd="ask"><span class="cmd">/ask</span><span class="desc">Read-only Q&amp;A · no write / execute</span></button>
+          <button type="button" data-cmd="agent"><span class="cmd">/agent</span><span class="desc">Full tools · current default</span></button>
+          <button type="button" data-cmd="plan"><span class="cmd">/plan</span><span class="desc">Read-only plan artifact · no edits</span></button>
+          <button type="button" data-cmd="safe"><span class="cmd">/safe</span><span class="desc">Create-only · no update/delete</span></button>
+          <button type="button" data-cmd="debug"><span class="cmd">/debug</span><span class="desc">Full tools + Full observability pack</span></button>
+          <button type="button" data-cmd="subagent"><span class="cmd">/subagent</span><span class="desc">Spawn + Subagent observability pack</span></button>
+          <button type="button" data-cmd="loop"><span class="cmd">/loop</span><span class="desc">Schedule ticks · inherit session mode</span></button>
+        </div>
+        <div class="composer-meta">
+          SessionSettings.mode =
+          <span class="mode-badge agent" id="composerBadge">agent</span>
+          · sticky until next slash
+        </div>
+        <div class="composer-box" id="composerHint">用顶部 harness 回放四 mode 剧本（非真实发送）</div>
+      </div>
+    </section>
+
+    <div class="right-zone">
+      <nav class="rp-rail">
+        <button class="rail-btn active" type="button" title="Execution Path">
+          <span class="rail-icon">📈</span><span class="rail-label">Exec</span>
+        </button>
+        <button class="rail-btn" type="button" title="Skills Path" disabled style="opacity:.45">
+          <span class="rail-icon">🛠</span><span class="rail-label">Skills</span>
+        </button>
+        <button class="rail-btn" type="button" title="Prompt Inspect" disabled style="opacity:.45">
+          <span class="rail-icon">👁</span><span class="rail-label">Prompts</span>
+        </button>
+      </nav>
+      <div class="rp-stack">
+        <div class="panel-card">
+          <div class="panel-head">
+            <span class="panel-title">Execution Path</span>
+            <span class="badge" id="execBadge">·</span>
+          </div>
+          <div class="panel-body">
+            <p class="exec-label">Current run · mode gate</p>
+            <div class="exec-path" id="exec">
+              <p class="empty-exec">Send a message to see execution plan.</p>
+            </div>
+            <div class="loop-box" id="loopBox" style="display:none">
+              <strong>Loop scheduler</strong>
+              <div id="loopStatus">idle</div>
+              <div class="loop-actions">
+                <button type="button" class="stop" id="btnLoopStop" disabled>Stop loop</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const chat = $("chat");
+    const exec = $("exec");
+
+    /** Session-level sticky mode (demo SoT) */
+    let sessionMode = "agent";
+    let timer = null;
+    let loopTimer = null;
+    let playing = false;
+    let loopRunning = false;
+    let loopTick = 0;
+
+    const POLICY = {
+      ask: {
+        label: "ask",
+        rows: [
+          ["读文件", "ok", "允许"],
+          ["写文件", "no", "禁止 · allow_write=false"],
+          ["Skill execute", "no", "未注册"],
+          ["Memory 检索", "ok", "允许"],
+          ["Memory 自动写", "no", "关闭"],
+          ["Subagent spawn", "no", "禁止"],
+        ],
+      },
+      agent: {
+        label: "agent",
+        rows: [
+          ["读文件", "ok", "允许"],
+          ["写文件", "ok", "允许"],
+          ["Skill execute", "ok", "允许"],
+          ["Memory 检索", "ok", "允许"],
+          ["Memory 自动写", "ok", "现逻辑"],
+          ["Subagent spawn", "ok", "受 sub-agents 闸门"],
+        ],
+      },
+      plan: {
+        label: "plan",
+        rows: [
+          ["读文件", "ok", "允许"],
+          ["写文件", "no", "禁止 · allow_write=false"],
+          ["Skill execute", "no", "未注册"],
+          ["Memory 检索", "ok", "允许"],
+          ["Memory 自动写", "no", "关闭"],
+          ["Subagent spawn", "no", "explore-only / 否"],
+        ],
+      },
+      safe: {
+        label: "safe",
+        rows: [
+          ["读文件", "ok", "允许"],
+          ["新建写", "ok", "create-only"],
+          ["Update/Edit", "no", "禁止"],
+          ["Delete/Remove", "no", "禁止"],
+          ["Skill execute", "ok", "克制 · FS 门禁"],
+          ["Subagent spawn", "no", "禁止"],
+        ],
+      },
+      debug: {
+        label: "debug · Full pack",
+        rows: [
+          ["工具", "ok", "同 agent"],
+          ["Exec 面板", "ok", "强制展开"],
+          ["Prompt Inspect", "ok", "强制展开"],
+          ["Skills Path", "ok", "强制展开"],
+          ["嵌套/闸门", "ok", "默认可见"],
+          ["切出", "ok", "解除强制"],
+        ],
+      },
+      subagent: {
+        label: "subagent · Sub pack",
+        rows: [
+          ["工具", "ok", "同 agent"],
+          ["Spawn", "ok", "必须启用"],
+          ["Exec 子树", "ok", "强制展开"],
+          ["Prompt Inspect", "no", "不强制"],
+          ["Skills Path", "no", "不强制"],
+          ["Brief 闸门", "ok", "不放宽"],
+        ],
+      },
+      loop: {
+        label: "loop（调度）",
+        rows: [
+          ["工具策略", "na", "继承会话执行 mode"],
+          ["写文件", "na", "随执行 mode"],
+          ["Skill execute", "na", "随执行 mode"],
+          ["Interval", "ok", "本 demo · 5s"],
+          ["Stop", "ok", "可取消调度"],
+          ["改 Session.mode", "no", "不自动改写"],
+        ],
+      },
+    };
+
+    const SCENARIOS = {
+      ask: {
+        btn: "btnAsk",
+        setMode: "ask",
+        slash: "/ask",
+        user: "只解释 README 讲了什么，不要改任何文件。",
+        events: [
+          { t: 0, kind: "system", text: "SessionSettings.mode = ask（粘住）" },
+          { t: 350, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "allow_write=false · strip write/execute", chips: ["✓ ask", "hard gate"] } },
+          { t: 700, kind: "step", step: { id: "r1", name: "read README.md", type: "tool_call", status: "completed", sub: "readonly FS", chips: ["✓ read"] } },
+          { t: 1050, kind: "step", step: { id: "w1", name: "safe_claw_file_write", type: "gate", status: "failed", sub: "tool not registered in ask", chips: ["✗ blocked"], error: true } },
+          { t: 1400, kind: "step", step: { id: "m1", name: "Model reply", type: "model_call", status: "completed", chips: ["✓ done"] } },
+          { t: 1600, kind: "assistant", text: "README 概述了 SafeClaw 的入口与工作区约定。\n本回合未写入任何文件（ask 硬门禁）。" },
+        ],
+      },
+      agent: {
+        btn: "btnAgent",
+        setMode: "agent",
+        slash: "/agent",
+        user: "在 workspace 写一份 notes/demo-mode.txt，内容写「agent ok」。",
+        events: [
+          { t: 0, kind: "system", text: "SessionSettings.mode = agent（粘住 · 默认）" },
+          { t: 350, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "full toolset · allow_write=true", chips: ["✓ agent"] } },
+          { t: 700, kind: "step", step: { id: "w1", name: "safe_claw_file_write", type: "tool_call", status: "completed", sub: "notes/demo-mode.txt", chips: ["✓ write"] } },
+          { t: 1050, kind: "step", step: { id: "m1", name: "Model reply", type: "model_call", status: "completed", chips: ["✓ done"] } },
+          { t: 1250, kind: "assistant", text: "已写入 notes/demo-mode.txt。\nAgent mode = 今日全工具行为。" },
+        ],
+      },
+      plan: {
+        btn: "btnPlan",
+        setMode: "plan",
+        slash: "/plan",
+        user: "规划如何为 chat 增加 mode badge，先不要改代码。",
+        events: [
+          { t: 0, kind: "system", text: "SessionSettings.mode = plan（粘住）" },
+          { t: 350, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "readonly + plan prompt", chips: ["✓ plan", "no write"] } },
+          { t: 700, kind: "step", step: { id: "r1", name: "read chat-input.tsx", type: "tool_call", status: "completed", chips: ["✓ read"] } },
+          { t: 1050, kind: "step", step: { id: "w1", name: "safe_claw_file_write", type: "gate", status: "failed", sub: "blocked in plan", chips: ["✗ blocked"], error: true } },
+          { t: 1400, kind: "step", step: { id: "m1", name: "Plan artifact", type: "model_call", status: "completed", chips: ["✓ structured"] } },
+          {
+            t: 1600,
+            kind: "plan",
+            text: "以下为只读规划；不会自动切到 agent。审阅后请显式 /agent。",
+            plan: {
+              steps: [
+                "在 SessionSettings 增加 mode 字段，默认 agent",
+                "slash 注册 /ask /agent /plan /loop，切换后更新 badge",
+                "streamChat 请求体带 mode；Ask/Plan 走 API 硬门禁",
+                "有头 E2E：S1 ask 只读 / S2 agent 可写",
+              ],
+              risks: "风险：仅改 prompt 而不剥工具 → 假只读。待确认：Plan 是否允许 explore-only spawn。",
+            },
+          },
+        ],
+      },
+      safe: {
+        btn: "btnSafe",
+        setMode: "safe",
+        slash: "/safe",
+        user: "新建 notes/safe-new.txt；不要改已有文件。",
+        events: [
+          { t: 0, kind: "system", text: "SessionSettings.mode = safe（create ✓ / update ✗ / delete ✗）" },
+          { t: 300, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "allow_create · allow_edit=false", chips: ["✓ safe"] } },
+          { t: 700, kind: "step", step: { id: "w1", name: "create notes/safe-new.txt", type: "tool_call", status: "completed", chips: ["✓ create"] } },
+          { t: 1000, kind: "step", step: { id: "w2", name: "overwrite existing", type: "gate", status: "failed", sub: "create-only", chips: ["✗ blocked"], error: true } },
+          { t: 1300, kind: "step", step: { id: "e1", name: "edit existing", type: "gate", status: "failed", chips: ["✗ no-edit"], error: true } },
+          { t: 1500, kind: "assistant", text: "已新建 notes/safe-new.txt。覆盖与 edit 被硬门禁拒绝。" },
+        ],
+      },
+      debug: {
+        btn: "btnDebug",
+        setMode: "debug",
+        slash: "/debug",
+        user: "排障：列出本回合工具调用。",
+        events: [
+          { t: 0, kind: "system", text: "mode=debug · Observability Full pack 强制打开（Exec+Prompts+Skills）" },
+          { t: 300, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "full tools + Full pack", chips: ["✓ debug", "full obs"] } },
+          { t: 700, kind: "step", step: { id: "m1", name: "Model reply", type: "model_call", status: "completed", chips: ["✓ done"] } },
+          { t: 900, kind: "assistant", text: "Debug：工具同 agent；右侧三面板应强制展开（Demo 以策略卡示意 Full pack）。" },
+        ],
+      },
+      subagent: {
+        btn: "btnSubagent",
+        setMode: "subagent",
+        slash: "/subagent",
+        user: "用子代理调研两个独立问题并汇总。",
+        events: [
+          { t: 0, kind: "system", text: "mode=subagent · Subagent pack（Exec 子树强制；不强制 Inspect/Skills）" },
+          { t: 300, kind: "step", step: { id: "g1", name: "Mode gate", type: "gate", status: "completed", sub: "spawn required + Sub pack", chips: ["✓ subagent"] } },
+          { t: 700, kind: "step", step: { id: "s1", name: "task · explore", type: "tool_call", status: "completed", sub: "look_ahead×3 默认展开", chips: ["✓ spawn", "nested"] } },
+          { t: 1100, kind: "assistant", text: "Subagent mode：子树观测强制打开；brief 硬闸门不放宽。Prompt Inspect 未强制。" },
+        ],
+      },
+      loop: {
+        btn: "btnLoop",
+        setMode: null, // loop does not rewrite execution mode; keep current (demo sets agent first)
+        keepMode: "agent",
+        slash: "/loop 5s check workspace heartbeat",
+        user: "/loop 5s check workspace heartbeat",
+        events: [
+          { t: 0, kind: "notice", text: "先确认完成条件（例：最多 3 tick）→ 才武装；空条件禁止启动" },
+          { t: 300, kind: "step", step: { id: "s1", name: "Loop armed", type: "scheduler", status: "completed", sub: "interval=5s · done=max 3 ticks · inherit agent", chips: ["✓ armed", "done confirmed"] } },
+          { t: 600, kind: "loop_start" },
+          { t: 900, kind: "step", step: { id: "t0", name: "Tick #1 (immediate)", type: "scheduler", status: "completed", sub: "POST /chat/stream mode=agent", chips: ["✓ tick"] } },
+          { t: 1200, kind: "step", step: { id: "m0", name: "heartbeat ok", type: "model_call", status: "completed", chips: ["✓ agent tools"] } },
+          { t: 1400, kind: "assistant", text: "Tick #1：workspace heartbeat ok（agent 策略）。\n下次 tick ≈ 5s；可在 Exec 点 Stop loop。" },
+        ],
+      },
+    };
+
+    function escapeHtml(s) {
+      return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    }
+
+    function setSessionMode(mode) {
+      sessionMode = mode;
+      ["modeBadge", "composerBadge"].forEach((id) => {
+        const el = $(id);
+        el.textContent = mode;
+        el.className = `mode-badge ${mode}`;
+      });
+      document.querySelectorAll("#slashSidebar li").forEach((li) => {
+        li.classList.toggle("active", li.dataset.m === mode || (mode !== "loop" && li.dataset.m === mode));
+      });
+      // highlight loop row when showing loop policy overlay without claiming sessionMode=loop
+      renderPolicy(mode);
+    }
+
+    function renderPolicy(modeKey) {
+      const p = POLICY[modeKey] || POLICY.agent;
+      $("policyMode").textContent = p.label;
+      $("policyRows").innerHTML = p.rows
+        .map(
+          ([k, cls, v]) =>
+            `<div class="policy-row"><span class="k">${escapeHtml(k)}</span><span class="${cls}">${escapeHtml(v)}</span></div>`
+        )
+        .join("");
+      document.querySelectorAll("#slashSidebar li").forEach((li) => {
+        const m = li.dataset.m;
+        if (modeKey === "loop") {
+          li.classList.toggle("active", m === "loop");
+        } else {
+          li.classList.toggle("active", m === sessionMode);
+        }
+      });
+    }
+
+    function clearTimers() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+    }
+
+    function resetUI() {
+      clearTimers();
+      playing = false;
+      loopRunning = false;
+      loopTick = 0;
+      $("loopBox").style.display = "none";
+      $("btnLoopStop").disabled = true;
+      $("loopStatus").textContent = "idle";
+      $("slashPanel").classList.remove("open");
+      chat.innerHTML = "";
+      exec.innerHTML = '<p class="empty-exec">Send a message to see execution plan.</p>';
+      $("execBadge").textContent = "·";
+      setButtons(false);
+      markScenario(null);
+      setSessionMode("agent");
+      renderPolicy("agent");
+      $("composerHint").textContent = "用顶部 harness 回放全 mode 剧本（非真实发送）";
+      addMsg("assistant", "点顶部 Ask / Agent / Plan / Safe / Debug / Subagent / Loop 回放。", "assistant");
+    }
+
+    const SCENARIO_BTNS = ["btnAsk", "btnAgent", "btnPlan", "btnSafe", "btnDebug", "btnSubagent", "btnLoop"];
+
+    function setButtons(busy) {
+      SCENARIO_BTNS.forEach((id) => {
+        const el = $(id);
+        if (el) el.disabled = busy;
+      });
+    }
+
+    function markScenario(id) {
+      SCENARIO_BTNS.forEach((sid) => {
+        const el = $(sid);
+        if (el) el.classList.toggle("active-run", sid === id);
+      });
+    }
+
+    function addMsg(role, text, kind, extraHtml) {
+      const el = document.createElement("div");
+      el.className = `msg ${kind || role}`;
+      el.innerHTML =
+        `<div class="role">${escapeHtml(role)}</div>` +
+        `<div class="bubble">${escapeHtml(text)}${extraHtml || ""}</div>`;
+      chat.appendChild(el);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function chipClass(text) {
+      if (String(text).startsWith("✓")) return "chip-green";
+      if (/block|fail|✗/i.test(text)) return "chip-red";
+      if (/armed|tick|look|plan/i.test(text)) return "chip-amber";
+      return "chip-gray";
+    }
+
+    function dotClass(status) {
+      if (status === "completed") return "done";
+      if (status === "running") return "run";
+      if (status === "failed" || status === "error") return "fail";
+      if (status === "blocked") return "blocked";
+      return "";
+    }
+
+    const steps = [];
+    function resetSteps() {
+      steps.length = 0;
+      renderExec();
+    }
+
+    function upsertStep(step) {
+      const i = steps.findIndex((s) => s.id === step.id);
+      if (i >= 0) steps[i] = { ...steps[i], ...step };
+      else steps.push(step);
+      renderExec();
+    }
+
+    function renderExec() {
+      if (!steps.length) {
+        exec.innerHTML = '<p class="empty-exec">Send a message to see execution plan.</p>';
+        $("execBadge").textContent = "·";
+        return;
+      }
+      const html = steps.map((step, idx) => {
+        const chips = (step.chips || [])
+          .map((c) => `<span class="exec-chip ${chipClass(c)}">${escapeHtml(c)}</span>`)
+          .join("");
+        const err = step.error
+          ? `<p class="exec-sub" style="color:var(--red-700)">blocked · Fail Fast（非 prompt 安慰）</p>`
+          : "";
+        return `
+          <div class="exec-node">
+            <div class="exec-node-left">
+              <div class="exec-dot ${dotClass(step.status)}"></div>
+              ${idx < steps.length - 1 ? '<div class="exec-vline"></div>' : '<div class="exec-vline"></div>'}
+            </div>
+            <div class="exec-content">
+              <div class="exec-name-row">
+                <p class="exec-name">${escapeHtml(step.name)}</p>
+                <span class="type-badge ${escapeHtml(step.type)}">${escapeHtml(step.type)}</span>
+              </div>
+              ${step.sub ? `<p class="exec-sub">${escapeHtml(step.sub)}</p>` : ""}
+              ${chips ? `<div class="exec-chips">${chips}</div>` : ""}
+              ${err}
+            </div>
+          </div>`;
+      });
+      const allDone = steps.every((s) => ["completed", "failed", "blocked"].includes(s.status));
+      if (allDone) {
+        html.push(`
+          <div class="exec-node">
+            <div class="exec-node-left"><div class="exec-dot done"></div></div>
+            <div class="exec-content"><p class="exec-name" style="color:var(--green-600)">✓ Complete</p></div>
+          </div>`);
+        $("execBadge").textContent = "✓";
+      } else {
+        $("execBadge").textContent = "…";
+      }
+      exec.innerHTML = html.join("");
+    }
+
+    function playScenario(key) {
+      const sc = SCENARIOS[key];
+      if (!sc) return;
+      clearTimers();
+      playing = true;
+      loopRunning = false;
+      loopTick = 0;
+      $("loopBox").style.display = key === "loop" ? "block" : "none";
+      $("btnLoopStop").disabled = true;
+      $("slashPanel").classList.remove("open");
+      chat.innerHTML = "";
+      resetSteps();
+      markScenario(sc.btn);
+      setButtons(true);
+
+      if (sc.setMode) setSessionMode(sc.setMode);
+      else if (sc.keepMode) setSessionMode(sc.keepMode);
+      if (key === "loop") renderPolicy("loop");
+
+      $("composerHint").textContent = sc.slash;
+      addMsg("user", sc.user, "user");
+
+      let i = 0;
+      const runNext = () => {
+        if (i >= sc.events.length) {
+          playing = false;
+          setButtons(false);
+          return;
+        }
+        const ev = sc.events[i++];
+        timer = setTimeout(() => {
+          if (ev.kind === "system") addMsg("system", ev.text, "system");
+          else if (ev.kind === "notice") addMsg("notice", ev.text, "notice");
+          else if (ev.kind === "assistant") addMsg("assistant", ev.text, "assistant");
+          else if (ev.kind === "plan") {
+            const planHtml = `
+              <div class="plan-card" data-testid="plan-artifact">
+                <h3>Plan artifact · readonly</h3>
+                <ol>${ev.plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+                <div class="risks">${escapeHtml(ev.plan.risks)}</div>
+              </div>`;
+            addMsg("assistant", ev.text, "assistant", planHtml);
+          } else if (ev.kind === "step") {
+            upsertStep(ev.step);
+          } else if (ev.kind === "loop_start") {
+            loopRunning = true;
+            loopTick = 1;
+            $("btnLoopStop").disabled = false;
+            $("loopStatus").textContent = `running · interval=5s · last tick #${loopTick} · next ≈ 5s · inherit mode=${sessionMode}`;
+            scheduleLoopTick();
+          }
+          runNext();
+        }, ev.t - (sc.events[i - 2]?.t || 0));
+      };
+      runNext();
+    }
+
+    function scheduleLoopTick() {
+      if (!loopRunning) return;
+      loopTimer = setTimeout(() => {
+        if (!loopRunning) return;
+        loopTick += 1;
+        upsertStep({
+          id: `t${loopTick}`,
+          name: `Tick #${loopTick}`,
+          type: "scheduler",
+          status: "completed",
+          sub: `POST /chat/stream mode=${sessionMode}`,
+          chips: ["✓ tick", `inherit ${sessionMode}`],
+        });
+        addMsg("assistant", `Tick #${loopTick}：heartbeat ok（继承 mode=${sessionMode}）。`, "assistant");
+        $("loopStatus").textContent = `running · interval=5s · last tick #${loopTick} · next ≈ 5s · inherit mode=${sessionMode}`;
+        scheduleLoopTick();
+      }, 5000);
+    }
+
+    function stopLoop() {
+      loopRunning = false;
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+      $("btnLoopStop").disabled = true;
+      $("loopStatus").textContent = `stopped · last tick #${loopTick} · 不再调度`;
+      upsertStep({
+        id: "stop",
+        name: "Loop stopped",
+        type: "scheduler",
+        status: "completed",
+        sub: "user cancelled",
+        chips: ["✓ stop"],
+      });
+      addMsg("notice", "Loop 已停止。会话 mode 仍为 " + sessionMode + "（loop 不改写 mode）。", "notice");
+    }
+
+    $("btnAsk").onclick = () => playScenario("ask");
+    $("btnAgent").onclick = () => playScenario("agent");
+    $("btnPlan").onclick = () => playScenario("plan");
+    if ($("btnSafe")) $("btnSafe").onclick = () => playScenario("safe");
+    if ($("btnDebug")) $("btnDebug").onclick = () => playScenario("debug");
+    if ($("btnSubagent")) $("btnSubagent").onclick = () => playScenario("subagent");
+    $("btnLoop").onclick = () => playScenario("loop");
+    $("btnReset").onclick = () => resetUI();
+    $("btnLoopStop").onclick = () => stopLoop();
+    $("btnSlash").onclick = () => $("slashPanel").classList.toggle("open");
+
+    document.querySelectorAll("#slashPanel button").forEach((btn) => {
+      btn.onclick = () => {
+        $("slashPanel").classList.remove("open");
+        playScenario(btn.dataset.cmd);
+      };
+    });
+
+    resetUI();
+  </script>
+</body>
+</html>

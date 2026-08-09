@@ -79,3 +79,39 @@ def test_session_messages_replace_and_load(client):
     assert msgs[1]["content"] == "hi there"
 
     client.delete(f"/sessions/{sid}")
+
+
+def test_clear_all_sessions(client, tmp_data_dirs):
+    """DELETE /sessions/all wipes sessions.json and message files."""
+    a = client.post("/sessions", json={"title": "Clear A"}).json()
+    b = client.post("/sessions", json={"title": "Clear B"}).json()
+    sid_a = (a.get("session") or a)["id"]
+    sid_b = (b.get("session") or b)["id"]
+
+    client.post(
+        f"/sessions/{sid_a}/messages",
+        json={"messages": [{"id": "m1", "role": "user", "content": "bye"}]},
+    )
+    client.post(
+        f"/sessions/{sid_b}/messages",
+        json={"messages": [{"id": "m2", "role": "user", "content": "bye2"}]},
+    )
+
+    cleared = client.delete("/sessions/all")
+    assert cleared.status_code == 200
+    body = cleared.json()
+    assert body["success"] is True
+    assert body["deleted_count"] == 2
+    assert set(body["deleted_ids"]) == {sid_a, sid_b}
+    assert body["message_files_removed"] >= 2
+
+    listed = client.get("/sessions").json()["sessions"]
+    assert listed == []
+
+    messages_dir = tmp_data_dirs["data"] / "messages"
+    assert list(messages_dir.glob("*.json")) == []
+
+    # Idempotent
+    again = client.delete("/sessions/all")
+    assert again.status_code == 200
+    assert again.json()["deleted_count"] == 0

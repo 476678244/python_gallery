@@ -125,11 +125,12 @@ class SafeClawDeepAgent:
             self.skills_manager.set_enabled_skills(list(enabled_skills))
             logger.info(f"Synced {len(enabled_skills)} enabled skills to SkillsManager")
 
-        # Initialize tool manager
+        # Initialize tool manager (MemoryManager from create_with_memory / API)
         self.tool_manager = ToolManager(
             skill_scanner=self.skills_manager.get_skill_scanner(),
             skill_discovery=self.skills_manager.get_skill_discovery(),
-            skill_executor=self.skills_manager.get_skill_executor()
+            skill_executor=self.skills_manager.get_skill_executor(),
+            memory_manager=self.config.get("memory_manager"),
         )
 
         # Set output callback to log shell command execution in real-time
@@ -168,8 +169,32 @@ class SafeClawDeepAgent:
             # Convert LLMService to LangChain model
             model = self._create_langchain_model()
 
-            # Get tools and skills paths list from managers
-            tools = self.tool_manager.get_all_tools()
+            # Get tools — filter by ModePolicy when present (agent-modes hard gate)
+            mode_policy = self.config.get("mode_policy")
+            if mode_policy is not None:
+                ppt_tools = bool(getattr(mode_policy, "ppt_tools", False))
+                if ppt_tools and not self.config.get("workspace_path"):
+                    raise ValueError(
+                        "[SafeClawDeepAgent] mode=ppt requires workspace_path\n"
+                        "  Expected: WORKSPACE_DIR in config\n"
+                        "  Actual: missing workspace_path"
+                    )
+                tools = self.tool_manager.get_tools_for_policy(
+                    skill_execute=mode_policy.skill_execute,
+                    allow_create=mode_policy.allow_create,
+                    allow_edit=mode_policy.allow_edit,
+                    memory_auto_write=mode_policy.memory_auto_write,
+                    ppt_tools=ppt_tools,
+                    workspace_dir=(
+                        Path(self.config["workspace_path"])
+                        if self.config.get("workspace_path")
+                        else None
+                    ),
+                    session_id=self.config.get("session_id"),
+                    on_ppt_preview=self.config.get("on_ppt_preview"),
+                )
+            else:
+                tools = self.tool_manager.get_all_tools()
 
             # Get enabled_skills from SkillsManager (backend owns state)
             # First check config (for direct API usage), then fall back to SkillsManager state
@@ -199,6 +224,8 @@ class SafeClawDeepAgent:
 
             # 计算预估的token数量
             system_prompt = self.config.get("system_prompt", self._get_default_prompt())
+            if mode_policy is not None and getattr(mode_policy, "system_prompt_addendum", None):
+                system_prompt = system_prompt + mode_policy.system_prompt_addendum
 
             # Inject the ground-truth list of currently-loaded skills so the model
             # answers questions like "how many skills" directly, instead of probing
@@ -262,6 +289,8 @@ class SafeClawDeepAgent:
                 logger.info(f"🔧 Filesystem backend base_path: {filesystem_backend_config.get('base_path')}")
                 logger.info(f"🔧 Filesystem encryption: {filesystem_backend_config.get('encrypt_files')}")
                 logger.info(f"🔧 Filesystem allow_write: {filesystem_backend_config.get('allow_write')}")
+                logger.info(f"🔧 Filesystem allow_edit: {filesystem_backend_config.get('allow_edit')}")
+                logger.info(f"🔧 Filesystem allow_delete: {filesystem_backend_config.get('allow_delete')}")
                 
                 try:
                     workspace_path = Path(self.config.get("workspace_path", Path.cwd()))
@@ -291,13 +320,24 @@ class SafeClawDeepAgent:
 
             # Create DeepAgent with SafeClaw configuration
             logger.info(f"🔍 DEBUG: 正在调用create_deep_agent...")
+            middleware = [self.prompt_logger]
+            # DeepAgents always registers `task`; hard-gate when ModePolicy.spawn disallows it
+            if mode_policy is not None:
+                from safe_claw.core.agent_modes import SpawnGateMiddleware
+
+                middleware.append(SpawnGateMiddleware(mode_policy))
+                logger.info(
+                    "[ModePolicy] SpawnGateMiddleware attached (mode=%s spawn=%s)",
+                    mode_policy.mode,
+                    mode_policy.spawn,
+                )
             self.deep_agent = create_deep_agent(
                 model=model,
                 system_prompt=system_prompt,
                 tools=tools,
                 skills=skills_paths,  # Pass limited skills paths
                 backend=backend,  # SECURITY: Pass backend (None = secure default)
-                middleware=[self.prompt_logger]  # Add prompt logging middleware
+                middleware=middleware,
             )
 
             logger.info(
@@ -351,7 +391,10 @@ Your capabilities are organized into two categories:
 
 ## BUILTIN TOOLS (Core SafeClaw Functions)
 These are always available, optimized tools for common operations:
-- `safe_claw_memory_search`: Search memory and context
+- `safe_claw_memory_search`: Search long-term memory (jargon, preferences, notes) via MemoryManager
+- `safe_claw_memory_write`: Explicitly store a durable memory (agent/debug/subagent only)
+- `web_search`: Search the public web (Tavily/Brave if keyed; else DuckDuckGo Instant Answer)
+- `web_fetch`: Fetch a public http(s) URL as text (SSRF-safe; no localhost/private IPs)
 - `safe_claw_log_operation`: Log operations for audit
 - `safe_claw_file_read`: Read files safely (limited to 2000 chars)
 - `safe_claw_file_write`: Write files safely with path creation
@@ -377,10 +420,13 @@ Skills are discovered from folders with 3-level loading for efficiency:
 - **finance**: Stock analysis, portfolios
 
 ## Usage Guidelines:
-1. **Use builtin tools** for: basic file ops, memory search, logging
-2. **Use skills** for: complex domain-specific tasks, data processing
-3. **Always check** skill prompts with `skill_get_prompt` before execution
-4. **Use `skill_list_available`** to discover capabilities
+1. **Use builtin tools** for: basic file ops, memory search/write, web search/fetch, logging
+2. **Use `safe_claw_memory_search`** when answering from long-term memory (jargon, preferences)
+3. **Use `safe_claw_memory_write`** to deliberately persist facts the user asks you to remember
+4. **Use `web_search` then `web_fetch`** for current public-web facts (not memory)
+5. **Use skills** for: complex domain-specific tasks, data processing
+6. **Always check** skill prompts with `skill_get_prompt` before execution
+7. **Use `skill_list_available`** to discover capabilities
 
 ## Safety Principles:
 - Always prioritize user safety and data privacy
@@ -453,6 +499,10 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
             # Configure execution
             config = {"configurable": {"thread_id": "streamlit_session"}}
 
+            # Active subagent step for nesting nested tool calls (observability only)
+            active_subagent_id: Optional[str] = None
+            mode_policy = self.config.get("mode_policy")
+
             # Stream using LangGraph's stream method
             for chunk in self.deep_agent.stream(state, config):
                 # First: Check and yield any shell output collected during this iteration
@@ -471,7 +521,39 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                         tool_messages = chunk.get("tools", {}).get("messages", [])
                         for tool_msg in tool_messages:
                             if hasattr(tool_msg, 'name') and hasattr(tool_msg, 'content'):
-                                yield {"tool": tool_msg.name, "content": tool_msg.content, "success": True}
+                                name = tool_msg.name("name") if isinstance(tool_msg, dict) else tool_msg.name
+                                if not isinstance(name, str):
+                                    name = getattr(tool_msg, "name", "tool")
+                                content = (
+                                    tool_msg.get("content")
+                                    if isinstance(tool_msg, dict)
+                                    else getattr(tool_msg, "content", "")
+                                )
+                                if name == "task":
+                                    step_id = active_subagent_id or f"subagent-{message_id or 'task'}"
+                                    yield {
+                                        "type": "execution_step",
+                                        "step_id": step_id,
+                                        "name": "Subagent · task result",
+                                        "step_type": "subagent",
+                                        "status": "completed",
+                                        "sub": "final report to main (nested transcript not in main content)",
+                                        "chips": ["✓ done"],
+                                    }
+                                    active_subagent_id = None
+                                elif active_subagent_id:
+                                    yield {
+                                        "type": "execution_step",
+                                        "step_id": f"tool-{name}-{id(tool_msg)}",
+                                        "parent_step_id": active_subagent_id,
+                                        "name": name,
+                                        "step_type": "tool_call",
+                                        "status": "completed",
+                                        "sub": str(content)[:240] if content else "",
+                                        "chips": ["✓ done"],
+                                    }
+                                # Flat tool event kept for compatibility (UI may ignore)
+                                yield {"tool": name, "content": content, "success": True}
                         continue
 
                     chunk_str = str(chunk)
@@ -482,6 +564,87 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                         # Extract AIMessage content from the messages
                         messages = chunk["model"]["messages"]
                         for msg in messages:
+                            # Detect task tool_calls → subagent observability + brief gate
+                            tool_calls = getattr(msg, "tool_calls", None) or (
+                                msg.get("tool_calls") if isinstance(msg, dict) else None
+                            )
+                            if tool_calls:
+                                for tc in tool_calls:
+                                    tc_name = (
+                                        tc.get("name")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "name", None)
+                                    )
+                                    tc_args = (
+                                        tc.get("args")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "args", {}) or {}
+                                    )
+                                    if tc_name != "task":
+                                        continue
+                                    from safe_claw.core.agent_modes import (
+                                        spawn_runtime_enabled,
+                                    )
+                                    from safe_claw.core.deepagents.spawn_brief import (
+                                        parse_brief_from_task_args,
+                                    )
+
+                                    tc_id = (
+                                        tc.get("id")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "id", None)
+                                    )
+                                    step_id = f"subagent-{tc_id or id(tc)}"
+                                    # ModePolicy spawn gate (ask/plan/safe) — Fail Fast UI signal
+                                    if mode_policy is not None and not spawn_runtime_enabled(
+                                        mode_policy
+                                    ):
+                                        active_subagent_id = None
+                                        spawn_err = (
+                                            f"[ModePolicy] spawn/task blocked\n"
+                                            f"  mode: {mode_policy.mode}\n"
+                                            f"  spawn: {mode_policy.spawn}"
+                                        )
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": "Subagent · blocked",
+                                            "step_type": "subagent",
+                                            "status": "failed",
+                                            "error": spawn_err,
+                                            "chips": ["blocked", "mode-spawn"],
+                                        }
+                                        logger.error(spawn_err)
+                                        continue
+                                    try:
+                                        brief = parse_brief_from_task_args(tc_args or {})
+                                        active_subagent_id = step_id
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": f"Subagent · {brief.agent_name}",
+                                            "step_type": "subagent",
+                                            "status": "running",
+                                            "agent_name": brief.agent_name,
+                                            "step_now": brief.step_now,
+                                            "look_ahead": list(brief.look_ahead),
+                                            "expected_output": brief.expected_output,
+                                            "chips": ["running", "look_ahead×3"],
+                                        }
+                                    except ValueError as gate_err:
+                                        active_subagent_id = None
+                                        yield {
+                                            "type": "execution_step",
+                                            "step_id": step_id,
+                                            "name": "Subagent · blocked",
+                                            "step_type": "subagent",
+                                            "status": "failed",
+                                            "error": str(gate_err),
+                                            "chips": ["blocked", "fail-fast"],
+                                        }
+                                        logger.error(
+                                            "spawn_brief gate (Fail Fast): %s", gate_err
+                                        )
                             if hasattr(msg, 'content') and msg.content and msg.content.strip():
                                 yield {"content": msg.content, "success": True}
                         continue
@@ -553,8 +716,8 @@ You have access to filesystem, builtin tools, and a dynamic skills system. Use t
                 "llm_config": self.llm_service.gateway.get_model_info(),
                 "tools": {
                     "total_count": len(self._get_safe_claw_tools()),
-                    "builtin_count": 4,
-                    "skills_system_count": 3
+                    "builtin_count": len(self.tool_manager.get_builtin_tools()),
+                    "skills_system_count": len(self.tool_manager.get_skills_tools()),
                 },
                 "skills": {
                     "names_count": len(available_skills),

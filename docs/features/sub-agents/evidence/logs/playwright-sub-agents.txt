@@ -1,0 +1,12 @@
+
+Running 3 tests using 1 worker
+
+(node:88436) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:88436) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › sub-agents.spec.ts:119:7 › Sub-agents S1 / S1b / S3 › S1: React Exec expanded foresight + nested tool (mock SSE) (2.7s)
+  ✓  2 [chromium] › sub-agents.spec.ts:153:7 › Sub-agents S1 / S1b / S3 › S1b: Demo HTML contract — S1 replay (1.7s)
+  ✓  3 [chromium] › sub-agents.spec.ts:177:7 › Sub-agents S1 / S1b / S3 › S3: isolation — nested marker not in main content event path (2.6s)
+
+  3 passed (7.3s)

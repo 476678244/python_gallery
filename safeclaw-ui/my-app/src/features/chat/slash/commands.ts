@@ -25,6 +25,56 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ["?"],
   },
   {
+    id: "ask",
+    name: "ask",
+    description: "Ask mode — read-only Q&A (session sticky)",
+    kind: "action",
+  },
+  {
+    id: "agent",
+    name: "agent",
+    description: "Agent mode — full tools (session sticky)",
+    kind: "action",
+  },
+  {
+    id: "plan",
+    name: "plan",
+    description: "Plan mode — read-only structured plan (session sticky)",
+    kind: "action",
+  },
+  {
+    id: "safe",
+    name: "safe",
+    description: "Safe mode — create-only writes, no update/delete",
+    kind: "action",
+  },
+  {
+    id: "debug",
+    name: "debug",
+    description: "Debug mode — full tools + Observability Full pack",
+    kind: "action",
+  },
+  {
+    id: "subagent",
+    name: "subagent",
+    description: "Subagent mode — spawn on + Subagent Observability pack",
+    kind: "action",
+  },
+  {
+    id: "ppt",
+    name: "ppt",
+    description: "PPT mode — deck tools + live preview pack + steer",
+    kind: "action",
+  },
+  {
+    id: "loop",
+    name: "loop",
+    description:
+      "Loop scheduler — confirm done/stop condition before arming (/loop [interval] <prompt>)",
+    kind: "action",
+    acceptsArgs: true,
+  },
+  {
     id: "model",
     name: "model",
     description: "Switch AI model for this session",
@@ -63,6 +113,17 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     kind: "action",
   },
 ];
+
+/** Mode ids that set SessionSettings.mode */
+export const MODE_SLASH_IDS = [
+  "ask",
+  "agent",
+  "plan",
+  "safe",
+  "debug",
+  "subagent",
+  "ppt",
+] as const;
 
 export function filterCommands(prefix: string): SlashCommandDef[] {
   const p = prefix.toLowerCase().trim();

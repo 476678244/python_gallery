@@ -11,9 +11,13 @@ import {
   apiListSessions,
   apiCreateSession,
   apiDeleteSession,
+  apiClearAllSessions,
   apiArchiveSession,
   apiUpdateSession,
 } from "@/features/session/services/session-api";
+import { useMessageStore } from "@/stores/message-store";
+import { useExecutionStore } from "@/stores/execution-store";
+import { abortChat } from "@/features/chat/services/chat-api";
 
 interface SessionState {
   // Data
@@ -39,6 +43,8 @@ interface SessionActions {
   // CRUD operations
   createSession: (title?: string, model?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
+  /** One-click: wipe all chats + local message/exec state. */
+  clearAllSessions: () => Promise<{ deletedCount: number }>;
   archiveSession: (sessionId: string) => Promise<void>;
   loadSessions: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -106,8 +112,35 @@ export const useSessionStore = create<SessionState & SessionActions>()(
                 state.currentSessionId = state.sessions[0]?.id || null;
               }
             });
+            useMessageStore.getState().clearMessages(sessionId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to delete session";
+            set({ error: message });
+            throw error;
+          } finally {
+            set({ isDeleting: false });
+          }
+        },
+
+        clearAllSessions: async () => {
+          set({ isDeleting: true, error: null });
+          try {
+            abortChat();
+            useMessageStore.getState().cancelStreaming();
+            const result = await apiClearAllSessions();
+            set((state) => {
+              state.sessions = [];
+              state.currentSessionId = null;
+              state.totalCount = 0;
+              state.hasMore = false;
+            });
+            useMessageStore.getState().clearMessages();
+            useMessageStore.getState().setCurrentSession(null);
+            useExecutionStore.getState().clearAllExecutions();
+            return { deletedCount: result.deletedCount };
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Failed to clear all sessions";
             set({ error: message });
             throw error;
           } finally {

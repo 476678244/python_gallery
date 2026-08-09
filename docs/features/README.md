@@ -32,7 +32,11 @@
 | Feature | 路径 | 状态 |
 |---------|------|------|
 | Memory System（含黑话词典 / 中文检索） | [memory-system/](./memory-system/) | Phase A–D 已落地；C2 待人工 Accept |
-| Skills Activation（可靠激活） | [skills-activation/](./skills-activation/) | **下一主题**；文档已立，实现未开始 |
+| Skills Activation（可靠激活） | [skills-activation/](./skills-activation/) | Phase A–D **完成**（见 acceptance-report） |
+| Sub Agents（走一步看三步 / 可观测 / 隔离） | [sub-agents/](./sub-agents/) | A–D2/F 自动化 PASS；Phase C fork 未验收 |
+| Agent Modes（ask/agent/plan/**safe**/debug/subagent/loop） | [agent-modes/](./agent-modes/) | **核心验收通过**（pytest + Playwright S0/S0b） |
+| PPT Mode（`/ppt` · 一等 tools · 预览 pack · 提需求） | [ppt-mode/](./ppt-mode/) | **验收通过**（pytest + Playwright S0/S0b/S2；见 acceptance-report） |
+| （纠正）ljg-roundtable 用于讨论设计 | [sub-agents 圆桌](./sub-agents/roundtable--observability-ui-demo.md) · [agent-modes 圆桌](./agent-modes/roundtable--modes-ui-demo.md) | 方法论文档；非产品 UI |
 
 ## 与代码的关系
 
